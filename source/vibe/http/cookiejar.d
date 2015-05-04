@@ -17,6 +17,7 @@ import vibe.inet.message;
 import vibe.stream.memory;
 import vibe.stream.wrapper;
 import vibe.stream.operations;
+import vibe.http.cookiejar_dates;
 import std.file : getcwd;
 import vibe.core.sync;
 import std.algorithm;

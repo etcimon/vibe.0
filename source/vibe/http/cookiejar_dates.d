@@ -8,6 +8,12 @@
 */
 module vibe.http.cookiejar_dates;
 
+import std.algorithm;
+import std.datetime;
+import std.typecons;
+import std.conv : parse, to;
+import std.exception;
+
 /* RFC 6265 cookie dates
 	cookie-date     = *delimiter date-token-list *delimiter
 	date-token-list = date-token *( 1*delimiter date-token )
