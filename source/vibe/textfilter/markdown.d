@@ -773,7 +773,7 @@ pure @safe {
 }
 
 private bool parseLink(ref string str, ref Link dst, in LinkRef[string] linkrefs)
-pure @safe {
+pure @trusted {
 	string pstr = str;
 	if( pstr.length < 3 ) return false;
 	// ignore img-link prefix
@@ -897,7 +897,7 @@ pure @safe {
 }
 
 private LinkRef[string] scanForReferences(ref string[] lines)
-pure @safe {
+pure @trusted {
 	LinkRef[string] ret;
 	bool[size_t] reflines;
 

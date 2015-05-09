@@ -29,6 +29,13 @@
 			"versions": ["Botan", "VibeUseNativeDriverType", "VibeLibasyncDriver"]
 		},
 		{
+			"name": "libasync_notls",
+			"dependencies": { 
+				"libasync": {"version": "~>0.7.3", "path": "../libasync" }
+			},
+			"versions": ["VibeNoTLS", "VibeUseNativeDriverType", "VibeLibasyncDriver"],
+		},
+		{
 			"name": "libasync_botan_win32",
 			"dependencies": { 
 				"botan": {"version": "~>1.11.12", "path": "../botan" },
@@ -54,7 +61,7 @@
 			"systemDependencies": "OpenSSL 1.0.x",
 			"name": "libasync_openssl",
 			"dependencies": { 
-				"libasync": {"version": "~>0.7.3" },
+				"libasync": {"version": "~>0.7.3", "path": "../libasync" },
 				"openssl": ">=1.0.0+1.0.0e"
 			},
 			"versions": ["OpenSSL", "VibeUseNativeDriverType", "VibeLibasyncDriver"],

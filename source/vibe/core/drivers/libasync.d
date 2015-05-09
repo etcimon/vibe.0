@@ -211,7 +211,7 @@ final class LibasyncDriver : EventDriver {
 					if (addr == NetworkAddress.init)
 						ex = new Exception("Could not resolve the specified host.");
 					*finished = true;
-					if (waiter != Task())
+					if (waiter != Task() && waiter != Task.getThis())
 						getDriverCore().resumeTask(waiter, ex);
 					else if (ex)
 						throw ex;
@@ -747,8 +747,6 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 	}
 
 }
-
-
 
 final class LibasyncManualEvent : ManualEvent {
 	private {
