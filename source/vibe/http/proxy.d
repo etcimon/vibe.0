@@ -58,7 +58,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			non_forward_headers_map[n] = "";
 
 	URL url;
-	url.schema = "http";
+	url.schema = settings.secure?"https":"http";
 	url.host = settings.destinationHost;
 	url.port = settings.destinationPort;
 
@@ -165,4 +165,5 @@ final class HTTPReverseProxySettings {
 	ushort destinationPort;
 	/// Avoids compressed transfers between proxy and destination hosts
 	bool avoidCompressedRequests;
+	bool secure;
 }
