@@ -602,6 +602,7 @@ private:
 			else
 				req.requestURL = m_state.location.localURI;
 		}
+
 		requester(req);
 
 		// after requester, to make sure it doesn't get corrupted
@@ -663,6 +664,7 @@ private:
 		m_http2Context.worker = runTask(&runHTTP2Worker, true); // delayed start
 		m_http2Context.isUpgrading = true;
 
+		// todo: move this to HTTPClientRequest
 		headers["Connection"] = "Upgrade, HTTP2-Settings";
 		headers["Upgrade"] = "h2c";
 		headers["HTTP2-Settings"] = cast(string)local_settings.toBase64Settings();
@@ -988,6 +990,9 @@ final class HTTPClientRequest : HTTPRequest {
 
 		// http/2
 		if (isHTTP2) {
+			if (auto pka = "Connection" in headers) {
+				headers.remove("Connection");
+			}
 			logDebug("Writing HTTP/2 headers");
 			http2Stream.writeHeader(requestURL, tlsStream ? "https" : "http", method, headers, m_cookieJar, m_concatCookies);
 			return;
