@@ -500,6 +500,7 @@ final class LibasyncFileStream : FileStream {
 		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		acquire();
 		scope(exit) release();
+
 		shared ubyte[] bytes = cast(shared) dst;
 		bool truncate_if_exists;
 		if (!m_truncated && m_mode == FileMode.createTrunc) {
@@ -525,6 +526,7 @@ final class LibasyncFileStream : FileStream {
 		assert(this.writable, "To write to a file, it must be opened in a write-enabled mode.");
 		acquire();
 		scope(exit) release();
+
 		shared const(ubyte)[] bytes = cast(shared const(ubyte)[]) bytes_;
 
 		bool truncate_if_exists;
@@ -548,7 +550,6 @@ final class LibasyncFileStream : FileStream {
 
 		if (m_mode == FileMode.append) {
 			m_size += bytes.length;
-			import std.file : getSize;
 		}
 		else {
 			m_offset += bytes.length;
@@ -556,8 +557,7 @@ final class LibasyncFileStream : FileStream {
 				m_size += m_offset - m_size;
 			assert(m_impl.offset == m_offset, "Incoherent offset returned from file writer.");
 		}
-		import std.file : getSize;
-		assert(getSize(m_path.toNativeString()) == m_size, "Incoherency between local size and filesize: " ~ m_size.to!string ~ "B assumed for a file of size " ~ getSize(m_path.toNativeString()).to!string ~ "B");
+		//assert(getSize(m_path.toNativeString()) == m_size, "Incoherency between local size and filesize: " ~ m_size.to!string ~ "B assumed for a file of size " ~ getSize(m_path.toNativeString()).to!string ~ "B");
 	}
 	
 	void write(InputStream stream, ulong nbytes = 0)

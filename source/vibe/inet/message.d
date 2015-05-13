@@ -48,6 +48,8 @@ void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_lin
 
 	string ln;
 	while ((ln = cast(string)input.readLine(max_line_length, "\r\n", alloc)).length > 0) {
+		import vibe.core.log;
+		logDebug("%s", ln);
 		if (ln[0] != ' ' && ln[0] != '\t') {
 			addPreviousHeader();
 

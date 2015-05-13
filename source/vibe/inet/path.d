@@ -90,6 +90,8 @@ struct Path {
 		if( m_nodes.length > 0 && m_endsWithSlash )
 			ret.put('/');
 
+		if (ret.data.length > 1 && ret.data[$-1] == '.')
+			return ret.data[0 .. $-1];
 		return ret.data;
 	}
 
@@ -113,6 +115,8 @@ struct Path {
 			version(Posix) { ret.put('/'); }
 		}
 
+		if (ret.data.length > 1 && ret.data[$-1] == '.')
+			return ret.data[0 .. $-1];
 		return ret.data;
 	}
 

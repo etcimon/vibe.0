@@ -1119,11 +1119,13 @@ final class HTTPServerResponse : HTTPResponse {
 	 */
 	void writeVoidBody()
 	{
+		logTrace("WriteVoidBody");
 		if (!m_isHeadResponse) {
 			assert("Content-Length" !in headers);
 			assert("Transfer-Encoding" !in headers);
 		}
 		assert(!headerWritten);
+		logTrace("WriteHeader");
 		writeHeader();
 	}
 
@@ -1368,7 +1370,7 @@ final class HTTPServerResponse : HTTPResponse {
 			// No streams were opened in this response, because they are created in bodyWriter()
 		}
 		else {
-			assert(outputStream !is null);
+			if (outputStream is null) return;
 			if (hasCompression) {
 				if (m_isGzip) {
 					m_compressionStream.gzip.finalize();
@@ -1438,13 +1440,14 @@ final class HTTPServerResponse : HTTPResponse {
 			return;
 		}
 
-		auto dst = StreamOutputRange(outputStream);
+		logTrace("writeHeader ...");
+		auto dst = StreamOutputRange(topStream);
 
 		void writeLine(T...)(string fmt, T args)
 		{
-			formattedWrite(&dst, fmt, args);
-			dst.put("\r\n");
 			logTrace(fmt, args);
+			dst.put(format(fmt, args));
+			dst.put("\r\n");
 		}
 
 		logTrace("---------------------");
@@ -1458,8 +1461,11 @@ final class HTTPServerResponse : HTTPResponse {
 			this.statusPhrase.length ? this.statusPhrase : httpStatusText(this.statusCode));
 
 		// write all normal headers
-		foreach (k, v; this.headers)
+		foreach (k, v; this.headers) {
+			logTrace("Key: %s", k);
+			logTrace("Value: %s", v);
 			writeLine("%s: %s", k, v);
+		}
 
 		logTrace("---------------------");
 

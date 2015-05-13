@@ -223,7 +223,10 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 	if (settings.maxAge > seconds(0)) {
 		auto expireTime = Clock.currTime(UTC()) + settings.maxAge;
 		res.headers["Expires"] = toRFC822DateTimeString(expireTime);
+		import std.conv : to;
+		logTrace("Max-Age: %s", settings.maxAge.total!"seconds");
 		res.headers["Cache-Control"] = "max-age="~to!string(settings.maxAge.total!"seconds");
+		logTrace("Cache-Control: %s", res.headers.get("Cache-Control"));
 	}
 
 	if( auto pv = "If-Modified-Since" in req.headers ) {
