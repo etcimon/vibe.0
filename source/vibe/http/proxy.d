@@ -70,8 +70,12 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
 			creq.method = req.method;
+			import std.stdio : writeln;
+			writeln("Requesting url: ", creq.requestURL);
+			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
+			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
+			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];
 			creq.headers = req.headers.dup;
-			creq.headers["Connection"] = "keep-alive";
 			creq.headers["Host"] = settings.destinationHost;
 			if (settings.avoidCompressedRequests && "Accept-Encoding" in creq.headers)
 				creq.headers.remove("Accept-Encoding");
@@ -126,7 +130,11 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				}
 				auto size = cres.headers["Content-Length"].to!size_t();
 				if (res.isHeadResponse) res.writeVoidBody();
-				else cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
+				else {
+					logDebug("Request was: %s", req.requestURL);
+					logDebug("Got headers: %s", cres.headers);
+					cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
+				}
 				assert(res.headerWritten);
 				return;
 			}
@@ -141,7 +149,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			else res.bodyWriter.write(cres.bodyReader);
 		}
 
-		requestHTTP(rurl, &setupClientRequest, &handleClientResponse);
+		requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
 	}
 
 	return &handleRequest;
@@ -166,4 +174,5 @@ final class HTTPReverseProxySettings {
 	/// Avoids compressed transfers between proxy and destination hosts
 	bool avoidCompressedRequests;
 	bool secure;
+	HTTPClientSettings clientSettings;
 }

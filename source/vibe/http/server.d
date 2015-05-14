@@ -43,6 +43,8 @@ import std.string;
 import std.typecons;
 import std.uri;
 
+import std.stdio : writeln;
+
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -587,7 +589,7 @@ final class HTTPServerSettings {
 		This setting is disabled by default. Also note that there are still some
 		known issues with the GZIP compression code.
 	*/
-	bool useCompressionIfPossible = false;
+	bool useCompressionIfPossible = true;
 
 
 	/** Interval between WebSocket ping frames.
@@ -955,6 +957,7 @@ final class HTTPServerResponse : HTTPResponse {
 	// Regular constructor taking a connection stack
 	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTP2Stream http2_stream, HTTPServerSettings settings, Allocator req_alloc)
 	{
+		writeln("Create response with http2 stream: ", cast(void*) http2_stream);
 		m_conn.stack.tcp = tcp_conn;
 		m_conn.stack.tls = tls_stream;
 		m_conn.stack.http2 = http2_stream;
@@ -1016,6 +1019,7 @@ final class HTTPServerResponse : HTTPResponse {
 	/// Writes the entire response body at once.
 	void writeBody(in ubyte[] data, string content_type = null)
 	{
+		logDebug("Write body: %d", data.length);
 		if (content_type != "") headers["Content-Type"] = content_type;
 		headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", data.length);
 		bodyWriter.write(data);
@@ -1050,18 +1054,22 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	void writeRawBody(RandomAccessStream stream)
 	{
+		logDebug("Write raw body RAS");
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (auto null_writer = cast(NullOutputStream) writer)
+		if (auto null_writer = cast(NullOutputStream) writer) {
+			writeln("Got null writer");
 			return;
+		}
 		auto bytes = stream.size - stream.tell();
+		writeln("Bytes: ", bytes);
 		topStream.write(stream);
 		m_bodyStream.counting.increment(bytes);
 	}
 	/// ditto
 	void writeRawBody(InputStream stream, size_t num_bytes = 0)
 	{
-
+		logDebug("Write raw body: %d", num_bytes);
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
 		if (auto null_writer = cast(NullOutputStream) writer)
@@ -1127,6 +1135,7 @@ final class HTTPServerResponse : HTTPResponse {
 		assert(!headerWritten);
 		logTrace("WriteHeader");
 		writeHeader();
+		finalize();
 	}
 
 	/** A stream for writing the body of the HTTP response.
@@ -1146,6 +1155,7 @@ final class HTTPServerResponse : HTTPResponse {
 		m_outputStream = true;
 
 		if (m_isHeadResponse) {
+			writeln("Head Response");
 			// for HEAD requests, we define a NullOutputWriter for convenience
 			// - no body will be written. However, the request handler should call writeVoidBody()
 			// and skip writing of the body in this case.
@@ -1159,6 +1169,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (("Content-Encoding" in headers || "Transfer-Encoding" in headers) && "Content-Length" in headers) {
+			writeln("Chunked");
 			// we do not known how large the compressed body will be in advance
 			// so remove the content-length and use chunked transfer
 			headers.remove("Content-Length");
@@ -1166,9 +1177,11 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if ("Content-Length" in headers || isHTTP2) {
+			writeln("Counting stream");
 			m_isChunked = false;
 			m_bodyStream.counting = FreeListObjectAlloc!CountingOutputStream.alloc(topStream);
 		} else if (!isHTTP2) {
+			writeln("Chunked");
 			headers["Transfer-Encoding"] = "chunked";
 			m_isChunked = true;
 			m_bodyStream.chunked = FreeListObjectAlloc!ChunkedOutputStream.alloc(topStream);
@@ -1187,6 +1200,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (auto pce = "Content-Encoding" in headers) {
+			writeln("Compression");
 			if (!applyCompression(*pce))
 			{
 				logWarn("Attemped to return body with a Content-Encoding which is not supported");
@@ -1196,6 +1210,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 		// todo: Add TE header support, and Transfer-Encoding: gzip, chunked
 
+		writeln("write headers");
 		writeHeader();
 
 		return outputStream;
@@ -1369,8 +1384,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 			// No streams were opened in this response, because they are created in bodyWriter()
 		}
-		else {
-			if (outputStream is null) return;
+		else if (outputStream !is null) {
 			if (hasCompression) {
 				if (m_isGzip) {
 					m_compressionStream.gzip.finalize();
@@ -1401,7 +1415,10 @@ final class HTTPServerResponse : HTTPResponse {
 				}
 			}
 		}
-
+		if (!topStream) {
+			writeln("No top stream");
+			return;
+		}
 		// ignore exceptions caused by an already closed connection - the client
 		// may have closed the connection already and this doesn't usually indicate
 		// a problem.
@@ -1414,13 +1431,14 @@ final class HTTPServerResponse : HTTPResponse {
 
 		m_timeFinalized = Clock.currTime(UTC());
 
+		writeln("Server response closing HTTP/2 with is http: ", cast(HTTP2Stream)topStream ? true : false);
 		if (!isHeadResponse && bytes_written < headers.get("Content-Length", "0").to!long) {
 			logDebug("HTTP response only written partially before finalization. Terminating connection.");
 			topStream.close();
 		}
-		else if (isHTTP2)
+		else if (isHTTP2) {
 			topStream.close(); // HTTP/2 stream can be closed safely here
-
+		}
 		m_conn.stack = ConnectionStack.init;
 		m_settings = null;
 		if (m_session) m_session.destroy();
@@ -1686,7 +1704,7 @@ struct HTTP2HandlerContext
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
 
-		session = FreeListObjectAlloc!HTTP2Session.alloc(&handler, tcpConn, cast(ubyte[]) base64_settings, local_settings);
+		session = FreeListObjectAlloc!HTTP2Session.alloc(&handler, tcpConn, base64_settings, local_settings);
 		tcpConn.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n");
 		evloop = runTask( { session.run(); } );
 		started = true;
@@ -1925,8 +1943,10 @@ void handleRequest(TCPConnection tcp_conn,
 			}
 
 			// Replace topStream with the HTTP/2 stream
-			if (!context.settings.disableHTTP2 && !tls_stream)
+			if (!context.settings.disableHTTP2 && !tls_stream) {
 				http2_stream = http2_handler.tryStartUpgrade(req.headers);
+				writeln("HTTP/2 stream: ", cast(void*)http2_stream);
+			}
 		}
 		else
 		{ 
@@ -2082,12 +2102,12 @@ void handleRequest(TCPConnection tcp_conn,
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
 	} catch (UncaughtException e) {
+		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, e.toString().sanitize());
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
 		string dbg_msg;
 		if (context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
 		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
 		else logDiagnostic("Error while writing the response: %s", e.msg);
-		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, e.toString().sanitize());
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}
 

@@ -431,7 +431,7 @@ final class HTTPClient {
 	*/
 	void disconnect(bool rst_stream = true, string reason = "")
 	{
-
+		m_state.responding = false;
 		m_conn.totRequest = 0;
 		m_conn.maxRequests = int.max;
 		void finalize() {
@@ -462,6 +462,7 @@ final class HTTPClient {
 
 			import libhttp2.frame : FrameError;
 			if (m_state.http2Stream && m_state.http2Stream.connected) {
+				m_state.http2Stream.close();
 				finalize();
 			}
 			m_http2Context.session.stop(FrameError.NO_ERROR, reason);
@@ -503,7 +504,7 @@ final class HTTPClient {
 	*/
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
-				
+
 		if (m_conn.nextTimeout == Duration.zero) {
 			logDebug("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
 			m_conn.keepAlive = setTimer(m_settings.defaultKeepAliveTimeout, &onKeepAlive, false);
@@ -511,6 +512,10 @@ final class HTTPClient {
 		}
 		if (isHTTP2Started && m_http2Context.closing)
 		{
+			import std.stdio : writeln;
+			writeln("Finish closing");
+			scope(exit) writeln("Finished closing");
+			m_http2Context.session.stop("Must reconnect now");
 			m_http2Context.worker.join(); // finish closing ...
 			connect();
 		}
@@ -541,6 +546,7 @@ final class HTTPClient {
 	{
 		if (isHTTP2Started && m_http2Context.closing)
 		{
+			m_http2Context.session.stop("Must reconnect now");
 			m_http2Context.worker.join();
 			connect();
 		}
@@ -569,6 +575,8 @@ final class HTTPClient {
 private:
 	LockedConnection!HTTPClient lockConnection()
 	{
+		import std.stdio : writeln;
+		scope(exit) writeln("Returned lock connection");
 		if (!m_http2Context.pool)
 			m_http2Context.pool = new ConnectionPool!HTTPClient(&connectionFactory);
 		return m_http2Context.pool.lockConnection();
@@ -595,6 +603,10 @@ private:
 		logDebug("Creating scoped client");
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
 											m_http2Context ? m_http2Context.latency : latency, keepalive, m_settings.cookieJar);
+				
+		if (canUpgradeHTTP2)
+			startHTTP2Upgrade(req.headers);
+
 		logDebug("Calling callback");
 		if (m_state.location !is URL.init) {
 			if (m_settings.proxyURL !is URL.init)
@@ -604,10 +616,6 @@ private:
 		}
 
 		requester(req);
-
-		// after requester, to make sure it doesn't get corrupted
-		if (canUpgradeHTTP2)
-			startHTTP2Upgrade(req.headers);
 		req.finalize();
 		logDebug("Sent request");
 		req_method = req.method;
@@ -656,7 +664,9 @@ private:
 	}
 
 	void startHTTP2Upgrade(ref InetHeaderMap headers) {
-		logDebug("Starting HTTP/2 Upgrade");
+		import std.stdio : writeln;
+		writeln("Starting HTTP/2 Upgrade");
+			scope(exit) writeln("exit HTTP/2 Upgrade");
 		HTTP2Settings local_settings = m_settings.http2.settings;
 		HTTP2Stream stream;
 		m_http2Context.session = new HTTP2Session(m_conn.tcp, stream, local_settings, &onRemoteSettings);
@@ -664,11 +674,10 @@ private:
 		m_http2Context.worker = runTask(&runHTTP2Worker, true); // delayed start
 		m_http2Context.isUpgrading = true;
 
-		// todo: move this to HTTPClientRequest
 		headers["Connection"] = "Upgrade, HTTP2-Settings";
 		headers["Upgrade"] = "h2c";
-		headers["HTTP2-Settings"] = cast(string)local_settings.toBase64Settings();
-
+		headers["HTTP2-Settings"] = local_settings.toBase64Settings();
+		writeln("Is upgrading");
 	}
 
 	// returns true if now using HTTP/2
@@ -1086,6 +1095,8 @@ final class HTTPClientResponse : HTTPResponse {
 
 	// fixme: This isn't the best approximation
 	private bool expectBody(HTTPMethod req_method) {
+		if ("Content-Length" !in headers && "Transfer-Encoding" !in headers)
+			return false;
 		if (req_method == HTTPMethod.HEAD)
 			return false;
 

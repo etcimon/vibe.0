@@ -1397,7 +1397,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	 * We're given some time to cleanup.
 	*/
 	private void onClose(in string msg = null, bool wake_ex = true) {
-		logTrace("onClose");
+		logTrace("onClose: %s", msg);
 
 		if (m_closed)
 			return;

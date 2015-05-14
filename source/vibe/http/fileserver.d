@@ -19,6 +19,7 @@ import std.datetime;
 import std.digest.md;
 import std.string;
 
+import std.stdio : writeln;
 
 /**
 	Returns a request handler that serves files from the specified directory.
@@ -287,6 +288,7 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 
 	// for HEAD responses, stop here
 	if( res.isHeadResponse() ){
+		writeln("Pipe to writeVoidBody");
 		res.writeVoidBody();
 		assert(res.headerWritten);
 		logDebug("sent file header %d, %s!", dirent.size, res.headers["Content-Type"]);
@@ -305,8 +307,13 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 	}
 	scope(exit) fil.close();
 
-	if (pce && !encodedFilepath.length)
+	if (pce && !encodedFilepath.length) {
+		writeln("Pipe to bodyWriter.write");
 		res.bodyWriter.write(fil);
-	else res.writeRawBody(fil);
+	}
+	else {
+		writeln("Pipe to writeRawBody");
+		res.writeRawBody(fil);
+	}
 	logTrace("sent file %d, %s!", fil.size, res.headers["Content-Type"]);
 }
