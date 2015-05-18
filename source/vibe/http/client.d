@@ -670,6 +670,7 @@ private:
 		HTTP2Settings local_settings = m_settings.http2.settings;
 		HTTP2Stream stream;
 		m_http2Context.session = new HTTP2Session(m_conn.tcp, stream, local_settings, &onRemoteSettings);
+		writeln("Created HTTP/2 stream: ", cast(void*)stream);
 		m_state.http2Stream = stream;
 		m_http2Context.worker = runTask(&runHTTP2Worker, true); // delayed start
 		m_http2Context.isUpgrading = true;
@@ -999,6 +1000,7 @@ final class HTTPClientRequest : HTTPRequest {
 
 		// http/2
 		if (isHTTP2) {
+			httpVersion = HTTPVersion.HTTP_2;
 			if (auto pka = "Connection" in headers) {
 				headers.remove("Connection");
 			}
@@ -1095,7 +1097,7 @@ final class HTTPClientResponse : HTTPResponse {
 
 	// fixme: This isn't the best approximation
 	private bool expectBody(HTTPMethod req_method) {
-		if ("Content-Length" !in headers && "Transfer-Encoding" !in headers)
+		if ("Content-Encoding" !in headers && "Content-Length" !in headers && "Transfer-Encoding" !in headers)
 			return false;
 		if (req_method == HTTPMethod.HEAD)
 			return false;
@@ -1117,14 +1119,8 @@ final class HTTPClientResponse : HTTPResponse {
 		scope(exit) if (!expectBody(req_method)) finalize();
 
 		m_client.m_conn.rearmKeepAlive();
-
-		if (m_client.isHTTP2Started) {
-			logDebug("get response");
-			// process HTTP/2 compressed headers
-			m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
-			this.statusPhrase = httpStatusText(this.statusCode);
-		}
-		else {
+		bool is_upgrade = m_client.canUpgradeHTTP2;
+		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
 			string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n", m_alloc);
@@ -1146,6 +1142,13 @@ final class HTTPClientResponse : HTTPResponse {
 			auto upgrade_hd = this.headers.get("Upgrade", "");
 			logDebug("Finalizing the upgrade process");
 			m_client.finalizeHTTP2Upgrade(upgrade_hd);
+		}
+
+		if (m_client.isHTTP2Started) {
+			httpVersion = HTTPVersion.HTTP_2;
+			if (is_upgrade) this.headers.destroy();
+			m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
+			this.statusPhrase = httpStatusText(this.statusCode);
 		}
 
 		void saveCookie(string value) {

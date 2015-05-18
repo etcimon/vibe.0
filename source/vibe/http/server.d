@@ -957,10 +957,11 @@ final class HTTPServerResponse : HTTPResponse {
 	// Regular constructor taking a connection stack
 	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTP2Stream http2_stream, HTTPServerSettings settings, Allocator req_alloc)
 	{
-		writeln("Create response with http2 stream: ", cast(void*) http2_stream);
 		m_conn.stack.tcp = tcp_conn;
 		m_conn.stack.tls = tls_stream;
 		m_conn.stack.http2 = http2_stream;
+		if (http2_stream)
+			httpVersion = HTTPVersion.HTTP_2;
 		m_settings = settings;
 		m_requestAlloc = req_alloc;
 	}
@@ -968,7 +969,6 @@ final class HTTPServerResponse : HTTPResponse {
 	~this() {
 		// The connection streams, allocator and settings were not owned by the HTTPServerResponse
 		if (!outputStream) return;
-
 		if (hasCompression) {
 			if (m_isGzip && m_compressionStream.gzip) {
 				FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
@@ -1002,7 +1002,7 @@ final class HTTPServerResponse : HTTPResponse {
 	@property SysTime timeFinalized() { return m_timeFinalized; }
 
 	/// Determines if compression is used in this response.
-	@property bool hasCompression() { return m_compressionStream.gzip !is null; }
+	@property bool hasCompression() { bool compression = m_compressionStream.gzip !is null; writeln("Has compression: ", compression); return compression; }
 
 	/// Determines if the HTTP header has already been written.
 	@property bool headerWritten() const { return m_headerWritten; }
@@ -1169,7 +1169,6 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (("Content-Encoding" in headers || "Transfer-Encoding" in headers) && "Content-Length" in headers) {
-			writeln("Chunked");
 			// we do not known how large the compressed body will be in advance
 			// so remove the content-length and use chunked transfer
 			headers.remove("Content-Length");
@@ -1200,7 +1199,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (auto pce = "Content-Encoding" in headers) {
-			writeln("Compression");
+			writeln("Compression: ", *pce);
 			if (!applyCompression(*pce))
 			{
 				logWarn("Attemped to return body with a Content-Encoding which is not supported");
@@ -1385,24 +1384,25 @@ final class HTTPServerResponse : HTTPResponse {
 			// No streams were opened in this response, because they are created in bodyWriter()
 		}
 		else if (outputStream !is null) {
-			if (hasCompression) {
-				if (m_isGzip) {
-					m_compressionStream.gzip.finalize();
-					FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
-					m_compressionStream.gzip = null;
-				}
-				else {
-					m_compressionStream.deflate.finalize();
-					FreeListObjectAlloc!DeflateOutputStream.free(m_compressionStream.deflate);
-					m_compressionStream.deflate = null;
-				}
-			}
-
 			if (isHeadResponse) {
 				FreeListObjectAlloc!NullOutputStream.free(m_bodyStream.none);
 				m_bodyStream.none = null;
 			}
-			else {
+			else
+			{
+				if (hasCompression) {
+					if (m_isGzip) {
+						m_compressionStream.gzip.finalize();
+						FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
+						m_compressionStream.gzip = null;
+					}
+					else {
+						m_compressionStream.deflate.finalize();
+						FreeListObjectAlloc!DeflateOutputStream.free(m_compressionStream.deflate);
+						m_compressionStream.deflate = null;
+					}
+				} 
+
 				if (m_isChunked) {
 					m_bodyStream.chunked.finalize();
 					FreeListObjectAlloc!ChunkedOutputStream.free(m_bodyStream.chunked);
@@ -1419,15 +1419,6 @@ final class HTTPServerResponse : HTTPResponse {
 			writeln("No top stream");
 			return;
 		}
-		// ignore exceptions caused by an already closed connection - the client
-		// may have closed the connection already and this doesn't usually indicate
-		// a problem.
-		try {
-			if (!isHTTP2) topStream.flush();
-			// flush yields on HTTP/2, finalize instead will attempt an atomic response before flushing, in case no flushes were made previously.
-			else topStream.finalize(); 	
-		}
-		catch (Exception e) logDebug("Failed to flush connection after finishing HTTP response: %s", e.msg);
 
 		m_timeFinalized = Clock.currTime(UTC());
 
@@ -1437,7 +1428,8 @@ final class HTTPServerResponse : HTTPResponse {
 			topStream.close();
 		}
 		else if (isHTTP2) {
-			topStream.close(); // HTTP/2 stream can be closed safely here
+			topStream.finalize();
+			topStream.close();
 		}
 		m_conn.stack = ConnectionStack.init;
 		m_settings = null;
@@ -1453,6 +1445,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 		if (isHTTP2)
 		{
+			httpVersion = HTTPVersion.HTTP_2;
 			// Use integrated header writer
 			m_conn.stack.http2.writeHeader(cast(HTTPStatus)this.statusCode, this.headers, this.cookies); 
 			return;
@@ -1685,8 +1678,6 @@ struct HTTP2HandlerContext
 	
 	HTTP2Stream tryStartUpgrade(ref InetHeaderMap headers)
 	{
-		// assert(!isTLS, "Can only upgrade over cleartext TCP");
-
 		// using HTTP/1.1 upgrade mechanism over cleartext
 		string upgrade_hd = headers.get("Upgrade", null);
 		if (!upgrade_hd || upgrade_hd.length < 3 || upgrade_hd[0 .. 3] != "h2c")
@@ -1706,11 +1697,11 @@ struct HTTP2HandlerContext
 
 		session = FreeListObjectAlloc!HTTP2Session.alloc(&handler, tcpConn, base64_settings, local_settings);
 		tcpConn.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n");
-		evloop = runTask( { session.run(); } );
+		evloop = runTask( { session.run(true); } );
 		started = true;
 		return session.getUpgradeStream();
 	}
-	
+
 	void continueHTTP2Upgrade() {
 		started = true;
 		// for upgrade mechanism, let the event loop accept new connections through HTTP/2
@@ -1875,9 +1866,7 @@ void handleRequest(TCPConnection tcp_conn,
 	}
 
 	static void errorOut(HTTPServerRequest req, HTTPServerResponse res, int code, string msg, string debug_msg, Throwable ex)
-	in { assert(!res.headerWritten); }
-	out { assert(res.headerWritten); }
-	body {
+	{
 		// stack traces sometimes contain random bytes - make sure they are replaced
 		debug_msg = sanitizeUTF8(cast(ubyte[])debug_msg);
 
@@ -1924,6 +1913,7 @@ void handleRequest(TCPConnection tcp_conn,
 	}
 	// parse the request
 	try {
+		bool is_upgrade;
 		BodyReader reqReader;
 		// During an upgrade, we would need to read with HTTP/1.1 and write with HTTP/2, 
 		// so we define the InputStream before the upgrade starts
@@ -1944,8 +1934,25 @@ void handleRequest(TCPConnection tcp_conn,
 
 			// Replace topStream with the HTTP/2 stream
 			if (!context.settings.disableHTTP2 && !tls_stream) {
-				http2_stream = http2_handler.tryStartUpgrade(req.headers);
-				writeln("HTTP/2 stream: ", cast(void*)http2_stream);
+				HTTP2Stream http2_stream_ = http2_handler.tryStartUpgrade(req.headers);
+				if (http2_stream_ !is null) {
+					scope(exit) 
+						http2_handler.session.resume();
+
+					is_upgrade = true;
+					req.m_settings = context.settings;		
+					reqReader.req = req;
+					req.httpVersion = HTTPVersion.HTTP_2;
+					import vibe.stream.memory;
+					if (reqReader.bodyReader && !reqReader.bodyReader.empty) {
+						auto tmp = scoped!MemoryOutputStream(manualAllocator());
+						tmp.write(reqReader.bodyReader);
+						reqReader.reader = FreeListObjectAlloc!MemoryStream.alloc(tmp.data.dup, false);
+						tmp.clear();
+					}
+					http2_stream = http2_stream_;
+
+				}
 			}
 		}
 		else
@@ -1971,17 +1978,18 @@ void handleRequest(TCPConnection tcp_conn,
 
 		res = FreeListObjectAlloc!HTTPServerResponse.alloc(tcp_conn, tls_stream, http2_stream, context.settings, request_allocator);
 		scope(exit) {
+			import vibe.stream.memory : MemoryStream;
 			// Flush the body if it still contains data when we're done
-			if (topStream.connected) {
-				if (req.bodyReader && !req.bodyReader.empty) {
-					auto nullWriter = scoped!NullOutputStream();
-					nullWriter.write(req.bodyReader);
-					logTrace("dropped body");
-				}
-				
+			if (auto reader_ = cast(MemoryStream)reqReader.reader) {
+				FreeListObjectAlloc!MemoryStream.free(reader_);
 				// finalize (e.g. for chunked encoding)
-				if (res) res.finalize();
 			}
+			else if (!is_upgrade && topStream.connected && !req.bodyReader.empty) {
+				auto nullWriter = scoped!NullOutputStream();
+				nullWriter.write(req.bodyReader);
+				logTrace("dropped body");
+			}
+			if (topStream.connected) if (res) res.finalize();
 		}
 		if (req.tls)
 			req.clientCertificate = tls_stream.peerCertificate;
@@ -2081,9 +2089,9 @@ void handleRequest(TCPConnection tcp_conn,
 		// logTrace("handle request (body %d)", req.bodyReader.leastSize);
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
 		context.requestHandler(req, res);
-		
+
 		// if no one has written anything, return 404
-		if (!res.headerWritten) {
+		if ((http2_stream !is null && !http2_stream.headersWritten) || (!http2_stream && !res.headerWritten)) {
 			string dbg_msg;
 			logDiagnostic("No response written for %s", req.requestURL);
 			if (context.settings.options & HTTPServerOption.errorStackTraces)
@@ -2122,7 +2130,7 @@ void handleRequest(TCPConnection tcp_conn,
 	foreach (log; context.loggers)
 		log.log(req, res);
 	
-	logTrace("return %s (used pool memory: %s/%s)", keep_alive, request_allocator.allocatedSize, request_allocator.totalSize);
+	logTrace("return keep-alive %s (used pool memory: %s/%s)", keep_alive, request_allocator.allocatedSize, request_allocator.totalSize);
 
 }
 

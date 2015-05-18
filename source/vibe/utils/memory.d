@@ -595,7 +595,6 @@ template FreeListObjectAlloc(T, bool USE_GC = true, bool INIT = true)
 	{
 		static if( INIT ){
 			try {
-				scope(failure) assert(0, "You shouldn't throw in destructors");
 				auto objc = obj;
 				static if (is(TR == T*)) .destroy(*objc);//typeid(T).destroy(cast(void*)obj);
 				else .destroy(objc);

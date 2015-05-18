@@ -95,7 +95,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 
 
 			// special case for empty response bodies
-			if (("Content-Length" !in cres.headers && "Transfer-Encoding" !in cres.headers) || req.method == HTTPMethod.HEAD) {
+			if (("Content-Encoding" !in cres.headers && "Content-Length" !in cres.headers && "Transfer-Encoding" !in cres.headers) || req.method == HTTPMethod.HEAD) {
 				foreach (key, value; cres.headers) {
 					if (icmp2(key, "Connection") != 0)
 						res.headers[key] = value;

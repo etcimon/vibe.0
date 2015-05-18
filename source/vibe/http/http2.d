@@ -89,6 +89,7 @@ enum SafetyLevel {
 final class HTTP2Stream : ConnectionStream
 {
 	@property bool isOpener() const { return m_opener; }
+	@property bool headersWritten() const { return m_headersWritten; }
 	private {
 		// state
 		int m_stream_id = -1; // -1 if fresh client request. >0 and always defined on server streams
@@ -102,9 +103,11 @@ final class HTTP2Stream : ConnectionStream
 		bool m_paused; // the session r/w loops will pause, but may or may not be paused because of this stream
 		bool m_unpaused;
 
+		bool m_headersWritten;
 		bool m_push; // this stream was initialized as a push promise. This is a push response
 		bool m_safety_level_changed;
 		int m_maxFrameSize; // The buffers also allocate their additional storage at these intervals
+
 		PrioritySpec m_priSpec;
 		SafetyLevel m_safety_level;
 
@@ -431,7 +434,7 @@ final class HTTP2Stream : ConnectionStream
 		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
 		scope(exit) releaseWriter();
-
+		scope(success) m_headersWritten = true;
 		int len = cast(int)( 1 /*:status*/ + header.length + cookies.length );
 		HeaderField[] headers = Mem.alloc!(HeaderField[])(len);
 		scope(failure) {
@@ -491,6 +494,7 @@ final class HTTP2Stream : ConnectionStream
 		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
 		scope(exit) releaseWriter();
+		scope(success) m_headersWritten = true;
 
 		immutable string[] methods = ["GET","HEAD","PUT","POST","PATCH","DELETE","OPTIONS","TRACE","CONNECT","COPY","LOCK","MKCOL","MOVE","PROPFIND","PROPPATCH","UNLOCK"];
 
@@ -701,6 +705,13 @@ final class HTTP2Stream : ConnectionStream
 
 	void close(FrameError error) {
 		if (m_session.isServer && m_tx.finalized) return;
+		if (!m_session.connected) return;
+		// This could be called by a keep-alive timer. In this case we must forcefully free the read lock
+		if (m_rx.owner !is Task.init && m_rx.owner != Task.getThis())
+		{
+			m_rx.owner.interrupt();
+			yield();
+		}
 		acquireReader();
 		scope(exit) releaseReader();
 		m_tx.halfClosed = true; // attempts an atomic response in some cases
@@ -896,8 +907,9 @@ final class HTTP2Stream : ConnectionStream
 
 		if (!m_session.isServer)
 			enforce(connected);
-		else 
-			onClose();
+		else {
+			yield();
+		}
 		processExceptions();
 		
 		writeln("HTTP/2: finished finalize");
@@ -954,7 +966,6 @@ private:
 		m_active = true;
 		logDebug("Destroy stream: ", push_response.streamId);
 		push_response.destroy();
-		// fixme: destroy?
 	}
 
 	/// optimization used when the request or response data are completely buffered
@@ -1086,18 +1097,14 @@ private:
 		Buffers bufs = m_tx.bufs;
 		int wlen;
 
-		scope(exit) {
-			if (m_tx.halfClosed && m_tx.bufs.length == 0) {
-				m_tx.finalized = true;
-				data_flags |= DataFlags.EOF;
-			}
-		}
 		// if COPY is necessary
 		if (m_tx.queued == 0 && dst.length < bufs.head.buf.length) {
 			wlen = cast(int)dst.length;
 			dst[0 .. $] = bufs.head.buf.pos[0 .. dst.length];
 			bufs.head.buf.pos += wlen;
-			if (m_tx.halfClosed && m_tx.bufs.length == 0) {
+			if (m_tx.halfClosed && m_tx.bufs.length - wlen == 0) {
+				writeln("Finalized");
+				dirty();
 				m_tx.finalized = true;
 				data_flags |= DataFlags.EOF;
 			}
@@ -1123,6 +1130,8 @@ private:
 			if (wlen == 0) {
 				m_tx.notify();
 				if (m_tx.halfClosed) {
+					writeln("Finalized");
+					dirty();
 					m_tx.finalized = true;
 					data_flags |= DataFlags.EOF;
 					return 0;
@@ -1138,6 +1147,12 @@ private:
 			// move queue for next send
 			m_tx.queued++;
 			m_tx.queued_len += wlen;
+		}
+		if (m_tx.halfClosed && m_tx.bufs.length - wlen == 0) {
+			dirty();
+			writeln("Finalized");
+			m_tx.finalized = true;
+			data_flags |= DataFlags.EOF;
 		}
 		writeln("Return wlen: ", wlen );
 		return wlen;
@@ -1332,18 +1347,21 @@ final class HTTP2Session
 
 		Options options;
 		options.setNoAutoWindowUpdate(true); // we will send them when reading the buffers, it's safer
-		options.setRecvClientPreface(true);
+		options.setRecvClientPreface(false);
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
 		m_session = Mem.alloc!Session(m_server, m_connector, options);
 		
 		HTTP2Stream stream = new HTTP2Stream(this, 1, m_defaultChunkSize);
-		
+		stream.m_connected = true;
+		stream.m_active = true;
 		ubyte[] raw_buf = Mem.alloc!(ubyte[])(B64.decodeLength(remote_settings_base64.length));
 		scope(exit) Mem.free(raw_buf);
 		ubyte[] settings = B64.decode(remote_settings_base64, raw_buf);
 		ErrorCode rv = m_session.upgrade(settings, cast(void*)stream); // starts the stream
 		if (rv != 0)
 			throw new Exception("Error upgrading server: " ~ libhttp2.types.toString(rv));
+		// server preface
+		update(local_settings);
 		m_rx.buffer = Mem.alloc!(ubyte[])(local_settings.connectionWindowSize);
 	}
 	
@@ -1390,28 +1408,28 @@ final class HTTP2Session
 
 	HTTP2Stream startRequest()
 	{
-		assert(!m_closing && m_tcpConn);
+		enforce(!m_closing && m_tcpConn);
 		return new HTTP2Stream(this, -1, m_defaultChunkSize);
 	}
 
 	/// Blocking event loop that runs this session and handles new streams
 	/// Returns when stop() is called.
-	void run(bool wait_read = false)
-	in { assert(!wait_read || (!isServer && !m_tlsStream), "The delayed HTTP/2 r/w loop is only available for h2c upgrades"); }
+	void run(bool is_upgrade = false)
+	in { assert(!is_upgrade || (is_upgrade && !m_tlsStream), "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
 	body {
 		total_sessions_running++;
 		scope(exit) {
 			total_sessions_running--;
 			onClose();
 		}
-		Task reader = runTask(&readLoop, wait_read);
-		writeLoop();
+		Task reader = runTask(&readLoop, is_upgrade);
+		writeLoop(is_upgrade);
 		reader.interrupt();
 	}
 
 	/// Used when trying upgrade from HTTP/1.1 and the remote peer doesn't support HTTP/2
 	void abort(HTTP2Stream stream) 
-	in { assert(!isServer && !m_tlsStream, "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
+	in { assert(!m_tlsStream, "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
 	body {
 		m_aborted = true;
 		m_closing = true;
@@ -1425,10 +1443,12 @@ final class HTTP2Session
 
 	/// Used when an upgrade from HTTP/1.1 is confirmed. Will resume the read loop
 	void resume()
-	in { assert(!isServer && !m_tlsStream, "Resuming is only available when a client was initially waiting for an h2c upgrade. Use unpause to unpause"); }
+	in { assert(!m_tlsStream, "Resuming is only available when a client was initially waiting for an h2c upgrade. Use unpause to unpause"); }
 	body  {
 		m_resume = true;
 		m_rx.signal.emitLocal();
+		m_tx.signal.emitLocal();
+		yield(); // start the loops and send the settings
 	}
 
 	void pause() {
@@ -1549,6 +1569,7 @@ private:
 	void remoteStop(FrameError error, string reason) {
 		logDebug("HTTP/2: GoAway received: ", error, " reason: ", reason);
 		m_closing = true;
+		m_forcedClose = true;
 		if (reason) 
 			m_rx.ex = new Exception("GoAway received: " ~ error.to!string ~ " reason: "  ~ reason);
 		m_rx.error = error;
@@ -1668,7 +1689,7 @@ private:
 		scope(exit) m_rx.owner = Task();
 
 		// HTTP/1.1 upgrade mechanism
-		while (wait_read && !m_resume) {
+		while (wait_read && !m_resume && !m_aborted) {
 			logDebug("HTTP/2: ReadLoop Waiting for upgrade");
 			m_rx.signal.waitLocal(); // triggered in abort() or continue()
 			if (m_closing) {
@@ -1725,7 +1746,7 @@ private:
 				rv = m_session.memRecv(buf);
 				if (m_forcedClose) break;
 				//logDebug("Buffer length was: ", buf.length);
-				if (rv == ErrorCode.PAUSE || rv != buf.length)
+				if (rv == ErrorCode.PAUSE)
 				{
 					m_rx.paused = true;
 					logDebug("HTTP/2: Waiting for pause");
@@ -1763,7 +1784,7 @@ private:
 	}
 
 	// Task-blocking write event loop
-	void writeLoop()
+	void writeLoop(bool wait_write = false)
 	{
 		logDebug("HTTP/2: Starting write loop");
 		m_tx.closed = false;
@@ -1775,6 +1796,15 @@ private:
 		assert(m_tx.owner == Task());
 		m_tx.owner = Task.getThis();
 		scope(exit) m_tx.owner = Task();
+
+		// HTTP/1.1 upgrade mechanism
+		while (wait_write && !m_resume && !m_aborted) {
+			logDebug("HTTP/2: ReadLoop Waiting for upgrade");
+			m_tx.signal.waitLocal(); // triggered in abort() or continue()
+			if (m_closing) {
+				return;
+			}
+		}
 
 		// write is more simple, the sendWrite() and send() Connector callbacks are called and 
 		// they block in the underlying stream until everything is sent.
@@ -1843,7 +1873,7 @@ private:
 
 				logDebug("Stream information: ", stream.toString()); 
 				if (!dirty) continue;
-
+				if (finalized && isServer) close = true;
 				if (stream.m_rx.close)
 				{ // stream was closed remotely, no need to try and transmit something
 					if (bufs) bufs.reset();
@@ -2016,17 +2046,22 @@ private:
 					logDebug("HTTP/2: Submit data id ", stream.m_stream_id);
 					ErrorCode rv = submitData(m_session, fflags, stream.m_stream_id, &stream.dataProvider);
 					if (rv == ErrorCode.DATA_EXIST) {
+						close_processed = false;
 						deferred = false;
 						rv = m_session.resumeData(stream.m_stream_id);
 					}
-					else if (rv != ErrorCode.OK)
+					else if (rv != ErrorCode.OK) {
+						close_processed = false;
 						stream.m_rx.ex = new Exception("Could not send Data: " ~ rv.to!string);
+					}
+
 					data_processed = true;
 				}
 
 				// This stream was closed and we didn't "submit" this info earlier
 				if (close && !close_processed) 
 				{
+					writeln("Closing stream: ", stream.streamId);
 					bufs.reset();
 					logDebug("HTTP/2: Submit rst stream id ", stream.m_stream_id);
 					ErrorCode rv = submitRstStream(m_session, stream.m_stream_id, FrameError.NO_ERROR);
@@ -2313,13 +2348,14 @@ override:
 		stream.m_tx.bufs.removeOne();
 		stream.m_tx.queued--;
 		stream.m_tx.queued_len -= length;
-
+		stream.m_tx.notify();
 		// add padding bytes
 		if (frame.data.padlen > 1) {
 			ubyte[] ub = Mem.alloc!(ubyte[])(frame.data.padlen - 1);
 			scope(exit) Mem.free(ub);
 			write(ub);
 		}
+
 		return ErrorCode.OK;
 	}
 
