@@ -1412,6 +1412,10 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			m_tcpImpl.conn = null;
 		}
 
+		if (Task.getThis() != Task.init) {
+			return;
+		}
+
 		Exception ex;
 		if (!msg && wake_ex)
 			ex = new Exception("Connection closed");

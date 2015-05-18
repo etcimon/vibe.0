@@ -512,9 +512,6 @@ final class HTTPClient {
 		}
 		if (isHTTP2Started && m_http2Context.closing)
 		{
-			import std.stdio : writeln;
-			writeln("Finish closing");
-			scope(exit) writeln("Finished closing");
 			m_http2Context.session.stop("Must reconnect now");
 			m_http2Context.worker.join(); // finish closing ...
 			connect();
@@ -575,8 +572,6 @@ final class HTTPClient {
 private:
 	LockedConnection!HTTPClient lockConnection()
 	{
-		import std.stdio : writeln;
-		scope(exit) writeln("Returned lock connection");
 		if (!m_http2Context.pool)
 			m_http2Context.pool = new ConnectionPool!HTTPClient(&connectionFactory);
 		return m_http2Context.pool.lockConnection();
@@ -664,13 +659,9 @@ private:
 	}
 
 	void startHTTP2Upgrade(ref InetHeaderMap headers) {
-		import std.stdio : writeln;
-		writeln("Starting HTTP/2 Upgrade");
-			scope(exit) writeln("exit HTTP/2 Upgrade");
 		HTTP2Settings local_settings = m_settings.http2.settings;
 		HTTP2Stream stream;
 		m_http2Context.session = new HTTP2Session(m_conn.tcp, stream, local_settings, &onRemoteSettings);
-		writeln("Created HTTP/2 stream: ", cast(void*)stream);
 		m_state.http2Stream = stream;
 		m_http2Context.worker = runTask(&runHTTP2Worker, true); // delayed start
 		m_http2Context.isUpgrading = true;
@@ -678,7 +669,6 @@ private:
 		headers["Connection"] = "Upgrade, HTTP2-Settings";
 		headers["Upgrade"] = "h2c";
 		headers["HTTP2-Settings"] = local_settings.toBase64Settings();
-		writeln("Is upgrading");
 	}
 
 	// returns true if now using HTTP/2

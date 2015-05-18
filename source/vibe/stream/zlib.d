@@ -65,8 +65,6 @@ class ZlibOutputStream : OutputStream {
 
 	final void write(in ubyte[] data)
 	{
-		import std.stdio : writeln;
-		writeln("Zlib write: ", data.length);
 		if (!data.length) return;
 		assert(!m_finalized);
 		assert(m_zstream.avail_in == 0);
@@ -74,7 +72,6 @@ class ZlibOutputStream : OutputStream {
 		assert(data.length < uint.max);
 		m_zstream.avail_in = cast(uint)data.length;
 		doFlush(Z_NO_FLUSH);
-		writeln("Zlib did flush");
 		assert(m_zstream.avail_in == 0);
 		m_zstream.next_in = null;
 	}
@@ -86,8 +83,6 @@ class ZlibOutputStream : OutputStream {
 
 	final void flush()
 	{
-		import std.stdio : writeln;
-		writeln("Flush zlib");
 		assert(!m_finalized);
 		//doFlush(Z_SYNC_FLUSH);
 		m_out.flush();
@@ -95,8 +90,6 @@ class ZlibOutputStream : OutputStream {
 
 	final void finalize()
 	{
-		import std.stdio : writeln;
-		writeln("Finalize zlib");
 		if (m_finalized) return;
 		m_finalized = true;
 		doFlush(Z_FINISH);

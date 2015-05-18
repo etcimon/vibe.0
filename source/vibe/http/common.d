@@ -415,8 +415,6 @@ final class ChunkedOutputStream : OutputStream {
 
 	void write(in ubyte[] bytes_)
 	{
-		import std.stdio : writeln;
-		writeln("Chunked written: ", bytes_.length);
 		assert(!m_finalized);
 		const(ubyte)[] bytes = bytes_;
 		while (bytes.length > 0) {
@@ -470,7 +468,6 @@ final class ChunkedOutputStream : OutputStream {
 
 	void finalize()
 	{
-		writeln("Chunked output stream finalize");
 		if (m_finalized) return;
 		flush();
 		m_buffer.reset(AppenderResetMode.freeData);

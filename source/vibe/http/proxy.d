@@ -70,8 +70,6 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
 			creq.method = req.method;
-			import std.stdio : writeln;
-			writeln("Requesting url: ", creq.requestURL);
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
 			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];

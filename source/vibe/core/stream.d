@@ -12,7 +12,6 @@ import vibe.utils.memory : FreeListRef;
 import core.time;
 import std.algorithm;
 import std.conv;
-import std.stdio : writeln;
 
 
 /**************************************************************************************************/
@@ -105,8 +104,6 @@ interface OutputStream {
 
 	protected final void writeDefault(InputStream stream, ulong nbytes = 0)
 	{
-		import std.stdio : writeln;
-		writeln("WriteDefault called with nbytes: ", nbytes);
 		static struct Buffer { ubyte[64*1024] bytes = void; }
 		auto bufferobj = FreeListRef!(Buffer, false)();
 		auto buffer = bufferobj.bytes[];
@@ -117,13 +114,11 @@ interface OutputStream {
 				size_t chunk = min(stream.leastSize, buffer.length);
 				assert(chunk > 0, "leastSize returned zero for non-empty stream.");
 				//logTrace("read pipe chunk %d", chunk);
-				writeln("Reading from stream chunk: ", chunk);
 				stream.read(buffer[0 .. chunk]);
-				writeln("Returned from read chunk: ", chunk);
 				write(buffer[0 .. chunk]);
 			}
 		} else {
-			while( nbytes > 0 ){
+			while( stream !is null && nbytes > 0 ){
 				size_t chunk = min(nbytes, buffer.length);
 				//logTrace("read pipe chunk %d", chunk);
 				stream.read(buffer[0 .. chunk]);

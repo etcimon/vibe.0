@@ -92,8 +92,6 @@ class CountingOutputStream : OutputStream {
 
 	void write(in ubyte[] bytes) 
 	{
-		import std.stdio : writeln;
-		writeln("Counting written: ", bytes.length);
 		m_out.write(bytes);
 		m_bytesWritten += bytes.length;
 	}

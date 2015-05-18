@@ -43,8 +43,6 @@ import std.string;
 import std.typecons;
 import std.uri;
 
-import std.stdio : writeln;
-
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -589,7 +587,7 @@ final class HTTPServerSettings {
 		This setting is disabled by default. Also note that there are still some
 		known issues with the GZIP compression code.
 	*/
-	bool useCompressionIfPossible = true;
+	bool useCompressionIfPossible = false;
 
 
 	/** Interval between WebSocket ping frames.
@@ -1002,7 +1000,7 @@ final class HTTPServerResponse : HTTPResponse {
 	@property SysTime timeFinalized() { return m_timeFinalized; }
 
 	/// Determines if compression is used in this response.
-	@property bool hasCompression() { bool compression = m_compressionStream.gzip !is null; writeln("Has compression: ", compression); return compression; }
+	@property bool hasCompression() { return m_compressionStream.gzip !is null; }
 
 	/// Determines if the HTTP header has already been written.
 	@property bool headerWritten() const { return m_headerWritten; }
@@ -1057,12 +1055,9 @@ final class HTTPServerResponse : HTTPResponse {
 		logDebug("Write raw body RAS");
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (auto null_writer = cast(NullOutputStream) writer) {
-			writeln("Got null writer");
+		if (auto null_writer = cast(NullOutputStream) writer) 
 			return;
-		}
 		auto bytes = stream.size - stream.tell();
-		writeln("Bytes: ", bytes);
 		topStream.write(stream);
 		m_bodyStream.counting.increment(bytes);
 	}
@@ -1155,7 +1150,6 @@ final class HTTPServerResponse : HTTPResponse {
 		m_outputStream = true;
 
 		if (m_isHeadResponse) {
-			writeln("Head Response");
 			// for HEAD requests, we define a NullOutputWriter for convenience
 			// - no body will be written. However, the request handler should call writeVoidBody()
 			// and skip writing of the body in this case.
@@ -1176,11 +1170,9 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if ("Content-Length" in headers || isHTTP2) {
-			writeln("Counting stream");
 			m_isChunked = false;
 			m_bodyStream.counting = FreeListObjectAlloc!CountingOutputStream.alloc(topStream);
 		} else if (!isHTTP2) {
-			writeln("Chunked");
 			headers["Transfer-Encoding"] = "chunked";
 			m_isChunked = true;
 			m_bodyStream.chunked = FreeListObjectAlloc!ChunkedOutputStream.alloc(topStream);
@@ -1199,7 +1191,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (auto pce = "Content-Encoding" in headers) {
-			writeln("Compression: ", *pce);
+			logTrace("Apply Compression: ", *pce);
 			if (!applyCompression(*pce))
 			{
 				logWarn("Attemped to return body with a Content-Encoding which is not supported");
@@ -1208,8 +1200,6 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		// todo: Add TE header support, and Transfer-Encoding: gzip, chunked
-
-		writeln("write headers");
 		writeHeader();
 
 		return outputStream;
@@ -1415,14 +1405,12 @@ final class HTTPServerResponse : HTTPResponse {
 				}
 			}
 		}
-		if (!topStream) {
-			writeln("No top stream");
+		if (!topStream)
 			return;
-		}
 
 		m_timeFinalized = Clock.currTime(UTC());
 
-		writeln("Server response closing HTTP/2 with is http: ", cast(HTTP2Stream)topStream ? true : false);
+		logTrace("Server response finalize() called, http/2? %s", cast(HTTP2Stream)topStream ? true : false);
 		if (!isHeadResponse && bytes_written < headers.get("Content-Length", "0").to!long) {
 			logDebug("HTTP response only written partially before finalization. Terminating connection.");
 			topStream.close();
@@ -2115,7 +2103,7 @@ void handleRequest(TCPConnection tcp_conn,
 		string dbg_msg;
 		if (context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
 		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
-		else logDiagnostic("Error while writing the response: %s", e.msg);
+		else logDiagnostic("Error while writing the response: %s", e.toString());
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}
 
