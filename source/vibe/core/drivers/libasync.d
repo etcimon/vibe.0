@@ -207,14 +207,9 @@ final class LibasyncDriver : EventDriver {
 				bool* finished;
 				void handler(NetworkAddress addr) {
 					*address = addr;
-					Exception ex;
-					if (addr == NetworkAddress.init)
-						ex = new Exception("Could not resolve the specified host.");
 					*finished = true;
 					if (waiter != Task() && waiter != Task.getThis())
-						getDriverCore().resumeTask(waiter, ex);
-					else if (ex)
-						throw ex;
+						getDriverCore().resumeTask(waiter);
 				}
 			}
 
@@ -227,10 +222,12 @@ final class LibasyncDriver : EventDriver {
 			shared AsyncDNS dns = new shared AsyncDNS(getEventLoop());
 			scope(exit) dns.destroy();
 			bool success = dns.handler(&cb.handler).resolveHost(host, is_ipv6);
-			if (!success)
+			if (!success || dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
 			while(!done)
 				getDriverCore.yieldForEvent();
+			if (dns.status.code != Status.OK)
+				throw new Exception(dns.status.text);
 			assert(ret != NetworkAddress.init);
 			assert(ret.family != 0);
 			logTrace("Async resolved address %s", ret.toString());

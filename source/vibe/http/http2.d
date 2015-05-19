@@ -859,8 +859,6 @@ final class HTTP2Stream : ConnectionStream
 		scope(exit) releaseWriter();
 		const(ubyte)[] ub = cast()src;
 
-		checkSafetyLevel();
-
 		while (ub.length > 0)
 		{
 			size_t to_send = min(m_tx.bufs.available, ub.length);
@@ -898,16 +896,17 @@ final class HTTP2Stream : ConnectionStream
 		acquireWriter();
 		scope(exit) releaseWriter();
 		halfClose();
-		m_rx.waitingStreamExit = true;
-		m_rx.dataSignalRaised = false;
-		m_rx.signal.waitLocal();
-		m_rx.dataSignalRaised = false;
-		m_rx.waitingStreamExit = false;
-
-		if (!m_session.isServer)
-			enforce(connected);
-		else {
+		if (!m_session.isServer) {
 			yield();
+		}
+		else {
+			while (!m_tx.finalized) {
+				m_rx.waitingStreamExit = true;
+				m_rx.dataSignalRaised = false;
+				m_rx.signal.waitLocal();
+				m_rx.dataSignalRaised = false;
+				m_rx.waitingStreamExit = false;
+			}
 		}
 		processExceptions();
 
@@ -1149,8 +1148,8 @@ private:
 		int remote_window_size = m_session.get().getRemoteSettings(Setting.INITIAL_WINDOW_SIZE);
 		int local_window_size = m_session.m_defaultStreamWindowSize;
 		m_maxFrameSize = min(chunk_size, remote_chunk_size);
-		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false);
-		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false);
+		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
 		// once read is called, the buffers will adjust to the user's desired memory safety level.
 		m_safety_level_changed = m_session.m_tlsStream?true:false;
 	}
@@ -1608,19 +1607,27 @@ private:
 	void onClose() {
 		m_tcpConn = null;
 		foreach(HTTP2Stream stream; m_pushResponses) {
-			stream.onClose();
+			if (stream.m_connected) {
+				stream.m_rx.notifyAll();
+				stream.m_tx.notify();
+				stream.onClose();
+			}
 		}
 		m_pushResponses.clear();
 		foreach(HTTP2Stream stream; m_tx.dirty) {
-			stream.onClose();
+			if (stream.m_connected) {
+				stream.m_rx.notifyAll();
+				stream.m_tx.notify();
+				stream.onClose();
+			}
 		}
 		if (m_session) m_session.free();
 		if (m_connector) Mem.free(m_connector);
 		if (m_session) Mem.free(m_session);
-		m_tlsStream = null;
-		m_requestHandler = null;
 		if (m_rx.buffer && m_tlsStream) SecureMem.free(m_rx.buffer);
 		else if (m_rx.buffer) Mem.free(m_rx.buffer);
+		m_tlsStream = null;
+		m_requestHandler = null;
 		destroy(m_tx);
 		destroy(m_rx);
 		m_tx.closed = true;
