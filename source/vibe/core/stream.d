@@ -142,6 +142,13 @@ interface Buffered {
 	ubyte[] readBuf(ubyte[] buf);
 }
 
+class ConnectionClosedException : Exception {
+	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe pure nothrow
+	{
+		super("The Connection Went Away: " ~ msg, file, line, next);
+	}
+}
+
 /**
 	Interface for streams based on a connection.
 

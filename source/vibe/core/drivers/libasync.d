@@ -1414,9 +1414,12 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 
 		Exception ex;
 		if (!msg && wake_ex)
-			ex = new Exception("Connection closed");
-		else if (wake_ex)	ex = new Exception(msg);
-
+			ex = new ConnectionClosedException("Connection closed");
+		else if (wake_ex) {
+			if (msg == "Software caused connection abort.")
+				ex = new ConnectionClosedException(msg);
+			else ex = new Exception(msg);
+		}
 		bool hasUniqueReader;
 		bool hasUniqueWriter;
 		Task reader;
@@ -1447,6 +1450,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			bool inbound = m_tcpImpl.conn.inbound;
 
 			try m_settings.onConnect(this); 
+			catch ( ConnectionClosedException e) {
+				throw e;
+			}
 			catch ( Exception e) {
 				logError(e.toString);
 				throw e;

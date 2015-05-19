@@ -47,7 +47,7 @@ alias HTTP2RequestHandler = void delegate(HTTP2Stream stream);
 /**
 	Thrown when the remote endpoint has cause the stream to exit prematurely
 */
-class StreamExitException : Exception
+class StreamExitException : ConnectionClosedException
 {
 	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe pure nothrow
 	{
@@ -1847,7 +1847,7 @@ private:
 
 				logDebug("Stream information: ", stream.toString()); 
 				if (!dirty) continue;
-				if (finalized && isServer) close = true;
+				//if (finalized && isServer) close = true;
 				if (stream.m_rx.close)
 				{ // stream was closed remotely, no need to try and transmit something
 					if (bufs) bufs.reset();
@@ -2012,14 +2012,16 @@ private:
 					}
 
 					logDebug("HTTP/2: Submit data id ", stream.m_stream_id);
+					if (isServer) { // we will defer data until we're done, so we want EOF to indicate an end of stream.
+						close_processed = true;
+						fflags = FrameFlags.END_STREAM;
+					}
 					ErrorCode rv = submitData(m_session, fflags, stream.m_stream_id, &stream.dataProvider);
 					if (rv == ErrorCode.DATA_EXIST) {
-						close_processed = false;
 						deferred = false;
 						rv = m_session.resumeData(stream.m_stream_id);
 					}
 					else if (rv != ErrorCode.OK) {
-						close_processed = false;
 						stream.m_rx.ex = new Exception("Could not send Data: " ~ rv.to!string);
 					}
 
