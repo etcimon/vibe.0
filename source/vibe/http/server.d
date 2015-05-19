@@ -587,7 +587,7 @@ final class HTTPServerSettings {
 		This setting is disabled by default. Also note that there are still some
 		known issues with the GZIP compression code.
 	*/
-	bool useCompressionIfPossible = false;
+	bool useCompressionIfPossible = true;
 
 
 	/** Interval between WebSocket ping frames.

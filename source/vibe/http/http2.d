@@ -882,6 +882,7 @@ final class HTTP2Stream : ConnectionStream
 
 	void flush()
 	{
+		if (!m_tx.bufs || m_tx.bufs.length == 0) return;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		// enforce dirty?

@@ -497,8 +497,6 @@ final class LibasyncFileStream : FileStream {
 		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		acquire();
 		scope(exit) release();
-		import std.stdio : writeln;
-		writeln("Read path: ", path.toString(), " offset: ", m_offset, " size: ", dst.length);
 		shared ubyte[] bytes = cast(shared) dst;
 		bool truncate_if_exists;
 		if (!m_truncated && m_mode == FileMode.createTrunc) {
