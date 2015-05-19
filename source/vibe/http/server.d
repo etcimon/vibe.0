@@ -2082,13 +2082,13 @@ void handleRequest(TCPConnection tcp_conn,
 		if ((http2_stream !is null && !http2_stream.headersWritten) || (!http2_stream && !res.headerWritten)) {
 			string dbg_msg;
 			logDiagnostic("No response written for %s", req.requestURL);
-			if (context.settings.options & HTTPServerOption.errorStackTraces)
+			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
 				dbg_msg = format("Not routes match path '%s'", req.requestURL);
 			errorOut(req, res, HTTPStatus.notFound, httpStatusText(HTTPStatus.notFound), dbg_msg, null);
 		}
 	} catch (HTTPStatusException err) {
 		string dbg_msg;
-		if (context.settings.options & HTTPServerOption.errorStackTraces) {
+		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
 			if (err.debugMessage) dbg_msg = err.debugMessage;
 			else dbg_msg = err.toString().sanitize;
 		}
@@ -2097,11 +2097,18 @@ void handleRequest(TCPConnection tcp_conn,
 		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, err.toString().sanitize);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
+	} catch (ConnectionClosedException e) {
+		// ok	
+		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
+		string dbg_msg;
+		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
+		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
+
 	} catch (UncaughtException e) {
 		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, e.toString().sanitize());
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
 		string dbg_msg;
-		if (context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
+		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
 		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
 		else logDiagnostic("Error while writing the response: %s", e.toString());
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;

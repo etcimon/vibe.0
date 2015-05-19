@@ -71,7 +71,8 @@ class ZlibOutputStream : OutputStream {
 		m_zstream.next_in = cast(ubyte*)data.ptr;
 		assert(data.length < uint.max);
 		m_zstream.avail_in = cast(uint)data.length;
-		doFlush(Z_NO_FLUSH);
+		if (data.length > 32_768) doFlush(Z_SYNC_FLUSH);
+		else doFlush(Z_NO_FLUSH);
 		assert(m_zstream.avail_in == 0);
 		m_zstream.next_in = null;
 	}
@@ -173,7 +174,7 @@ class ZlibInputStream : InputStream {
 	this(InputStream src, HeaderFormat type)
 	{
 		m_in = src;
-		if (m_in.empty) {
+		if (!m_in || m_in.empty) {
 			m_finished = true;
 		} else {
 			int wndbits = 15;
@@ -229,6 +230,8 @@ class ZlibInputStream : InputStream {
 		while (!m_outbuffer.length) {
 			if (m_zstream.avail_in == 0) {
 				auto clen = min(m_inbuffer.length, m_in.leastSize);
+				if (clen == 0)
+					return;
 				m_in.read(m_inbuffer[0 .. clen]);
 				m_zstream.next_in = m_inbuffer.ptr;
 				m_zstream.avail_in = cast(uint)clen;

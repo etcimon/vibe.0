@@ -855,6 +855,7 @@ final class HTTP2Stream : ConnectionStream
 	
 	void write(in ubyte[] src)
 	{
+		if (src.length == 0) return;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		const(ubyte)[] ub = cast()src;
@@ -1083,13 +1084,13 @@ private:
 	// This function retrieves the length of the next write and calls Connector.writeData when ready
 	int dataProvider(ubyte[] dst, ref DataFlags data_flags)
 	{
+		data_flags |= DataFlags.NO_COPY; // dst is unused
 		if (!m_rx.bufs)
 			return ErrorCode.CALLBACK_FAILURE;
 		// this function may be called many times for a single send operation		
 		Buffers bufs = m_tx.bufs;
 		int wlen;
 		if (bufs.length > 0) {
-			data_flags |= DataFlags.NO_COPY; // dst is unused
 			Buffers.Chain c;
 			int i;
 			// find the next buffer scheduled to be sent
@@ -1123,12 +1124,13 @@ private:
 			m_tx.queued_len += wlen;
 		}
 		
-		if (bufs.length == 0 || (m_tx.halfClosed && m_tx.bufs.length - wlen == 0))
+		if (m_tx.halfClosed && bufs.length == 0)
 		{
 			dirty();
 			m_tx.finalized = true;
 			data_flags |= DataFlags.EOF;
 		}
+		else if (bufs.length == 0) return ErrorCode.DEFERRED;
 		return wlen;
 	}
 
@@ -1790,7 +1792,6 @@ private:
 
 		// We can loop until all streams are closed when session is closing
 		while(!m_closing || m_totConnected > 0) {
-			logDebug("Write loop: closing? ", m_closing, " Total connected: ", m_totConnected); 
 			if (m_closing && !m_tx.pending.empty) {
 				foreach (HTTP2Stream stream; m_tx.pending) {
 					stream.m_tx.dirty = false;
@@ -1909,6 +1910,7 @@ private:
 					{
 						if (isServer) {
 							// handle full server response
+
 							ErrorCode rv = submitResponse(m_session, stream.m_stream_id, headers, &stream.dataProvider);
 							logDebug("HTTP/2: Submit response id ", stream.m_stream_id);
 							data_processed = true;

@@ -1255,6 +1255,8 @@ final class HTTPClientResponse : HTTPResponse {
 			return m_bodyReader;
 		}
 
+		if (m_finalized) return null;
+
 		logDebug("Creating bodyreader: http2? %s", isHTTP2.to!string);
 		assert (m_client, "Response was already read or no response body, may not use bodyReader.");
 

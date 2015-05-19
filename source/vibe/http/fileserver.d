@@ -303,7 +303,7 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 		return;
 	}
 	scope(exit) fil.close();
-
+	import std.stdio : writeln;
 	if (pce && !encodedFilepath.length) 
 		res.bodyWriter.write(fil);
 	else 
