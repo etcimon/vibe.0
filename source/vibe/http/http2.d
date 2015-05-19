@@ -1087,20 +1087,7 @@ private:
 		// this function may be called many times for a single send operation		
 		Buffers bufs = m_tx.bufs;
 		int wlen;
-
-		// if COPY is necessary
-		if (m_tx.queued == 0 && dst.length < bufs.head.buf.length) {
-			wlen = cast(int)dst.length;
-			dst[0 .. $] = bufs.head.buf.pos[0 .. dst.length];
-			bufs.head.buf.pos += wlen;
-			if (m_tx.halfClosed && m_tx.bufs.length - wlen == 0) {
-				dirty();
-				m_tx.finalized = true;
-				data_flags |= DataFlags.EOF;
-			}
-			return wlen;
-		}
-		else { // if NO_COPY is possible, reserve the buf for Connector.writeData
+		if (bufs.length > 0) {
 			data_flags |= DataFlags.NO_COPY; // dst is unused
 			Buffers.Chain c;
 			int i;
@@ -1109,12 +1096,9 @@ private:
 				continue;
 			if (i == 1)
 				assert(c == bufs.head);
-			if (dst.length < c.buf.length) { // we will need to use COPY
-				m_tx.notify();
-				m_tx.deferred = true;
-				return ErrorCode.DEFERRED;
-			}
-			wlen = cast(int)c.buf.length;
+
+			bool remove_one = dst.length >= c.buf.length;
+			wlen = min(cast(int) dst.length, cast(int) c.buf.length);
 
 			if (wlen == 0) {
 				m_tx.notify();
@@ -1131,11 +1115,15 @@ private:
 			if (bufs.head is bufs.cur)
 				bufs.advance();
 
-			// move queue for next send
-			m_tx.queued++;
+			if (remove_one)
+				// move queue for next send
+				m_tx.queued++;
+
 			m_tx.queued_len += wlen;
 		}
-		if (m_tx.halfClosed && m_tx.bufs.length - wlen == 0) {
+		
+		if (bufs.length == 0 || (m_tx.halfClosed && m_tx.bufs.length - wlen == 0))
+		{
 			dirty();
 			m_tx.finalized = true;
 			data_flags |= DataFlags.EOF;
@@ -2316,8 +2304,11 @@ override:
 		// write the data directly from buffers (NO_COPY)
 		write(buf.pos[0 .. length]);
 		// deschedule the buffer and free the memory
-		stream.m_tx.bufs.removeOne();
-		stream.m_tx.queued--;
+		if (buf.length == length) {
+			stream.m_tx.bufs.removeOne();
+			stream.m_tx.queued--;
+		}
+		else buf.pos += length;
 		stream.m_tx.queued_len -= length;
 		stream.m_tx.notify();
 		// add padding bytes
@@ -2335,7 +2326,6 @@ override:
 		ConnectionStream stream = m_session.topStream;
 		stream.write(data);
 		//logDebug("Write: ", cast(string) data);
-		logDebug("Write bytes ", data);
 		return cast(int)data.length;
 	}
 	

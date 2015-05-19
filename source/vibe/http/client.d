@@ -69,15 +69,14 @@ HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequ
 	auto cli = connectHTTP(url.host, url.port, use_tls, settings);
 	auto res = cli.request((req){
 			// When sending through a proxy, full URL to the resource must be on the first line of the request
-			if ("Location" !in req.headers) // allow redirects to be handled properly
-			{
-				if (settings.proxyURL.schema !is null)
-					req.requestURL = url.toString();
-				else if (url.localURI.length) {
-					assert(url.path.absolute, "Request URL path must be absolute.");
-					req.requestURL = url.localURI;
-				}
+
+			if (settings.proxyURL.schema !is null)
+				req.requestURL = url.toString();
+			else if (url.localURI.length) {
+				assert(url.path.absolute, "Request URL path must be absolute.");
+				req.requestURL = url.localURI;
 			}
+
 
 			if ("authorization" !in req.headers && url.username != "") {
 				import std.base64;
@@ -109,15 +108,12 @@ void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) reque
 
 	cli.request((scope req) {
 		// When sending through a proxy, full URL to the resource must be on the first line of the request		
-		if ("Location" !in req.headers) // allow redirects to be handled properly
-		{
-			if (settings.proxyURL.schema !is null) {
-				req.requestURL = url.toString();
-			}
-			else if (url.localURI.length) {
-				assert(url.path.absolute, "Request URL path must be absolute.");
-				req.requestURL = url.localURI;
-			}
+		if (settings.proxyURL.schema !is null) {
+			req.requestURL = url.toString();
+		}
+		else if (url.localURI.length) {
+			assert(url.path.absolute, "Request URL path must be absolute.");
+			req.requestURL = url.localURI;
 		}
 
 		if ("authorization" !in req.headers && url.username != "") {
@@ -597,19 +593,12 @@ private:
 		Duration latency = Duration.zero;
 		logDebug("Creating scoped client");
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
-											m_http2Context ? m_http2Context.latency : latency, keepalive, m_settings.cookieJar);
+											m_http2Context ? m_http2Context.latency : latency, keepalive, m_state.location, m_settings.cookieJar);
 				
 		if (canUpgradeHTTP2)
 			startHTTP2Upgrade(req.headers);
 
 		logDebug("Calling callback");
-		if (m_state.location !is URL.init) {
-			if (m_settings.proxyURL !is URL.init)
-				req.requestURL = m_state.location.toString();
-			else
-				req.requestURL = m_state.location.localURI;
-		}
-
 		requester(req);
 		req.finalize();
 		logDebug("Sent request");
@@ -809,6 +798,8 @@ final class HTTPClientRequest : HTTPRequest {
 		HTTP2Stream m_http2Stream;
 		OutputStream m_bodyWriter;
 		CookieStore m_cookieJar;
+		URL m_proxy;
+		URL m_location;
 		bool m_headerWritten;
 		bool m_concatCookies;
 		bool m_isUpgrading;
@@ -830,10 +821,11 @@ final class HTTPClientRequest : HTTPRequest {
 
 	/// private
 	this(HTTPClientConnection conn, HTTP2Stream http2, URL proxy, string user_agent, bool is_http2_upgrading, 
-		 ref Duration latency, ref bool keepalive, CookieStore cookie_jar)
+		 ref Duration latency, ref bool keepalive, URL location, CookieStore cookie_jar)
 	{
-
+		m_location = location;
 		m_conn = conn;
+		m_proxy = proxy;
 		m_http2Stream = http2;
 		m_cookieJar = cookie_jar;
 		m_latency = &latency;
@@ -987,7 +979,12 @@ final class HTTPClientRequest : HTTPRequest {
 		import vibe.stream.wrapper;
 		assert(!m_headerWritten, "HTTPClient tried to write headers twice.");
 		m_headerWritten = true;
-
+		if (m_location !is URL.init) {
+			if (m_proxy !is URL.init)
+				requestURL = m_location.toString();
+			else
+				requestURL = m_location.localURI;
+		}
 		// http/2
 		if (isHTTP2) {
 			httpVersion = HTTPVersion.HTTP_2;

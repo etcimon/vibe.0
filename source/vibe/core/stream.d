@@ -111,6 +111,8 @@ interface OutputStream {
 		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 		if( nbytes == 0 ){
 			while( !stream.empty ){
+				import std.stdio : writeln;
+				writeln("Least size: ", stream.leastSize);
 				size_t chunk = min(stream.leastSize, buffer.length);
 				assert(chunk > 0, "leastSize returned zero for non-empty stream.");
 				//logTrace("read pipe chunk %d", chunk);
