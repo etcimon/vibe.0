@@ -1189,6 +1189,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	
 	void read(ubyte[] dst)
 	{
+		if (!dst) return;
 		assert(dst !is null && !m_slice);
 		logTrace("Read TCP");
 		acquireReader();
@@ -1231,7 +1232,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			offset += conn.send(bytes[offset .. $]);
 			
 			if (conn.hasError) {
-				throw new Exception(conn.error);
+				throw new ConnectionClosedException(conn.error);
 			}
 			first = false;
 		} while (offset != len);
@@ -1307,7 +1308,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 
 	private void checkConnected()
 	{
-		enforce(connected, "The remote peer has closed the connection.");
+		enforceEx!ConnectionClosedException(connected, "The remote peer has closed the connection.");
 		//logTrace("Check Connected");
 	}
 
@@ -1476,7 +1477,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 				if (m_tcpImpl.conn.inbound)
 					runTask(&onConnect);
 				else onConnect();
-
+				m_settings.onConnect = null;
 				break;
 			case TCPEvent.READ:
 				// fill the read buffer and resume any task if waiting

@@ -33,7 +33,7 @@ class LimitedInputStream : InputStream {
 	*/
 	this(InputStream stream, ulong byte_limit, bool silent_limit = false)
 	{
-		assert(stream !is null);
+		enforce(stream !is null);
 		m_input = stream;
 		m_sizeLimit = byte_limit;
 		m_silentLimit = silent_limit;

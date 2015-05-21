@@ -1608,6 +1608,7 @@ struct HTTP2HandlerContext
 		if (session) {
 			FreeListObjectAlloc!HTTP2Session.free(session);
 			session = null;
+
 		}
 	}
 	
@@ -1776,12 +1777,12 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		
 		logTrace("Waiting for next request...");
 		// wait for another possible request on a keep-alive connection
-		if (!tcp_conn.waitForData(context.settings.keepAliveTimeout)) {
-			if (!tcp_conn.connected) logTrace("Client disconnected.");
+		if (!tcp_conn || !tcp_conn.waitForData(context.settings.keepAliveTimeout)) {
+			if (!tcp_conn || !tcp_conn.connected) logTrace("Client disconnected.");
 			else logTrace("Keep-alive connection timed out!");
 			break;
 		}
-	} while(!tcp_conn.empty);
+	} while(tcp_conn !is null && !tcp_conn.empty);
 }
 
 // Lazily loads the body reader in a HTTPServerRequest. Used in `handleRequest`
@@ -1855,6 +1856,7 @@ void handleRequest(TCPConnection tcp_conn,
 
 	static void errorOut(HTTPServerRequest req, HTTPServerResponse res, int code, string msg, string debug_msg, Throwable ex)
 	{
+		if (!res || !res.m_settings) return;
 		// stack traces sometimes contain random bytes - make sure they are replaced
 		debug_msg = sanitizeUTF8(cast(ubyte[])debug_msg);
 
@@ -1868,8 +1870,10 @@ void handleRequest(TCPConnection tcp_conn,
 			return res.m_settings.errorPageHandler(req, res, err);
 		}
 		//else
-		res.writeBody(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
-		
+		try res.writeBody(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
+		catch (Exception ex) 
+		{ // do something...?
+		}
 	}
 
 	// some instances that live only while the request is running
