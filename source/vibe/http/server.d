@@ -1702,6 +1702,7 @@ struct HTTP2HandlerContext
 	void handler(HTTP2Stream stream)
 	{
 		bool keep_alive = false;
+		enforce(context !is null);
 		.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, this, keep_alive);
 	}
 }
@@ -1747,9 +1748,8 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		chosen_alpn = tls_stream.alpn;
 		logTrace("Chose alpn: %s", chosen_alpn);
 	}
-	else {
+	if (!context)
 		context = listen_info.getServerContext();
-	}
 	logDebug("Got context: %s", cast(void*)context);
 	assert(context !is null, "Request being processed without a context");
 	//assert(context.settings, "Request being loaded without settings");
@@ -1961,7 +1961,7 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 
 		logTrace("Got request header.");
-
+		enforce(context !is null && context.settings !is null, "Context settings failed");
 		req.m_settings = context.settings;		
 		reqReader.req = req;
 		

@@ -265,9 +265,8 @@ final class LibasyncDriver : EventDriver {
 		conn.peer = addr;
 
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
-
-		while (!tcp_connection.connected) getDriverCore().yieldForEvent();
-		
+		while (!tcp_connection.connected && !tcp_connection.m_error) getDriverCore().yieldForEvent();
+		enforce(!tcp_connection.m_error, tcp_connection.m_error);
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1018,7 +1017,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		ubyte[] m_slice;
 		TCPConnectionImpl m_tcpImpl;
 		Settings m_settings;
-
+		string m_error;
 		bool m_closed = true;
 		bool m_mustRecv = true;
 
@@ -1190,10 +1189,17 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	void read(ubyte[] dst)
 	{
 		if (!dst) return;
-		assert(dst !is null && !m_slice);
 		logTrace("Read TCP");
+		if (m_slice)
+		{
+			ubyte[] ret = readBuf(dst);
+			if (ret.length == dst.length)
+				return;
+			else dst = dst[0 .. ret.length];
+		}
 		acquireReader();
 		scope(exit) releaseReader();
+
 		while( dst.length > 0 ){
 			while( m_readBuffer.empty ){
 				checkConnected();
@@ -1395,24 +1401,23 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	*/
 	private void onClose(in string msg = null, bool wake_ex = true) {
 		logTrace("onClose: %s", msg);
+		if (msg)
+			m_error = msg;
+		if (!m_closed) {
 
-		if (m_closed)
-			return;
+			m_closed = true;
 
-		m_closed = true;
-
-		if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {
-			m_tcpImpl.conn.kill(Task.getThis() != Task.init); // close the connection
-			destroy(m_readBuffer);
-			destroy(m_slice);
-			destroy(m_buffer);
-			m_tcpImpl.conn = null;
+			if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {
+				m_tcpImpl.conn.kill(Task.getThis() != Task.init); // close the connection
+				destroy(m_readBuffer);
+				destroy(m_slice);
+				destroy(m_buffer);
+				m_tcpImpl.conn = null;
+			}
 		}
-
 		if (Task.getThis() != Task.init) {
 			return;
 		}
-
 		Exception ex;
 		if (!msg && wake_ex)
 			ex = new ConnectionClosedException("Connection closed");
@@ -1492,10 +1497,18 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 					getDriverCore().resumeTask(m_settings.writer.task, ex);
 				break;
 			case TCPEvent.CLOSE:
+				m_closed = false;
 				onClose();
+				if (m_settings.onConnect)
+					m_settings.onConnect(this);
+				m_settings.onConnect = null;
 				break;
 			case TCPEvent.ERROR:
+				m_closed = false;
 				onClose(conn.error);
+				if (m_settings.onConnect)
+					m_settings.onConnect(this);
+				m_settings.onConnect = null;
 				break;
 		}
 		return;

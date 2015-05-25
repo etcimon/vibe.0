@@ -330,9 +330,11 @@ final class HTTP2Stream : ConnectionStream
 	~this()
 	{
 		if (m_session && m_session.get() && streamId > 0) {
-			m_session.get().destroyStream(m_session.get().getStream(streamId));
+			auto stream_internal = m_session.get().getStream(streamId);
+			if (stream_internal !is null)
+				m_session.get().destroyStream(stream_internal);
 		}
-		else onClose();
+		if (m_tx.bufs) onClose();
 		m_rx.free();
 		m_session = null;
 	}
@@ -1550,6 +1552,7 @@ private:
 
 	// The remote endpoint is gone
 	void remoteStop(FrameError error, string reason) {
+		if (m_tx.closed) return;
 		logDebug("HTTP/2: GoAway received: ", error, " reason: ", reason);
 		m_closing = true;
 		m_forcedClose = true;
@@ -1564,7 +1567,7 @@ private:
 	void handleRequest(HTTP2Stream stream)
 	{
 		stream.m_push = false; // not relevant anymore
-		runTask({ m_requestHandler(stream); });
+		runTask({ try m_requestHandler(stream); catch (Throwable e) remoteStop(FrameError.INTERNAL_ERROR, "Callback failure"); });
 	}
 
 	void handleRequest(int stream_id)
