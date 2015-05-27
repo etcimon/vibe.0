@@ -23,13 +23,17 @@ import std.string;
 	Any redirects will be followed until the actual file resource is reached or if the redirection
 	limit of 10 is reached. Note that only HTTP(S) is currently supported.
 */
-void download(URL url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
+ulong download(URL url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
 {
 	assert(url.username.length == 0 && url.password.length == 0, "Auth not supported yet.");
 	assert(url.schema == "http" || url.schema == "https", "Only http(s):// supported for now.");
 
 	if(!client) client = new HTTPClient();
-	
+
+	TCPConnection conn;
+	ulong bytes_start;
+	ulong bytes_end;
+
 	foreach( i; 0 .. 10 ){
 		bool ssl = url.schema == "https";
 		client.connect(url.host, url.port ? url.port : ssl ? 443 : 80, ssl);
@@ -37,6 +41,8 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 		bool done = false;
 		client.request(
 			(scope HTTPClientRequest req) {
+				conn = req.tcpConnection();
+				bytes_start = conn.received;
 				req.requestURL = url.localURI;
 				req.headers["Accept-Encoding"] = "gzip";
 				logTrace("REQUESTING %s!", req.requestURL);
@@ -50,39 +56,42 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 					case HTTPStatus.OK:
 						done = true;
 						callback(res.bodyReader);
+						import vibe.core.drivers.libasync : LibasyncTCPConnection;
+						bytes_end = conn.received;
 						break;
 					case HTTPStatus.movedPermanently:
 					case HTTPStatus.found:
 					case HTTPStatus.seeOther:
 					case HTTPStatus.temporaryRedirect:
-			logTrace("Status code: %s", res.statusCode);
+						logTrace("Status code: %s", res.statusCode);
 						auto pv = "Location" in res.headers;
 						enforce(pv !is null, "Server responded with redirect but did not specify the redirect location for "~url.toString());
 						logDebug("Redirect to '%s'", *pv);
 						if( startsWith((*pv), "http:") || startsWith((*pv), "https:") ){
-			logTrace("parsing %s", *pv);
+						logTrace("parsing %s", *pv);
 							url = URL(*pv);
 						} else url.localURI = *pv;
 						break;
 				}
 			}
 		);
-		if (done) return;
+		if (done) return bytes_end - bytes_start;
+		else return 0;
 	}
 	enforce(false, "Too many redirects!");
 	assert(false);
 }
 
 /// ditto
-void download(string url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
+ulong download(string url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
 {
-	download(URL(url), callback, client);
+	return download(URL(url), callback, client);
 }
 
 /// ditto
-void download(string url, string filename)
+ulong download(string url, string filename)
 {
-	download(url, (scope input){
+	return download(url, (scope input){
 		auto fil = openFile(filename, FileMode.createTrunc);
 		scope(exit) fil.close();
 		fil.write(input);
@@ -90,7 +99,7 @@ void download(string url, string filename)
 }
 
 /// ditto
-void download(URL url, Path filename)
+ulong download(URL url, Path filename)
 {
-	download(url.toString(), filename.toNativeString());
+	return download(url.toString(), filename.toNativeString());
 }

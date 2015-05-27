@@ -1025,7 +1025,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		string m_error;
 		bool m_closed = true;
 		bool m_mustRecv = true;
-
+		ulong m_bytesRecv;
+		ulong m_bytesSend;
 		// The socket descriptor is unavailable to motivate low-level/API feature additions 
 		// rather than high-lvl platform-dependent hacking
 		// fd_t socket; 
@@ -1121,7 +1122,17 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	@property NetworkAddress remoteAddress() const { return m_tcpImpl.conn.peer; }
 	
 	@property bool empty() { return leastSize == 0; }
-	
+
+	/// Returns total amount of bytes received with this connection
+	@property ulong received() const {
+		return m_bytesRecv;
+	}
+
+	/// Returns total amount of bytes sent with this connection
+	@property ulong sent() const {
+		return m_bytesSend;
+	}
+
 	@property ulong leastSize()
 	{
 		logTrace("leastSize TCP");
@@ -1240,6 +1251,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		bool first = true;
 		size_t offset;
 		size_t len = bytes.length;
+		m_bytesSend += len;
 		do {
 			if (!first) {
 				getDriverCore().yieldForEvent();
@@ -1252,7 +1264,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			}
 			first = false;
 		} while (offset != len);
-
 	}
 	
 	void flush()
@@ -1333,6 +1344,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		if (m_buffer) {
 			ubyte[] buf = m_buffer[m_slice.length .. $];
 			uint ret = conn.recv(buf);
+			m_bytesRecv += ret;
 			//logTrace("Received: %s", buf[0 .. ret]);
 			// check for overflow
 			if (ret == buf.length) {
@@ -1381,6 +1393,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			if( ret > 0 ){
 				logTrace("received bytes: %s", ret);
 				m_readBuffer.putN(ret);
+				m_bytesRecv += ret;
 				if (ret < dst.length) { // the kernel's buffer is too empty...
 					m_mustRecv = false; // ..so we have everything!
 					break;
