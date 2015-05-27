@@ -129,6 +129,11 @@ void writeFileUTF8(Path path, string contents)
 	fil.write(contents);
 }
 
+version(Windows) {
+	import core.sys.windows.windows : DWORD, LPWSTR;
+	private extern(Windows) pure nothrow @trusted DWORD GetTempPathW(DWORD nBufferLength, LPWSTR lpBuffer);
+}
+
 /**
 	Creates and opens a temporary file for writing.
 */
@@ -136,11 +141,15 @@ FileStream createTempFile(string suffix = null)
 {
 	version(Windows){
 		import std.conv : to;
+		import std.utf : toUTF8;
 		char[L_tmpnam] tmp;
+		wchar[256] tmp_path;
+		DWORD len = GetTempPathW(tmp_path.length, tmp_path.ptr);
+		string path = tmp_path.ptr[0 .. len].toUTF8;
 		tmpnam(tmp.ptr);
 		auto tmpname = to!string(tmp.ptr);
 		if( tmpname.startsWith("\\") ) tmpname = tmpname[1 .. $];
-		tmpname ~= suffix;
+		tmpname = path ~ tmpname ~ suffix;
 		return openFile(tmpname, FileMode.createTrunc);
 	} else {
 		enum pattern ="/tmp/vtmp.XXXXXX";

@@ -329,14 +329,20 @@ final class HTTP2Stream : ConnectionStream
 
 	~this()
 	{
-		if (m_session && m_session.get() && streamId > 0) {
-			auto stream_internal = m_session.get().getStream(streamId);
-			if (stream_internal !is null)
-				m_session.get().destroyStream(stream_internal);
+		try {
+			if (m_session && m_session.get() && streamId > 0) {
+				auto stream_internal = m_session.get().getStream(streamId);
+				if (stream_internal !is null)
+					m_session.get().destroyStream(stream_internal);
+			}
+			if (m_tx.bufs) onClose();
+			m_rx.free();
+			m_session = null;
 		}
-		if (m_tx.bufs) onClose();
-		m_rx.free();
-		m_session = null;
+		catch (Throwable th) {
+			import vibe.core.log : logError;
+			logError("HTTP2Session.~this: %s", th.msg);
+		} 
 	}
 
 	/// Set the memory safety to > None to secure memory operations for the active stream.
@@ -747,7 +753,7 @@ final class HTTP2Stream : ConnectionStream
 		scope(exit) releaseReader();
 
 		if (m_rx.bufs.length == 0) {
-			checkConnected();
+			if (!connected) return false;
 			assert(!m_rx.waitingData, "Another task is waiting already.");
 			m_rx.waitingData = true;
 			m_rx.dataSignalRaised = false;
@@ -901,6 +907,11 @@ final class HTTP2Stream : ConnectionStream
 	/// Calling finalize on a stream that has never yielded will half-close it and allow a full atomic request or response
 	void finalize()
 	{
+		if (!connected) {
+			m_tx.halfClosed = true;
+			m_rx.free();
+			return;
+		}
 		acquireWriter();
 		scope(exit) releaseWriter();
 		halfClose();
@@ -1053,8 +1064,11 @@ private:
 
 		if (m_rx.ex)
 			throw m_rx.ex;
-		if (m_rx.error)
-			throw new Exception("This stream has ended with error: " ~ m_rx.error.to!string);
+		if (m_rx.error) {
+			if (m_rx.error == FrameError.CANCEL || m_rx.error == FrameError.STREAM_CLOSED)
+				throw new StreamExitException("The stream was closed remotely");
+			else throw new Exception("This stream has ended with error: " ~ m_rx.error.to!string);
+		}
 		if (m_rx.prispec != PrioritySpec.init) {
 			Task.getThis().priority = cast(ubyte)m_rx.prispec.weight;
 			m_rx.prispec = PrioritySpec.init;
@@ -1380,7 +1394,15 @@ final class HTTP2Session
 		m_rx.buffer = Mem.alloc!(ubyte[])(local_settings.connectionWindowSize);
 	}
 
-	~this() { if (m_tcpConn !is null) onClose(); }
+	~this() { 
+		if (m_tcpConn !is null) { 
+			try onClose(); 
+			catch (Throwable th) {
+				import vibe.core.log : logError;
+				logError("HTTP2Session.~this: %s", th.msg);
+			} 
+		}
+	}
 
 	// Used exclusively by the server to send an initial response
 	HTTP2Stream getUpgradeStream()

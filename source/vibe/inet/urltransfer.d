@@ -38,6 +38,7 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 		client.request(
 			(scope HTTPClientRequest req) {
 				req.requestURL = url.localURI;
+				req.headers["Accept-Encoding"] = "gzip";
 				logTrace("REQUESTING %s!", req.requestURL);
 			},
 			(scope HTTPClientResponse res) {

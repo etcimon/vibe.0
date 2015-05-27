@@ -69,9 +69,10 @@ string sanitizeEscaping(string str)
 
 string dstringEscape(in ref string str)
 {
-	string ret;
+	import std.array : Appender;
+	Appender!string ret;
 	foreach( ch; str ) ret ~= dstringEscape(ch);
-	return ret;
+	return ret.data;
 }
 
 string dstringUnescape(in string str)

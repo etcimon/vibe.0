@@ -111,7 +111,7 @@ public:
 
 	}
 
-	@property bool connected() const { return m_tcp_conn.connected; }
+	@property bool connected() const { return m_tcp_conn.connected && !m_ex; }
 	
 	void close()
 	{
@@ -140,19 +140,15 @@ public:
 
 	bool waitForData(Duration timeout = 0.seconds)
 	{
-		processException();
 		if (m_tls_channel.pending() == 0) {
 			if (!m_tcp_conn.dataAvailableForRead()) {
 				if (!m_tcp_conn.waitForData(timeout))
 					return false;
 			}
 
-			if (!connected)
-				return false;
-			m_tls_channel.readBuf(null); // force an exchange
-			
+			if (!connected) return false;
+			m_tls_channel.readBuf(null); // force an exchange			
 		}
-		processException();
 		return true;
 	}
 

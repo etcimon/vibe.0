@@ -148,7 +148,6 @@ final class LibasyncDriver : EventDriver {
 	{
 		logInfo("Exiting (%s)", m_break);
 		m_break = true;
-
 	}
 	
 	LibasyncFileStream openFile(Path path, FileMode mode)
@@ -224,7 +223,7 @@ final class LibasyncDriver : EventDriver {
 			bool success = dns.handler(&cb.handler).resolveHost(host, is_ipv6);
 			if (!success || dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
-			while(!done)
+			while(!done && !m_break)
 				getDriverCore.yieldForEvent();
 			if (dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
@@ -264,9 +263,15 @@ final class LibasyncDriver : EventDriver {
 		tcp_connection.m_tcpImpl.conn = conn;
 		conn.peer = addr;
 
+		auto tm = createTimer(null);
+		scope(exit) releaseTimer(tm);
+		m_timers.getUserData(tm).owner = Task.getThis();
+		rearmTimer(tm, 5.seconds, false);
+
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
-		while (!tcp_connection.connected && !tcp_connection.m_error) getDriverCore().yieldForEvent();
+		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
+		enforce(tcp_connection.connected, "Could not connect within 5 seconds");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1052,7 +1057,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			destroy(m_readBuffer);
 		}
 
-		leastSize();
+		enforceEx!ConnectionClosedException(leastSize() > 0);
 
 		swap(ret, m_slice);
 		logTrace("readBuf returned with buffered length: %d", ret.length);
@@ -1126,7 +1131,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		while( readEmpty ){
 			if (!connected)
 				return 0;
+			m_settings.reader.noExcept = true;
 			getDriverCore().yieldForEvent();
+			m_settings.reader.noExcept = false;
 		}
 		return (m_slice.length > 0) ? m_slice.length : m_readBuffer.length;
 	}
@@ -1157,21 +1164,24 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		_driver.rearmTimer(tm, timeout, false);
 		logTrace("waitForData TCP");
 		while (readEmpty) {
-			checkConnected();
+			if (!connected) return false;
+
 			if (m_mustRecv)
 				onRead();
 			else {
 				//logTrace("Yielding for event in waitForData, waiting? %s", m_settings.reader.isWaiting);
+				m_settings.reader.noExcept = true;
 				getDriverCore().yieldForEvent();
+				m_settings.reader.noExcept = false;
 			}
 			if (!_driver.isTimerPending(tm)) {
 				logTrace("WaitForData TCP: timer signal");
 				return false;
 			}
 		}
-		checkConnected();
+		if (readEmpty && !connected) return false;
 		//logTrace("WaitForData exit: fiber resumed with read buffer");
-		return true;
+		return !readEmpty;
 	}
 	
 	const(ubyte)[] peek()
@@ -1274,7 +1284,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		logTrace("%s", "Acquire Reader");
 		assert(!amReadOwner()); 
 		m_settings.reader.task = Task.getThis();
-		logTrace("Task waiting in: " ~ (cast(void*)cast(LibasyncTCPConnection)this).to!string);
+		//logTrace("Task waiting in: " ~ (cast(void*)cast(LibasyncTCPConnection)this).to!string);
 		m_settings.reader.isWaiting = true;
 	}
 
@@ -1441,7 +1451,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			hasUniqueWriter = true;
 		}
 		if (hasUniqueReader && Task.getThis() != reader && wake_ex) {
-			getDriverCore().resumeTask(reader, ex);
+			getDriverCore().resumeTask(reader, m_settings.reader.noExcept?null:ex);
 		}
 		if (hasUniqueWriter && Task.getThis() != writer && wake_ex) {
 			getDriverCore().resumeTask(writer, ex);
@@ -1517,6 +1527,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	struct Waiter {
 		Task task; // we can only have one task waiting for read/write operations
 		bool isWaiting; // if a task is actively waiting
+		bool noExcept;
 	}
 	
 	struct Settings {

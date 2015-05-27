@@ -190,7 +190,6 @@ enum HTTPFileServerOption {
 private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, Path path, HTTPFileServerSettings settings)
 {
 	auto pathstr = path.toNativeString();
-
 	// return if the file does not exist
 	if (!existsFile(pathstr)){
 		if (settings.options & HTTPFileServerOption.failIfNotFound)
@@ -303,7 +302,6 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 		return;
 	}
 	scope(exit) fil.close();
-	import std.stdio : writeln;
 	if (pce && !encodedFilepath.length) 
 		res.bodyWriter.write(fil);
 	else 

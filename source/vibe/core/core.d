@@ -976,7 +976,7 @@ private class CoreTask : TaskFiber {
 				} catch ( ConnectionClosedException e) {
 					//debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.fail, handle);
 					//import std.encoding;
-					logTrace("Task was terminated because the connection was closed: %s", e.msg);
+					logTrace("Task was terminated because the connection was closed: %s", e.toString());
 				} catch( Exception e ){
 					debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.fail, handle);
 					import std.encoding;

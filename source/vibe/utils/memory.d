@@ -602,7 +602,7 @@ template FreeListObjectAlloc(T, bool USE_GC = true, bool INIT = true)
 				logError("%s", e.toString());
 			}
 		}
-		static if( hasIndirections!T ) GC.removeRange(cast(void*)obj);
+		static if( hasIndirections!T ) if (obj !is null) GC.removeRange(cast(void*)obj);
 		manualAllocator().free((cast(void*)obj)[0 .. ElemSize]);
 	}
 }
