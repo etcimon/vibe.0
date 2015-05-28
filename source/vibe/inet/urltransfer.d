@@ -15,6 +15,7 @@ import vibe.core.stream;
 
 import std.exception;
 import std.string;
+import std.datetime : StopWatch;
 
 
 /**
@@ -23,16 +24,12 @@ import std.string;
 	Any redirects will be followed until the actual file resource is reached or if the redirection
 	limit of 10 is reached. Note that only HTTP(S) is currently supported.
 */
-ulong download(URL url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
+void download(URL url, scope void delegate(scope InputStream) callback, HTTPClient client = null, void delegate(CountedStream) on_connect = null)
 {
 	assert(url.username.length == 0 && url.password.length == 0, "Auth not supported yet.");
 	assert(url.schema == "http" || url.schema == "https", "Only http(s):// supported for now.");
 
 	if(!client) client = new HTTPClient();
-
-	TCPConnection conn;
-	ulong bytes_start;
-	ulong bytes_end;
 
 	foreach( i; 0 .. 10 ){
 		bool ssl = url.schema == "https";
@@ -41,8 +38,10 @@ ulong download(URL url, scope void delegate(scope InputStream) callback, HTTPCli
 		bool done = false;
 		client.request(
 			(scope HTTPClientRequest req) {
-				conn = req.tcpConnection();
-				bytes_start = conn.received;
+				if (on_connect) {
+					if (auto conn = cast(CountedStream)req.topConnection)
+						on_connect(conn);
+				}
 				req.requestURL = url.localURI;
 				req.headers["Accept-Encoding"] = "gzip";
 				logTrace("REQUESTING %s!", req.requestURL);
@@ -56,8 +55,6 @@ ulong download(URL url, scope void delegate(scope InputStream) callback, HTTPCli
 					case HTTPStatus.OK:
 						done = true;
 						callback(res.bodyReader);
-						import vibe.core.drivers.libasync : LibasyncTCPConnection;
-						bytes_end = conn.received;
 						break;
 					case HTTPStatus.movedPermanently:
 					case HTTPStatus.found:
@@ -75,31 +72,59 @@ ulong download(URL url, scope void delegate(scope InputStream) callback, HTTPCli
 				}
 			}
 		);
-		if (done) return bytes_end - bytes_start;
-		else return 0;
+		if (done) return;
 	}
 	enforce(false, "Too many redirects!");
 	assert(false);
 }
 
 /// ditto
-ulong download(string url, scope void delegate(scope InputStream) callback, HTTPClient client = null)
+void download(string url, scope void delegate(scope InputStream) callback, HTTPClient client = null, void delegate(CountedStream) on_connect = null)
 {
-	return download(URL(url), callback, client);
+	return download(URL(url), callback, client, on_connect);
 }
 
 /// ditto
-ulong download(string url, string filename)
+void download(string url, string filename, scope void delegate(ulong kbps) poll_speed = null)
 {
-	return download(url, (scope input){
+	CountedStream conn;
+
+	void onConnect(CountedStream _conn) { conn = _conn; }
+
+	void handler(scope InputStream input)
+	{
 		auto fil = openFile(filename, FileMode.createTrunc);
 		scope(exit) fil.close();
-		fil.write(input);
-	});
+		
+		static struct Buffer { ubyte[64*1024] bytes = void; }
+		auto bufferobj = FreeListRef!(Buffer, false)();
+		auto buffer = bufferobj.bytes[];
+		
+		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
+		while( !input.empty ){
+			size_t chunk = min(input.leastSize, buffer.length);
+			assert(chunk > 0, "leastSize returned zero for non-empty stream.");
+			//logTrace("read pipe chunk %d", chunk);
+			ulong bytes_start;
+			StopWatch sw;
+			if (poll_speed) { bytes_start = conn.received; sw.start(); }
+			input.read(buffer[0 .. chunk]);
+			if (poll_speed)
+			{
+				ulong diff = conn.received - bytes_start;
+				sw.stop();
+				ulong msecs = cast(ulong)sw.peek().msecs;
+				poll_speed(cast(ulong) ((diff/msecs) * 8));
+			}
+			fil.write(buffer[0 .. chunk]);
+		}
+	}
+
+	download(url, &handler, null, &onConnect);
 }
 
 /// ditto
-ulong download(URL url, Path filename)
+void download(URL url, Path filename, scope void delegate(ulong kbps) poll_speed = null)
 {
-	return download(url.toString(), filename.toNativeString());
+	return download(url.toString(), filename.toNativeString(), poll_speed);
 }

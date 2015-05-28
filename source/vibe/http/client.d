@@ -830,6 +830,9 @@ final class HTTPClientRequest : HTTPRequest {
 		@property inout(Stream) topStream() inout { return cast(inout(Stream)) ((http2Stream && !m_isUpgrading) ? cast(Stream) http2Stream : ( tlsStream ? cast(Stream) tlsStream : cast(Stream) tcpConnection ) ); }
 	}
 
+	/// Gets the topmost connection
+	@property inout(ConnectionStream) topConnection() inout { return http2Stream?cast(inout ConnectionStream)http2Stream : cast(inout ConnectionStream) tcpConnection; }
+
 	/// Retrieve the underlying TCP Connection object
 	@property inout(TCPConnection) tcpConnection() inout { return cast(inout) m_conn.tcp; }
 	

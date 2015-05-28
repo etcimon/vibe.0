@@ -180,9 +180,16 @@ interface ConnectionStream : Stream {
 
 	/// Sets a timeout until data has to be availabe for read. Returns false on timeout.
 	bool waitForData(Duration timeout = 0.seconds);
+
 }
 
-
+interface CountedStream {
+	/// Returns total amount of bytes received with this connection
+	@property ulong received() const;
+	
+	/// Returns total amount of bytes sent with this connection
+	@property ulong sent() const;
+}
 /**
 	Interface for all streams supporting random access.
 */

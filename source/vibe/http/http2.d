@@ -86,10 +86,15 @@ enum SafetyLevel {
 	LockMemory
 }
 
-final class HTTP2Stream : ConnectionStream
+final class HTTP2Stream : ConnectionStream, CountedStream
 {
 	@property bool isOpener() const { return m_opener; }
 	@property bool headersWritten() const { return m_headersWritten; }
+	/// Returns total amount of bytes received with this connection
+	@property ulong received() const { return m_bytesRecv; }	
+	/// Returns total amount of bytes sent with this connection
+	@property ulong sent() const { return m_bytesSend; }
+
 	private {
 		// state
 		int m_stream_id = -1; // -1 if fresh client request. >0 and always defined on server streams
@@ -107,6 +112,9 @@ final class HTTP2Stream : ConnectionStream
 		bool m_push; // this stream was initialized as a push promise. This is a push response
 		bool m_safety_level_changed;
 		int m_maxFrameSize; // The buffers also allocate their additional storage at these intervals
+
+		ulong m_bytesRecv;
+		ulong m_bytesSend;
 
 		PrioritySpec m_priSpec;
 		SafetyLevel m_safety_level;
@@ -809,6 +817,7 @@ final class HTTP2Stream : ConnectionStream
 		// we must block if dst is not filled
 		logDebug("HTTP/2: Read, dst len: ", dst.length); 
 		assert(dst !is null);
+		m_bytesRecv += dst.length;
 		acquireReader();
 		scope(exit) releaseReader();
 		Buffers bufs = m_rx.bufs;
@@ -868,6 +877,7 @@ final class HTTP2Stream : ConnectionStream
 	void write(in ubyte[] src)
 	{
 		if (src.length == 0) return;
+		m_bytesSend += src.length;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		const(ubyte)[] ub = cast()src;

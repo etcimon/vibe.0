@@ -1014,7 +1014,7 @@ final class LibasyncTCPListener : TCPListener {
 	}
 }
 
-final class LibasyncTCPConnection : TCPConnection, Buffered {
+final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
 		FixedRingBuffer!ubyte m_readBuffer;
@@ -1042,6 +1042,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 
 			swap(ret, m_slice);
 			logTrace("readBuf returned instantly with slice length: %d", ret.length);
+			m_bytesRecv += ret.length;
 			return ret;
 		}
 
@@ -1050,6 +1051,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			size_t amt = min(buffer.length, m_readBuffer.length);			
 			m_readBuffer.read(buffer[0 .. amt]);
 			logTrace("readBuf returned with existing amount: %d", amt);
+			m_bytesRecv += amt;
 			return buffer[0 .. amt];
 		}
 
@@ -1062,6 +1064,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 
 		swap(ret, m_slice);
 		logTrace("readBuf returned with buffered length: %d", ret.length);
+		m_bytesRecv += ret.length;
 		return ret;
 	}
 
@@ -1210,12 +1213,12 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 	void read(ubyte[] dst)
 	{
 		if (!dst) return;
+		m_bytesRecv += dst.length;
 		logTrace("Read TCP");
 		if (m_slice)
 		{
 			ubyte[] ret = readBuf(dst);
-			if (ret.length == dst.length)
-				return;
+			if (ret.length == dst.length) return;
 			else dst = dst[0 .. ret.length];
 		}
 		acquireReader();
@@ -1344,7 +1347,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 		if (m_buffer) {
 			ubyte[] buf = m_buffer[m_slice.length .. $];
 			uint ret = conn.recv(buf);
-			m_bytesRecv += ret;
 			//logTrace("Received: %s", buf[0 .. ret]);
 			// check for overflow
 			if (ret == buf.length) {
@@ -1393,7 +1395,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered {
 			if( ret > 0 ){
 				logTrace("received bytes: %s", ret);
 				m_readBuffer.putN(ret);
-				m_bytesRecv += ret;
 				if (ret < dst.length) { // the kernel's buffer is too empty...
 					m_mustRecv = false; // ..so we have everything!
 					break;

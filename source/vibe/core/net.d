@@ -242,11 +242,6 @@ interface TCPConnection : ConnectionStream {
 	/// The address of the connected peer.
 	@property NetworkAddress remoteAddress() const;
 
-	/// Returns total amount of bytes received with this connection
-	@property ulong received() const;
-	
-	/// Returns total amount of bytes sent with this connection
-	@property ulong sent() const;
 }
 
 
