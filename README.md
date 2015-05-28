@@ -1,5 +1,7 @@
 [![vibe.d](http://vibed.org/images/logo-and-title.png)](http://vibed.org)
 
+*Warning*: This fork is experimental! It has Botan and HTTP/2 support and it is stable but not yet ready for production.
+
 vibe.d is a high-performance asynchronous I/O, concurrency and web application
 toolkit written in D. It already contains many supplemental features such as
 database support to be able to offer a complete development environment. For
