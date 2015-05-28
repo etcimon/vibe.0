@@ -28,14 +28,11 @@ string computeHex(InputStream stream, BufferedComputation computer)
 
 }
 
-///
-unittest {
-	// returns hex string of sha256 of a file
-	string sha256Of(string file_path) {
-		import botan.hash.sha2_32 : SHA256;
-		Unique!SHA256 sha256 = new SHA256();
-		FileStream fstream = openFile(file_path);
-		scope(exit) fstream.close();
-		return fstream.compute(*sha256);
-	}
+/// returns hex string of sha256 of a file
+string sha256Of(string file_path) {
+	import botan.hash.sha2_32 : SHA256;
+	Unique!SHA256 sha256 = new SHA256();
+	FileStream fstream = openFile(file_path);
+	scope(exit) fstream.close();
+	return fstream.compute(*sha256);
 }
