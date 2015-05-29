@@ -7,6 +7,9 @@ import vibe.utils.memory;
 import std.algorithm : min;
 import vibe.core.stream;
 import botan.codec.hex;
+import memutils.utils;
+import memutils.unique;
+import vibe.core.file;
 
 /// Reads the InputStream in the given BufferedComputation and returns a hex encoded string for transport
 string computeHex(InputStream stream, BufferedComputation computer)
@@ -34,5 +37,5 @@ string sha256Of(string file_path) {
 	Unique!SHA256 sha256 = new SHA256();
 	FileStream fstream = openFile(file_path);
 	scope(exit) fstream.close();
-	return fstream.compute(*sha256);
+	return fstream.computeHex(*sha256);
 }
