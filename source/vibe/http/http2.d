@@ -39,7 +39,6 @@ import std.conv : to;
 import std.exception;
 import std.format;
 
-import std.stdio;
 alias B64 = Base64Impl!('-', '_', Base64.NoPadding);
 
 alias HTTP2RequestHandler = void delegate(HTTP2Stream stream);
@@ -409,9 +408,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			else
 				header.addField(hf.name, hf.value);
 		}
-		
-
-
 	}
 
 	/// Read server response headers into supplied structures. The session must be opened as a client
@@ -1012,8 +1008,8 @@ private:
 			m_tx.priSpec.weight = Task.getThis().priority;
 
 		m_tx.dirty = true;
-		enforce(m_session.m_tcpConn !is null);
-		m_session.m_tx.schedule(this);
+		if (m_session.m_tcpConn !is null)
+			m_session.m_tx.schedule(this);
 	}
 
 	void acquireReader() { 
@@ -1806,7 +1802,7 @@ private:
 			if (!m_closing)
 				remoteStop(FrameError.NO_ERROR, e.msg);
 		}
-		
+
 	}
 
 	// Task-blocking write event loop
@@ -2374,7 +2370,6 @@ override:
 	{
 		ConnectionStream stream = m_session.topStream;
 		stream.write(data);
-		//logDebug("Write: ", cast(string) data);
 		return cast(int)data.length;
 	}
 	

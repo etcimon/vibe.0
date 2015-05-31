@@ -1586,7 +1586,7 @@ HTTPServerContext getServerContext(ref HTTPServerListener listen_info)
 	return HTTPServerContext.init;
 }
 
-struct HTTP2HandlerContext
+class HTTP2HandlerContext
 {
 	bool started;
 	
@@ -1753,7 +1753,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	logDebug("Got context: %s", cast(void*)context);
 	assert(context !is null, "Request being processed without a context");
 	//assert(context.settings, "Request being loaded without settings");
-	auto http2_handler = HTTP2HandlerContext(tcp_conn, tls_stream, listen_info, context);
+	auto http2_handler = new HTTP2HandlerContext(tcp_conn, tls_stream, listen_info, context);
 	
 	// Will block here if it succeeds. The handler is kept handy in case HTTP/2 Upgrade is attempted in the headers of an HTTP/1.1 request
 	if (http2_handler.tryStart(chosen_alpn))

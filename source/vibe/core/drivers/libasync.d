@@ -31,7 +31,7 @@ import core.atomic;
 import core.memory;
 import core.thread;
 import core.sync.mutex;
-import std.container : Array;
+import memutils.vector;
 
 import vibe.core.drivers.timerqueue;
 import libasync.internals.memory;
@@ -180,13 +180,15 @@ final class LibasyncDriver : EventDriver {
 			
 		__gshared auto IPv4Regex = regex(`^\s*((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))\s*$`, ``);
 		__gshared auto IPv6Regex = regex(`^\s*((([0-9A-Fa-f]{1,4}:){7}([0-9A-Fa-f]{1,4}|:))|(([0-9A-Fa-f]{1,4}:){6}(:[0-9A-Fa-f]{1,4}|((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){5}(((:[0-9A-Fa-f]{1,4}){1,2})|:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3})|:))|(([0-9A-Fa-f]{1,4}:){4}(((:[0-9A-Fa-f]{1,4}){1,3})|((:[0-9A-Fa-f]{1,4})?:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){3}(((:[0-9A-Fa-f]{1,4}){1,4})|((:[0-9A-Fa-f]{1,4}){0,2}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){2}(((:[0-9A-Fa-f]{1,4}){1,5})|((:[0-9A-Fa-f]{1,4}){0,3}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(([0-9A-Fa-f]{1,4}:){1}(((:[0-9A-Fa-f]{1,4}){1,6})|((:[0-9A-Fa-f]{1,4}){0,4}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:))|(:(((:[0-9A-Fa-f]{1,4}){1,7})|((:[0-9A-Fa-f]{1,4}){0,5}:((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}))|:)))(%.+)?\s*$`, ``);
-			
-		if (!matchFirst(host, IPv4Regex).empty)
+		auto ipv4 = matchFirst(host, IPv4Regex);
+		auto ipv6 = matchFirst(host, IPv6Regex);
+		if (!ipv4.empty)
 		{
+			if (!ipv4.empty)
 			is_ipv6 = isIPv6.no;
 			use_dns = false;
 		}
-		else if (!matchFirst(host, IPv6Regex).empty)
+		else if (!ipv6.empty)
 		{ // fixme: match host instead?
 			is_ipv6 = isIPv6.yes;
 			use_dns = false;
@@ -613,7 +615,7 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 		bool m_recursive;
 		Task m_task;
 		AsyncDirectoryWatcher m_impl;
-		Array!DirectoryChange m_changes;
+		Vector!DirectoryChange m_changes;
 		Exception m_error;
 	}
 	
@@ -753,10 +755,10 @@ final class LibasyncManualEvent : ManualEvent {
 		shared(int) m_emitCount = 0;
 		shared(int) m_threadCount = 0;
 		shared(size_t) m_instance;
-		Array!(void*) ms_signals;
-		Array!Task m_localWaiters;
-		core.sync.mutex.Mutex m_mutex;
+		Vector!(void*) ms_signals;
+		Vector!Task m_localWaiters;
 		Thread m_owner;
+		core.sync.mutex.Mutex m_mutex;
 	}
 	
 	this(LibasyncDriver driver)
@@ -769,12 +771,11 @@ final class LibasyncManualEvent : ManualEvent {
 	~this()
 	{
 		recycleID(m_instance);
-		synchronized (m_mutex) {
-			foreach (ref signal; ms_signals[]) {
-				if (signal) {
-					(cast(shared AsyncSignal) signal).kill();
-					signal = null;
-				}
+
+		foreach (ref signal; ms_signals[]) {
+			if (signal) {
+				(cast(shared AsyncSignal) signal).kill();
+				signal = null;
 			}
 		}
 	}
@@ -846,7 +847,7 @@ final class LibasyncManualEvent : ManualEvent {
 			expandWaiters();
 		}
 		logTrace("Acquire event ID#%d", m_instance);
-		auto taskList = s_eventWaiters[m_instance];
+		auto taskList = s_eventWaiters[m_instance][];
 		if (taskList.length > 0)
 			signal_exists = true;
 
@@ -863,10 +864,12 @@ final class LibasyncManualEvent : ManualEvent {
 		assert(amOwner(), "Releasing non-acquired signal.");
 
 		import std.algorithm : countUntil;
-		auto taskList = s_eventWaiters[m_instance];
+		auto taskList = s_eventWaiters[m_instance][];
 		auto idx = taskList[].countUntil!((a, b) => a == b)(Task.getThis());
 		logTrace("Release event ID#%d", m_instance);
-		s_eventWaiters[m_instance].linearRemove(taskList[idx .. idx+1]);
+		auto vec = taskList[0 .. idx];
+		if (idx != taskList.length - 1)
+			vec ~= taskList[idx + 1 .. $];
 
 		if (s_eventWaiters[m_instance].empty) {
 			removeMySignal();
@@ -877,7 +880,7 @@ final class LibasyncManualEvent : ManualEvent {
 	{
 		import std.algorithm : countUntil;
 		if (s_eventWaiters.length <= m_instance) return false;
-		auto taskList = s_eventWaiters[m_instance];
+		auto taskList = s_eventWaiters[m_instance][];
 		if (taskList.length == 0) return false;
 
 		auto idx = taskList[].countUntil!((a, b) => a == b)(Task.getThis());
@@ -928,7 +931,10 @@ final class LibasyncManualEvent : ManualEvent {
 		import std.algorithm : countUntil;
 		synchronized(m_mutex) {
 			auto idx = ms_signals[].countUntil!((void* a, LibasyncManualEvent b) { return ((cast(shared AsyncSignal) a).owner == Thread.getThis() && this is b);})(this);
-			ms_signals.linearRemove(ms_signals[idx .. idx+1]);				
+			auto vec = ms_signals[0 .. idx];
+			if (idx != ms_signals.length-1)
+				vec ~= ms_signals[idx + 1 .. $];
+			ms_signals[] = vec[];			
 		}
 	}
 
@@ -938,7 +944,7 @@ final class LibasyncManualEvent : ManualEvent {
 		s_eventWaiters.reserve(maxID + 1);
 		logTrace("gs_maxID: %d", maxID);
 		foreach (i; s_eventWaiters.length .. s_eventWaiters.capacity) {
-			s_eventWaiters.insertBack(Array!Task.init);
+			s_eventWaiters.insertBack(Vector!Task.init);
 		}
 	}
 
@@ -1060,7 +1066,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			destroy(m_readBuffer);
 		}
 
-		enforceEx!ConnectionClosedException(leastSize() > 0);
+		enforceEx!ConnectionClosedException(leastSize() > 0, "Leastsize returned 0");
 
 		swap(ret, m_slice);
 		logTrace("readBuf returned with buffered length: %d", ret.length);
@@ -1116,7 +1122,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	private @property bool readEmpty() {
-		return (m_buffer && !m_slice) || (!m_buffer && m_readBuffer.empty);
+		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
 	}
 	
 	@property string peerAddress() const { return m_tcpImpl.conn.peer.toString(); }
@@ -1143,8 +1149,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		scope(exit) releaseReader();
 
 		while( readEmpty ){
-			if (!connected)
+			if (!connected) {
 				return 0;
+			}
 			m_settings.reader.noExcept = true;
 			getDriverCore().yieldForEvent();
 			m_settings.reader.noExcept = false;
@@ -1730,9 +1737,8 @@ final class LibasyncUDPConnection : UDPConnection {
 
 /* The following is used for LibasyncManualEvent */
 
-import std.container : Array;
-Array!(Array!Task) s_eventWaiters; // Task list in the current thread per instance ID
-__gshared Array!size_t gs_availID;
+Vector!(memutils.vector.Array!Task) s_eventWaiters; // Task list in the current thread per instance ID
+__gshared Vector!size_t gs_availID;
 __gshared size_t gs_maxID = 1;
 __gshared core.sync.mutex.Mutex gs_mutex;
 
