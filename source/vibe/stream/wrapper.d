@@ -188,7 +188,8 @@ struct StreamOutputRange {
 
 	~this()
 	{
-		flush();
+		try flush();
+		catch(Exception) { } 
 	}
 
 	@property size_t length() { return m_fill; }

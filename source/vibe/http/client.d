@@ -1246,7 +1246,7 @@ final class HTTPClientResponse : HTTPResponse {
 	~this()
 	{
 		debug if (m_client && m_client.m_state.responding) { import std.stdio; writefln("WARNING: HTTPClientResponse not fully processed before being finalized"); }
-		if (m_client && m_client.m_state.responding) finalize();
+		try if (m_client && m_client.m_state.responding) finalize(); catch {}
 	}
 
 	/// True if this response is encapsulated by an HTTP/2 session

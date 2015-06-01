@@ -570,8 +570,10 @@ public:
 		Vector!string ret;
 		if (!m_pri_ecc_curves.empty)
 			ret ~= m_pri_ecc_curves[];
-		if (!m_pri_curves_exclusive)
-			ret ~= super.allowedEccCurves()[];
+		if (!m_pri_curves_exclusive)  {
+			auto others = super.allowedEccCurves();
+			ret ~= others[];
+		}
 		return ret;
 	}
 

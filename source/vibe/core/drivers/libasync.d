@@ -460,7 +460,7 @@ final class LibasyncFileStream : FileStream {
 	
 	~this()
 	{
-		close();
+		try close(); catch {}
 	}
 
 	@property Path path() const { return m_path; }
@@ -770,14 +770,16 @@ final class LibasyncManualEvent : ManualEvent {
 
 	~this()
 	{
-		recycleID(m_instance);
+		try {
+			recycleID(m_instance);
 
-		foreach (ref signal; ms_signals[]) {
-			if (signal) {
-				(cast(shared AsyncSignal) signal).kill();
-				signal = null;
+			foreach (ref signal; ms_signals[]) {
+				if (signal) {
+					(cast(shared AsyncSignal) signal).kill();
+					signal = null;
+				}
 			}
-		}
+		} catch {}
 	}
 
 	void emitLocal()

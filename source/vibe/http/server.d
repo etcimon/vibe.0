@@ -1768,7 +1768,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
 		
-		if (http2_handler.isUpgrade) {
+		if (!tls_stream && http2_handler.isUpgrade) {
 			// The HTTP/2 Upgrade request was turned into HTTP/2 stream ID#1, we can now listen for more with an HTTP/2 session
 			http2_handler.continueHTTP2Upgrade();
 			return;
