@@ -870,7 +870,7 @@ final class LibasyncManualEvent : ManualEvent {
 		auto vec = taskList[0 .. idx];
 		if (idx != taskList.length - 1)
 			vec ~= taskList[idx + 1 .. $];
-
+		s_eventWaiters[m_instance][] = vec[];
 		if (s_eventWaiters[m_instance].empty) {
 			removeMySignal();
 		}
@@ -1773,7 +1773,7 @@ private size_t generateID() {
 
 void recycleID(size_t id) {
 	try {
-		synchronized(gs_mutex) gs_availID.insert(id);		
+		synchronized(gs_mutex) gs_availID ~= id;		
 	}
 	catch (Exception e) {
 		assert(false, "Error destroying Manual Event ID: " ~ id.to!string ~ " [" ~ e.msg ~ "]");

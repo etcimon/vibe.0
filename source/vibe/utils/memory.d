@@ -665,8 +665,12 @@ struct FreeListRef(T, bool INIT = true)
 
 	void opAssign(FreeListRef other)
 	{
-		import std.algorithm : swap;
-		.swap(m_object, other.m_object);
+		clear();
+		m_object = other.m_object;
+		if( m_object ){
+			//logInfo("opAssign!%s(): %d", T.stringof, this.refCount);
+			refCount++;
+		}
 	}
 
 	void clear()
