@@ -741,8 +741,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.waitingStreamExit = false;
 		}
 
-		onClose();
 		m_rx.free();
+		onClose();
 	}
 
 	void close()
@@ -1606,7 +1606,17 @@ private:
 		stream.m_connected = true;
 		ErrorCode ret = m_session.setStreamUserData(stream_id, cast(void*)stream);
 		assert(ret == ErrorCode.OK);
-		runTask({ m_requestHandler(stream); });
+		runTask(&handleRequestImpl, stream, stream_id);
+	}
+
+	void handleRequestImpl(HTTP2Stream stream, int stream_id) {
+		scope(exit) {
+			if (m_session) {
+				m_session.closeStream(stream_id, FrameError.NO_ERROR); 
+			}
+			stream.destroy();
+		}
+		m_requestHandler(stream);
 	}
 
 	void onPushPromise(int stream_id)

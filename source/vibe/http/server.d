@@ -965,6 +965,7 @@ final class HTTPServerResponse : HTTPResponse {
 	}
 
 	~this() {
+
 		// The connection streams, allocator and settings were not owned by the HTTPServerResponse
 		if (!outputStream) return;
 		if (hasCompression) {
@@ -1754,21 +1755,18 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	assert(context !is null, "Request being processed without a context");
 	//assert(context.settings, "Request being loaded without settings");
 	auto http2_handler = new HTTP2HandlerContext(tcp_conn, tls_stream, listen_info, context);
-	
+
 	// Will block here if it succeeds. The handler is kept handy in case HTTP/2 Upgrade is attempted in the headers of an HTTP/1.1 request
 	if (http2_handler.tryStart(chosen_alpn))
 		// HTTP/2 session terminated, exit
 		return;
-	else if (tls_stream)
-		// That was the only way to start HTTP/2 over TLS
-		http2_handler.destroy();
 	
 	/// Loop for HTTP/1.1 or HTTP/1.0 only
 	do {
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
 		
-		if (!tls_stream && http2_handler.isUpgrade) {
+		if (http2_handler !is null && http2_handler.isUpgrade) {
 			// The HTTP/2 Upgrade request was turned into HTTP/2 stream ID#1, we can now listen for more with an HTTP/2 session
 			http2_handler.continueHTTP2Upgrade();
 			return;

@@ -9,6 +9,7 @@ import botan.cert.x509.x509path;
 import botan.tls.blocking;
 import botan.tls.channel;
 import botan.tls.credentials_manager;
+import botan.tls.exceptn;
 import botan.tls.server;
 import botan.tls.session_manager;
 import botan.tls.server_info;
@@ -111,6 +112,10 @@ public:
 
 	}
 
+	~this() {
+		m_tls_channel.destroy();
+	}
+
 	@property bool connected() const { return m_tcp_conn.connected && !m_ex; }
 	
 	void close()
@@ -179,7 +184,10 @@ public:
 		processException();
 		scope(exit) 
 			processException();
-		m_tls_channel.write(src);
+		try m_tls_channel.write(src);
+		catch (TLSClosedException e) {
+			throw new ConnectionClosedException("TLSClosedException: " ~ e.msg);
+		}
 	}
 
 	@property bool empty()
