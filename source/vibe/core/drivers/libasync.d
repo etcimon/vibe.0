@@ -1084,6 +1084,16 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		m_readBuffer.capacity = 64*1024;
 	}
 
+	~this() {
+		if (!m_closed) { 
+			try onClose(null, false);
+			catch (Exception e)
+			{
+				logError("Failure in TCPConnection dtor: %s", e.msg);
+			}
+		}
+	}
+
 	private @property AsyncTCPConnection conn() {
 
 		return m_tcpImpl.conn;

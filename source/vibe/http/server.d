@@ -1605,7 +1605,7 @@ class HTTP2HandlerContext
 	@property bool isUpgrade() { return evloop != Task(); }
 	@property bool isTLS() { return tlsStream?true:false; }
 	
-	~this() {
+	void close() {
 		if (session) {
 			FreeListObjectAlloc!HTTP2Session.free(session);
 			session = null;
@@ -1710,6 +1710,7 @@ class HTTP2HandlerContext
 
 void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info)
 {
+	scope(exit) tcp_conn.destroy();
 	version(Botan) {
 		import vibe.stream.botan : BotanTLSStream;
 		FreeListRef!BotanTLSStream tls_stream;
@@ -1755,7 +1756,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	assert(context !is null, "Request being processed without a context");
 	//assert(context.settings, "Request being loaded without settings");
 	auto http2_handler = new HTTP2HandlerContext(tcp_conn, tls_stream, listen_info, context);
-
+	scope(exit) http2_handler.close();
 	// Will block here if it succeeds. The handler is kept handy in case HTTP/2 Upgrade is attempted in the headers of an HTTP/1.1 request
 	if (http2_handler.tryStart(chosen_alpn))
 		// HTTP/2 session terminated, exit

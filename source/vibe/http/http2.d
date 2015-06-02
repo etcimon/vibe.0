@@ -1665,8 +1665,12 @@ private:
 		if (m_session) m_session.free();
 		if (m_connector) Mem.free(m_connector);
 		if (m_session) Mem.free(m_session);
-		if (m_rx.buffer && m_tlsStream) SecureMem.free(m_rx.buffer);
-		else if (m_rx.buffer) Mem.free(m_rx.buffer);
+		if (m_rx.buffer && m_tlsStream) {
+			SecureMem.free(m_rx.buffer);
+		}
+		else if (m_rx.buffer) {
+			Mem.free(m_rx.buffer);
+		}
 		m_tlsStream = null;
 		m_requestHandler = null;
 		destroy(m_tx);
