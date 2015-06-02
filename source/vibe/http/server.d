@@ -1604,15 +1604,7 @@ class HTTP2HandlerContext
 	
 	@property bool isUpgrade() { return evloop != Task(); }
 	@property bool isTLS() { return tlsStream?true:false; }
-	
-	void close() {
-		if (session) {
-			FreeListObjectAlloc!HTTP2Session.free(session);
-			session = null;
-
-		}
-	}
-	
+		
 	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTPServerListener listen_info, HTTPServerContext _context) {
 		listenInfo = listen_info;
 		tcpConn = tcp_conn;
@@ -1653,7 +1645,10 @@ class HTTP2HandlerContext
 		HTTP2Settings local_settings;
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
-		session = FreeListObjectAlloc!HTTP2Session.alloc(true, &handler, tcpConn, tlsStream, local_settings);
+		session = new HTTP2Session(true, &handler, tcpConn, tlsStream, local_settings);
+		scope(exit)
+			session.destroy();
+
 		session.run(); // blocks, loops and handles requests here
 	}
 	
@@ -1662,7 +1657,9 @@ class HTTP2HandlerContext
 		HTTP2Settings local_settings;
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
-		session = FreeListObjectAlloc!HTTP2Session.alloc(true, &handler, tcpConn, null, local_settings);
+		session = new HTTP2Session(true, &handler, tcpConn, null, local_settings);
+		scope(exit)
+			session.destroy();
 		session.run(); // blocks, loops and handles requests here
 	}
 	
@@ -1685,7 +1682,7 @@ class HTTP2HandlerContext
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
 
-		session = FreeListObjectAlloc!HTTP2Session.alloc(&handler, tcpConn, base64_settings, local_settings);
+		session = new HTTP2Session(&handler, tcpConn, base64_settings, local_settings);
 		tcpConn.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: h2c\r\n\r\n");
 		evloop = runTask( { session.run(true); } );
 		started = true;
@@ -1711,17 +1708,8 @@ class HTTP2HandlerContext
 void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info)
 {
 	scope(exit) tcp_conn.destroy();
-	version(Botan) {
-		import vibe.stream.botan : BotanTLSStream;
-		FreeListRef!BotanTLSStream tls_stream;
-	}
-	version(OpenSSL) {
-		import vibe.stream.openssl : OpenSSLStream;
-		FreeListRef!OpenSSLStream tls_stream;
-	}
-	version(VibeNoTLS) {
-		TLSStream tls_stream;
-	}
+	TLSStream tls_stream;
+	scope(exit) tls_stream.destroy();
 	if (!tcp_conn.waitForData(10.seconds())) {
 		logDebug("Client didn't send the initial request in a timely manner. Closing connection.");
 		return;
@@ -1739,7 +1727,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		logTrace("Accept TLS connection: %s", listen_info.tlsContext.kind);
 		// TODO: reverse DNS lookup for peer_name of the incoming connection for TLS client certificate verification purposes
 		version(VibeNoTLS) {} else {
-			tls_stream = createTLSStreamFL(tcp_conn, listen_info.tlsContext, TLSStreamState.accepting, null, tcp_conn.remoteAddress);
+			tls_stream = createTLSStream(tcp_conn, listen_info.tlsContext, TLSStreamState.accepting, null, tcp_conn.remoteAddress);
 		}
 		if (has_vhosts) {
 			logDebug("got user data: %s", cast(void*)tls_stream.getUserData());
@@ -1756,7 +1744,6 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	assert(context !is null, "Request being processed without a context");
 	//assert(context.settings, "Request being loaded without settings");
 	auto http2_handler = new HTTP2HandlerContext(tcp_conn, tls_stream, listen_info, context);
-	scope(exit) http2_handler.close();
 	// Will block here if it succeeds. The handler is kept handy in case HTTP/2 Upgrade is attempted in the headers of an HTTP/1.1 request
 	if (http2_handler.tryStart(chosen_alpn))
 		// HTTP/2 session terminated, exit

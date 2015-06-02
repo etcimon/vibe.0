@@ -85,6 +85,9 @@ enum SafetyLevel {
 	LockMemory
 }
 
+int m_rx_bufs;
+int m_tx_bufs;
+
 final class HTTP2Stream : ConnectionStream, CountedStream
 {
 	@property bool isOpener() const { return m_opener; }
@@ -160,8 +163,10 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 			void free() {
 				if (bufs) {
+					m_rx_bufs--;
 					bufs.free();
-					Mem.free(bufs);
+					bufs.destroy();
+					bufs = null;
 				}
 
 				if (!headers.empty) { // for inbound headers, we had to allocate...
@@ -249,8 +254,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 			void free() {
 				if (bufs) {
+					m_tx_bufs--;
 					bufs.free();
-					Mem.free(bufs);
+					bufs.destroy();
 					bufs = null;
 				}
 				freeHeaders();
@@ -953,15 +959,15 @@ private:
 				if ((m_safety_level & SafetyLevel.LockMemory) != 0 && !bufs.use_secure_mem) {
 					bufs.free();
 					Buffers old = bufs;
-					bufs = Mem.alloc!Buffers(old.chunk_length, old.max_chunk, 1, 0, true, false);
-					Mem.free(old);
+					bufs = new Buffers(old.chunk_length, old.max_chunk, 1, 0, true, false);
+					old.destroy();
 				}
 				else if ((m_safety_level & SafetyLevel.LockMemory) == 0 && bufs.use_secure_mem)
 				{ // switch from Secure to Insecure
 					bufs.free();
 					Buffers old = bufs;
-					bufs = Mem.alloc!Buffers(old.chunk_length, old.max_chunk, 1, 0, false, false);
-					Mem.free(old);
+					bufs = new Buffers(old.chunk_length, old.max_chunk, 1, 0, false, false);
+					old.destroy();
 				}
 				
 				if (m_safety_level & SafetyLevel.ZeroizeBuffers)
@@ -1051,8 +1057,10 @@ private:
 
 	void checkConnected() {
 
-		scope(failure)
+		scope(failure) {
 			onClose();
+			m_rx.free();
+		}
 		if (m_session) {
 			if (m_session.m_rx.ex) {
 				throw m_session.m_rx.ex;
@@ -1066,7 +1074,10 @@ private:
 	}
 
 	void processExceptions() {
-		scope(failure) onClose();
+		scope(failure) {
+			onClose();
+			m_rx.free();
+		}
 
 		if (m_rx.ex)
 			throw m_rx.ex;
@@ -1093,6 +1104,7 @@ private:
 		
 		m_rx.notifyAll();
 		onClose();
+		m_rx.free();
 	}
 
 	void onClose() {
@@ -1166,8 +1178,10 @@ private:
 		int remote_window_size = m_session.get().getRemoteSettings(Setting.INITIAL_WINDOW_SIZE);
 		int local_window_size = m_session.m_defaultStreamWindowSize;
 		m_maxFrameSize = min(chunk_size, remote_chunk_size);
-		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
-		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_rx.bufs = new Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_tx.bufs = new Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_rx_bufs++;
+		m_tx_bufs++;
 		// once read is called, the buffers will adjust to the user's desired memory safety level.
 		m_safety_level_changed = m_session.m_tlsStream?true:false;
 	}
@@ -1197,7 +1211,10 @@ struct HTTP2Settings {
 		Settings settings = Settings(FrameFlags.NONE, iva);
 		import libhttp2.constants : FRAME_HDLEN;
 		Buffers bufs = Mem.alloc!Buffers(2048, 1, FRAME_HDLEN + 1);
-		scope(exit) Mem.free(bufs);
+		scope(exit) {
+			bufs.free();
+			Mem.free(bufs);
+		}
 		ErrorCode rv = settings.pack(bufs);
 		if (rv != 0)
 			throw new Exception("Could not pack settings: " ~ libhttp2.types.toString(rv));
@@ -1324,7 +1341,8 @@ final class HTTP2Session
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
 		if (!is_server)
 			topStream.write("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
-		m_session = Mem.alloc!Session(is_server, m_connector, options);
+		m_session = new Session(is_server, m_connector, options);
+		scope(failure) m_session.destroy();
 		update(local_settings);
 		if (tls)
 			m_rx.buffer = SecureMem.alloc!(ubyte[])(local_settings.connectionWindowSize);
@@ -1352,8 +1370,8 @@ final class HTTP2Session
 		options.setNoAutoWindowUpdate(true); // we will send them when reading the buffers, it's safer
 		options.setRecvClientPreface(false);
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
-		m_session = Mem.alloc!Session(m_server, m_connector, options);
-		
+		m_session = new Session(m_server, m_connector, options);
+		scope(failure) m_session.destroy();
 		HTTP2Stream stream = new HTTP2Stream(this, 1, m_defaultChunkSize);
 		stream.m_connected = true;
 		stream.m_active = true;
@@ -1388,9 +1406,11 @@ final class HTTP2Session
 		options.setNoAutoWindowUpdate(true); // we will send them when reading the buffers, it's safer
 		options.setRecvClientPreface(true);
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
-		m_session = Mem.alloc!Session(m_server, m_connector, options);
+		m_session = new Session(m_server, m_connector, options);
+		scope(failure) m_session.destroy();
 		
 		stream = new HTTP2Stream(this, 1);
+		scope(failure) stream.destroy();
 
 		ubyte[] settings = local_settings.toSettingsPayload();
 		scope(exit) Mem.free(settings);
@@ -1436,8 +1456,8 @@ final class HTTP2Session
 			onClose();
 		}
 		Task reader = runTask(&readLoop, is_upgrade);
+		scope(exit) { if (isServer) reader.join(); }
 		writeLoop(is_upgrade);
-		reader.interrupt();
 	}
 
 	/// Used when trying upgrade from HTTP/1.1 and the remote peer doesn't support HTTP/2
@@ -1447,6 +1467,7 @@ final class HTTP2Session
 		m_aborted = true;
 		m_closing = true;
 		stream.onClose();
+		stream.m_rx.free();
 		if (!m_tx.dataSignalRaised) {
 			m_tx.dataSignalRaised = true;
 			m_tx.signal.emitLocal();
@@ -1651,6 +1672,7 @@ private:
 				stream.m_rx.notifyAll();
 				stream.m_tx.notify();
 				stream.onClose();
+				stream.m_rx.free();
 			}
 		}
 		m_pushResponses.clear();
@@ -1659,12 +1681,13 @@ private:
 				stream.m_rx.notifyAll();
 				stream.m_tx.notify();
 				stream.onClose();
+				stream.m_rx.free();
 			}
 		}
 		m_tx.dirty.clear();
 		if (m_session) m_session.free();
 		if (m_connector) Mem.free(m_connector);
-		if (m_session) Mem.free(m_session);
+		if (m_session) m_session.destroy();
 		if (m_rx.buffer && m_tlsStream) {
 			SecureMem.free(m_rx.buffer);
 		}

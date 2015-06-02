@@ -42,6 +42,9 @@ private __gshared EventLoop gs_evLoop;
 private EventLoop s_evLoop;
 private DriverCore s_driverCore;
 
+int g_started;
+int g_closed;
+
 EventLoop getEventLoop() nothrow
 {
 	if (s_evLoop is null)
@@ -500,6 +503,8 @@ final class LibasyncFileStream : FileStream {
 	
 	void read(ubyte[] dst)
 	{
+		scope(failure)
+			close();
 		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		acquire();
 		scope(exit) release();
@@ -510,6 +515,7 @@ final class LibasyncFileStream : FileStream {
 			m_truncated = true;
 			m_size = 0;
 		}
+		m_finished = false;
 		enforce(dst.length <= leastSize);
 		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to read data from disk: " ~ m_impl.error);
 		while(!m_finished) {
@@ -596,6 +602,7 @@ final class LibasyncFileStream : FileStream {
 
 	private void handler() {
 		Exception ex;
+
 		if (m_impl.status.code != Status.OK)
 			ex = new Exception(m_impl.error);
 		m_finished = true;
@@ -1022,6 +1029,7 @@ final class LibasyncTCPListener : TCPListener {
 	}
 }
 
+
 final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
@@ -1079,12 +1087,14 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	this(AsyncTCPConnection conn, void delegate(TCPConnection) cb)
 	in { assert(conn !is null); }
 	body {
+		g_started++;
 		m_settings.onConnect = cb;
 		m_readBuffer.freeOnDestruct = true;
 		m_readBuffer.capacity = 64*1024;
 	}
 
 	~this() {
+		g_closed++;
 		if (!m_closed) { 
 			try onClose(null, false);
 			catch (Exception e)
@@ -1449,12 +1459,12 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (!m_closed) {
 
 			m_closed = true;
+			destroy(m_readBuffer);
+			destroy(m_slice);
+			destroy(m_buffer);
 
 			if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {
 				m_tcpImpl.conn.kill(Task.getThis() != Task.init); // close the connection
-				destroy(m_readBuffer);
-				destroy(m_slice);
-				destroy(m_buffer);
 				m_tcpImpl.conn = null;
 			}
 		}

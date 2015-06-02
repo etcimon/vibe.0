@@ -76,7 +76,14 @@ public:
 		// todo: add service name?
 		TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
 		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
-
+		scope(failure) {
+			m_tcp_conn = null;
+			m_userData = null;
+			m_alert_cb = null;
+			m_handshake_complete = null;
+			m_ctx = null;
+			m_tls_channel.destroy();
+		}
 		scope(exit) 
 			processException();
 		
@@ -85,6 +92,7 @@ public:
 
 	// This constructor is used by the TLS Context for both server and client streams
 	this(TCPConnection underlying, BotanTLSContext ctx, TLSStreamState state, string peer_name = null, NetworkAddress peer_address = NetworkAddress.init) {
+
 		m_ctx = ctx;
 		m_userData = ctx.m_userData;
 		m_tcp_conn = underlying;
@@ -105,6 +113,14 @@ public:
 			m_tls_channel = TLSBlockingChannel.init;
 			throw new Exception("Cannot load BotanTLSSteam from a connected TLS session");
 		}
+		scope(failure) {
+			m_tcp_conn = null;
+			m_userData = null;
+			m_alert_cb = null;
+			m_handshake_complete = null;
+			m_ctx = null;
+			m_tls_channel.destroy();
+		}
 		scope(exit) 
 			processException();
 
@@ -113,7 +129,11 @@ public:
 	}
 
 	~this() {
-		m_tls_channel.destroy();
+		try m_tls_channel.destroy();
+		catch (Exception e) {
+			import vibe.core.log : logError;
+			logError("Error destroying TLS Channel");
+		}
 	}
 
 	@property bool connected() const { return m_tcp_conn.connected && !m_ex; }
@@ -122,6 +142,7 @@ public:
 	{
 		if (m_tcp_conn.connected) finalize();
 		m_tcp_conn.close();
+		m_tls_channel.destroy();
 	}
 
 	void flush() { 
