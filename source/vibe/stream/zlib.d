@@ -65,6 +65,8 @@ class ZlibOutputStream : OutputStream {
 	}
 
 	~this() {
+		//import std.stdio : writeln;
+		//writeln("ZLib output");
 		freeArray(manualAllocator(), m_outbuffer);
 		if (!m_finalized)
 			deflateEnd(&m_zstream);
@@ -194,6 +196,8 @@ class ZlibInputStream : InputStream {
 	}
 
 	~this() {
+		//import std.stdio : writeln;
+		//writeln("ZLib input");
 		freeArray(manualAllocator(), m_inbuffer);
 		if (!m_finished)
 			inflateEnd(&m_zstream);

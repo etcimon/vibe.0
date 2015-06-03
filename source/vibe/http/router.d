@@ -15,11 +15,11 @@ import vibe.core.log;
 
 import std.functional;
 
-version (VibeOldRouterImpl) {
+/*version (VibeOldRouterImpl) {
 	pragma(msg, "-version=VibeOldRouterImpl is deprecated and will be removed in the next release.");
 }
 else version = VibeRouterTreeMatch;
-
+*/
 
 /**
 	An interface for HTTP request routers.
@@ -223,14 +223,15 @@ final class URLRouter : HTTPRouter {
 	/// Handles a HTTP request by dispatching it to the registered route handlers.
 	void handleRequest(HTTPServerRequest req, HTTPServerResponse res)
 	{
+		logTrace("Handle in router");
 		auto method = req.method;
 
 		auto path = req.path;
 		if (path.length < m_prefix.length || path[0 .. m_prefix.length] != m_prefix) return;
 		path = path[m_prefix.length .. $];
-
 		version (VibeRouterTreeMatch) {
 			while (true) {
+				logTrace("RouterTree");
 				bool done = false;
 				m_routes.match(path, (ridx, scope values) {
 					if (done) return;
@@ -251,7 +252,9 @@ final class URLRouter : HTTPRouter {
 		} else {
 			while(true)
 			{
+				logTrace("Normal tree has routes: %d", m_routes.length);
 				foreach (ref r; m_routes) {
+					logTrace("route match? %s -> %s %s", req.path, r.method, r.pattern);
 					if (r.method == method && r.matches(path, req.params)) {
 						logTrace("route match: %s -> %s %s", req.path, r.method, r.pattern);
 						// .. parse fields ..

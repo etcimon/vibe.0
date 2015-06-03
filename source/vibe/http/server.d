@@ -1707,9 +1707,17 @@ class HTTP2HandlerContext
 
 void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info)
 {
-	scope(exit) tcp_conn.destroy();
 	TLSStream tls_stream;
-	scope(exit) tls_stream.destroy();
+
+	scope(exit) {
+		if (tls_stream !is null)
+		{
+			if (tls_stream.connected)
+				tls_stream.close();
+			tls_stream.destroy();
+		}
+	}
+
 	if (!tcp_conn.waitForData(10.seconds())) {
 		logDebug("Client didn't send the initial request in a timely manner. Closing connection.");
 		return;
@@ -2066,7 +2074,10 @@ void handleRequest(TCPConnection tcp_conn,
 		// handle the request
 		// logTrace("handle request (body %d)", req.bodyReader.leastSize);
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
+		logTrace("Request handler");
+		scope(failure) logTrace("Failed request handler");
 		context.requestHandler(req, res);
+		logTrace("Request handler done");
 
 		// if no one has written anything, return 404
 		if ((http2_stream !is null && !http2_stream.headersWritten) || (!http2_stream && !res.headerWritten)) {

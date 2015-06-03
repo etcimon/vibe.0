@@ -30,7 +30,7 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 	assert(url.schema == "http" || url.schema == "https", "Only http(s):// supported for now.");
 
 	if(!client) client = new HTTPClient();
-
+	scope(exit) client.disconnect(false);
 	foreach( i; 0 .. 10 ){
 		bool ssl = url.schema == "https";
 		client.connect(url.host, url.port ? url.port : ssl ? 443 : 80, ssl);
@@ -113,7 +113,8 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 			{
 				ulong diff = conn.received - bytes_start;
 				sw.stop();
-				ulong msecs = cast(ulong)sw.peek().msecs;
+				import std.algorithm : max;
+				ulong msecs = max(1, cast(ulong)sw.peek().msecs);
 				poll_speed(cast(ulong) ((diff/msecs) * 8));
 			}
 			fil.write(buffer[0 .. chunk]);

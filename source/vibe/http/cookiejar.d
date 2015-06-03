@@ -145,8 +145,9 @@ public:
 
 	this(string path)
 	{
-		if (!path.canFind('/') || path.startsWith("./"))
-			path = getcwd() ~ "/" ~ path;
+		version(Posix)
+			if (!path.canFind('/') || path.startsWith("./"))
+				path = getcwd() ~ "/" ~ path;
 
 		this(Path(path));
 	}

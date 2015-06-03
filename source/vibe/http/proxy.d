@@ -66,9 +66,10 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 	{
 		auto rurl = url;
 		rurl.localURI = req.requestURL;
-
+		logTrace("Enter proxy");
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
+			logInfo("Handle proxy client request");
 			creq.method = req.method;
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
@@ -146,7 +147,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			if (res.isHeadResponse) res.writeVoidBody();
 			else res.bodyWriter.write(cres.bodyReader);
 		}
-
+		logTrace("Proxy requestHTTP");
 		requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
 	}
 

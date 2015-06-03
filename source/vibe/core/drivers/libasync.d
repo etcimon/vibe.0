@@ -31,6 +31,7 @@ import core.atomic;
 import core.memory;
 import core.thread;
 import core.sync.mutex;
+import memutils.utils;
 import memutils.vector;
 
 import vibe.core.drivers.timerqueue;
@@ -261,7 +262,13 @@ final class LibasyncDriver : EventDriver {
 				getDriverCore().resumeTask(waiter);
 			}
 		});
-
+		scope(failure) {
+			if (tcp_connection) {
+				if (tcp_connection.connected)
+					tcp_connection.close();
+				tcp_connection.destroy();
+			}
+		}
 		if (Task.getThis() != Task()) 
 			tcp_connection.acquireWriter();
 
@@ -638,7 +645,7 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 	
 	~this()
 	{
-		m_impl.kill();
+		if (m_impl) m_impl.kill();
 	}
 	
 	@property Path path() const { return m_path; }
@@ -762,8 +769,8 @@ final class LibasyncManualEvent : ManualEvent {
 		shared(int) m_emitCount = 0;
 		shared(int) m_threadCount = 0;
 		shared(size_t) m_instance;
-		Vector!(void*) ms_signals;
-		Vector!Task m_localWaiters;
+		Vector!(void*, Malloc) ms_signals;
+		Vector!(Task, Malloc) m_localWaiters;
 		Thread m_owner;
 		core.sync.mutex.Mutex m_mutex;
 	}
@@ -879,7 +886,8 @@ final class LibasyncManualEvent : ManualEvent {
 		auto vec = taskList[0 .. idx];
 		if (idx != taskList.length - 1)
 			vec ~= taskList[idx + 1 .. $];
-		s_eventWaiters[m_instance][] = vec[];
+		s_eventWaiters[m_instance].clear();
+		s_eventWaiters[m_instance] ~= vec;
 		if (s_eventWaiters[m_instance].empty) {
 			removeMySignal();
 		}
@@ -943,7 +951,8 @@ final class LibasyncManualEvent : ManualEvent {
 			auto vec = ms_signals[0 .. idx];
 			if (idx != ms_signals.length-1)
 				vec ~= ms_signals[idx + 1 .. $];
-			ms_signals[] = vec[];			
+			ms_signals.clear();
+			ms_signals ~= vec;
 		}
 	}
 
@@ -953,7 +962,7 @@ final class LibasyncManualEvent : ManualEvent {
 		s_eventWaiters.reserve(maxID + 1);
 		logTrace("gs_maxID: %d", maxID);
 		foreach (i; s_eventWaiters.length .. s_eventWaiters.capacity) {
-			s_eventWaiters.insertBack(Vector!Task.init);
+			s_eventWaiters.insertBack(Vector!(Task, Malloc).init);
 		}
 	}
 
@@ -1094,12 +1103,11 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	~this() {
-		g_closed++;
 		if (!m_closed) { 
 			try onClose(null, false);
 			catch (Exception e)
 			{
-				logError("Failure in TCPConnection dtor: %s", e.msg);
+				//writeln("Failure in TCPConnection dtor: %s", e.msg);
 			}
 		}
 	}
@@ -1457,6 +1465,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (msg)
 			m_error = msg;
 		if (!m_closed) {
+			g_closed++;
 
 			m_closed = true;
 			destroy(m_readBuffer);
@@ -1759,8 +1768,8 @@ final class LibasyncUDPConnection : UDPConnection {
 
 /* The following is used for LibasyncManualEvent */
 
-Vector!(memutils.vector.Array!Task) s_eventWaiters; // Task list in the current thread per instance ID
-__gshared Vector!size_t gs_availID;
+Vector!(memutils.vector.Array!(Task, Malloc), Malloc) s_eventWaiters; // Task list in the current thread per instance ID
+__gshared Vector!(size_t, Malloc) gs_availID;
 __gshared size_t gs_maxID = 1;
 __gshared core.sync.mutex.Mutex gs_mutex;
 

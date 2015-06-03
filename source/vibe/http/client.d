@@ -55,13 +55,15 @@ import std.datetime;
 	of the function it is recommended to put a $(D scope(exit)) right after the call in which
 	HTTPClientResponse.dropBody is called to avoid this.
 */
-HTTPClientResponse requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = defaultSettings)
+HTTPClientResponse requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = null)
 {
+	if (!settings) settings = defaultSettings();
 	return requestHTTP(URL.parse(url), requester, settings);
 }
 /// ditto
-HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = defaultSettings)
+HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = null)
 {
+	if (!settings) settings = defaultSettings();
 	enforce(url.schema == "http" || url.schema == "https", "URL schema must be http(s).");
 	enforce(url.host.length > 0, "URL must contain a host name.");
 	bool use_tls = url.schema == "https";
@@ -93,13 +95,15 @@ HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequ
 	return res;
 }
 /// ditto
-void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = defaultSettings)
+void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
 {
+	if (!settings) settings = defaultSettings();
 	requestHTTP(URL(url), requester, responder, settings);
 }
 /// ditto
-void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = defaultSettings)
+void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
 {
+	if (!settings) settings = defaultSettings();
 	enforce(url.schema == "http" || url.schema == "https", "URL schema must be http(s).");
 	enforce(url.host.length > 0, "URL must contain a host name.");
 	bool use_tls = url.schema == "https";
@@ -156,8 +160,9 @@ unittest {
 	usually requestHTTP should be used for making requests instead of manually using a
 	HTTPClient to do so.
 */
-auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientSettings settings = defaultSettings)
+auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientSettings settings = null)
 {
+	if (!settings) settings = defaultSettings();
 	static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
 	static FixedRingBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) s_connections;
 
@@ -482,11 +487,10 @@ final class HTTPClient {
 			m_http2Context.closing = false;
 		}
 		else if (isHTTP2Started && rst_stream) {
-			if (m_state.http2Stream && m_state.http2Stream.connected) {
+			if (m_state.http2Stream) {
 				try m_state.http2Stream.close();
 				catch (Exception e) logDebug("Failed to finalize connection stream when closing HTTP client connection: %s", e.msg);
 			}
-			m_state.http2Stream.destroy();
 			m_state.http2Stream = null;
 		}
 		else if (!isHTTP2Started && m_conn.tcp && m_conn.tcp.connected) {
@@ -1401,7 +1405,7 @@ final class HTTPClientResponse : HTTPResponse {
 		destroy(m_gzipInputStream);
 		destroy(m_chunkedInputStream);
 		destroy(m_limitedInputStream);
-		if (!keepalive && !cli.isHTTP2Started) cli.disconnect();
+		if (!keepalive || cli.isHTTP2Started) cli.disconnect();
 		if (m_endCallback.get() !is null) m_endCallback.drop();
 		//destroy(m_bodyReader); this is endCallback, could end up making an infinite loop
 		destroy(lockedConnection);
@@ -1428,10 +1432,12 @@ class HTTPClientConnection {
 	int maxRequests = int.max;
 
 	~this() {
-		if (tcp)
-			tcp.destroy();
-		if (tlsStream)
+		if (tlsStream) {
 			tlsStream.destroy();
+		}
+		if (tcp) {
+			tcp.destroy();
+		}
 	}
 
 	void rearmKeepAlive() {
@@ -1517,7 +1523,13 @@ struct HTTPClientState {
 private __gshared NullOutputStream s_sink;
 
 // This object is a placeholder and should to never be modified.
-private __gshared HTTPClientSettings defaultSettings = new HTTPClientSettings;
+private HTTPClientSettings g_defaultSettings;
+
+HTTPClientSettings defaultSettings() {
+	if (!g_defaultSettings)
+		g_defaultSettings = new HTTPClientSettings;
+	return g_defaultSettings;
+}
 
 static this()
 {

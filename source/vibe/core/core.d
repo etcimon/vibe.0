@@ -1448,7 +1448,7 @@ static ~this()
 			while (st_threads.any!(th => !th.thread.isDaemon)) {
 				logDiagnostic("Main thread still waiting for other threads: %s",
 					st_threads.map!(t => t.thread.name ~ (t.isWorker ? " (worker thread)" : "")).join(", "));
-				st_threadShutdownCondition.wait();
+				st_threadShutdownCondition.wait(1.seconds);
 			}
 			logDiagnostic("Main thread exiting");
 		}

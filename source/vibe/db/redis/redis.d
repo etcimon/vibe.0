@@ -637,7 +637,7 @@ final class RedisSubscriberImpl {
 	}
 
 	~this() {
-		logTrace("~this");
+		//logTrace("~this");
 		bstop();
 	}
 
@@ -1169,7 +1169,7 @@ struct RedisReply(T = ubyte[]) {
 
 	~this()
 	{
-		assert(m_magic == 0x15f67ab3);
+		//assert(m_magic == 0x15f67ab3);
 		if (m_conn) {
 			if (!--m_conn.m_replyContext.refCount)
 				drop();

@@ -165,7 +165,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				if (bufs) {
 					m_rx_bufs--;
 					bufs.free();
-					bufs.destroy();
+					Mem.free(bufs);
 					bufs = null;
 				}
 
@@ -253,10 +253,10 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 
 			void free() {
-				if (bufs) {
+				if (bufs && bufs.head) {
 					m_tx_bufs--;
 					bufs.free();
-					bufs.destroy();
+					Mem.free(bufs);
 					bufs = null;
 				}
 				freeHeaders();
@@ -273,7 +273,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 						if (icmp2(hf.name, "Set-Cookie") == 0) Mem.free(hf.value);
 						if (icmp2(hf.name, "HTTP2-Settings") == 0) Mem.free(hf.value);
 					}
-					Mem.free(headers);
 				}
 			}
 
@@ -347,14 +346,14 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				auto stream_internal = m_session.get().getStream(streamId);
 				if (stream_internal !is null)
 					m_session.get().destroyStream(stream_internal);
+				if (m_tx.bufs) onClose();
+				m_rx.free();
 			}
-			if (m_tx.bufs) onClose();
-			m_rx.free();
-			m_session = null;
 		}
 		catch (Throwable th) {
 			import vibe.core.log : logError;
-			logError("HTTP2Session.~this: %s", th.msg);
+			//import std.stdio : writeln;
+			//writeln("HTTP2Stream ~this: ", th.msg);
 		} 
 	}
 
@@ -393,26 +392,26 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		foreach (HeaderField hf; m_rx.headers) {
 			if (hf.name == ":path") 
-				url.localURI = hf.value;
+				url.localURI = hf.value.idup;
 			else if (hf.name == ":scheme")
-				url.schema = hf.value;
+				url.schema = hf.value.idup;
 			else if (hf.name == ":method")
 				method = httpMethodFromString(hf.value);
 			else if ((icmp2(hf.name, "host") == 0 && !url.host) || hf.name == ":authority") {
 				import std.algorithm : countUntil;
 				int idx = cast(int)hf.value.countUntil(":");
 				if (idx == -1)
-					url.host = hf.value;
+					url.host = hf.value.idup;
 				else {
 					import std.conv : parse;
-					url.host = hf.value[0 .. idx];
+					url.host = hf.value[0 .. idx].idup;
 					auto chunk = hf.value[idx + 1 .. $];
 					url.port = to!ushort(chunk);
 				}
-				header.addField("Host", hf.value);
+				header.addField("Host", hf.value.idup);
 			}
 			else
-				header.addField(hf.name, hf.value);
+				header.addField(hf.name.idup, hf.value.idup);
 		}
 	}
 
@@ -441,9 +440,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			if (hf.name == ":status")
 				status_code = hf.value.parse!int;
 			else if (hf.name == ":authority")
-				header.addField("Host", hf.value);
+				header.addField("Host", hf.value.idup);
 			else
-				header.addField(hf.name, hf.value);
+				header.addField(hf.name.idup, hf.value.idup);
 		}
 
 
@@ -552,17 +551,15 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				cookie_jar.get(authority, path, scheme == "https", &cookieSinkIndividually);
 		}
 		logDebug("Cookie jar got ", cookie_arr.length, " concat: ", cookie_concat.length);
-		int len = cast(int)( 2 /* :scheme :path */ + 1 /* :method */ + header.length + cookie_arr.length + (cookie_jar && cookie_concat?1:0) ) /* one per field for indexing */;
-		HeaderField[] headers = Mem.alloc!(HeaderField[])(len);
-		scope(failure) {
-			Mem.free(headers);
-		}
-		size_t i;
+		//int len = cast(int)( 2 /* :scheme :path */ + 1 /* :method */ + header.length + cookie_arr.length + (cookie_jar && cookie_concat?1:0) ) /* one per field for indexing */;
+		import std.array : Appender;
+		Appender!(HeaderField[]) headers;
+
 		// write method, scheme, path pseudo-headers
-		headers[i++] = HeaderField(":method", methods[method]);
-		headers[i++] = HeaderField(":scheme", scheme);
-		headers[i++] = HeaderField(":path", path);
-		headers[i++] = HeaderField(":authority", authority);
+		headers ~= HeaderField(":method", methods[method]);
+		headers ~= HeaderField(":scheme", scheme);
+		headers ~= HeaderField(":path", path);
+		headers ~= HeaderField(":authority", authority);
 
 		bool wrote_cookie;
 
@@ -582,24 +579,24 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 					char[] cookie_val = Mem.alloc!(char[])(value.length);
 					cookie_val[] = cast(char[]) value;
 					cookie_arr ~= cookie_val;
-					headers[i++] = HeaderField("Cookie", cast(string) cookie_val);	
-				} else len--;
+					headers ~= HeaderField("Cookie", cast(string) cookie_val);	
+				} 
 			}
-			else headers[i++] = HeaderField(name, value);
+			else headers ~= HeaderField(name, value);
 		}
 
 		// write cookies, individually by default to use indexing
 		if (cookie_jar) {
 			if (concatenate_cookies)
-				headers[i++] = HeaderField("Cookie", cast(string) cookie_concat);
+				headers ~= HeaderField("Cookie", cast(string) cookie_concat);
 			else if (!wrote_cookie) foreach (char[] cookie; cookie_arr[])
-				headers[i++] = HeaderField("Cookie", cast(string) cookie);
+				headers ~= HeaderField("Cookie", cast(string) cookie);
 		}
 
 		//commit
-		m_tx.headers = headers;
+		m_tx.headers = headers.data;
 		logDebug(m_tx.headers.to!string); 
-		assert(len == i);
+		//assert(len == i);
 
 		dirty();
 	}
@@ -711,7 +708,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireReader();
 		scope(exit) releaseReader();
 		
-		while( m_rx.bufs.length == 0 )
+		while( m_rx.bufs !is null && m_rx.bufs.length == 0 )
 		{
 			if (!connected)
 				return 0;
@@ -721,11 +718,11 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingData = false;
 		}
-		return m_rx.bufs.length;
+		return (!m_rx.bufs) ? 0 : m_rx.bufs.length;
 	}
 
 	void close(FrameError error) {
-		if (!m_tx.bufs) return;
+		if (m_session && m_session.isServer && !m_tx.bufs) return;
 		// This could be called by a keep-alive timer. In this case we must forcefully free the read lock
 		if (m_rx.owner !is Task.init && m_rx.owner != Task.getThis())
 		{
@@ -734,19 +731,20 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 		acquireReader();
 		scope(exit) releaseReader();
-		m_tx.halfClosed = true; // attempts an atomic response in some cases
-		m_tx.close = true;
-		m_tx.error = error;
-		dirty();
+		if (!m_rx.close) {
+			m_tx.halfClosed = true; // attempts an atomic response in some cases
+			m_tx.close = true;
+			m_tx.error = error;
+			dirty();
 
-		while (m_stream_id > 0 && !m_rx.close) {
-			m_rx.waitingStreamExit = true;
-			m_rx.dataSignalRaised = false;
-			m_rx.signal.waitLocal();
-			m_rx.dataSignalRaised = false;
-			m_rx.waitingStreamExit = false;
+			while (m_stream_id > 0 && !m_rx.close) {
+				m_rx.waitingStreamExit = true;
+				m_rx.dataSignalRaised = false;
+				m_rx.signal.waitLocal();
+				m_rx.dataSignalRaised = false;
+				m_rx.waitingStreamExit = false;
+			}
 		}
-
 		m_rx.free();
 		onClose();
 	}
@@ -921,7 +919,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	{
 		if (!connected) {
 			m_tx.halfClosed = true;
-			m_rx.free();
+			if (m_session && m_session.isServer) m_rx.free();
 			return;
 		}
 		acquireWriter();
@@ -941,7 +939,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.free();
 		}
 		processExceptions();
-
 	}
 	
 	void write(InputStream stream, ulong nbytes = 0)
@@ -959,15 +956,15 @@ private:
 				if ((m_safety_level & SafetyLevel.LockMemory) != 0 && !bufs.use_secure_mem) {
 					bufs.free();
 					Buffers old = bufs;
-					bufs = new Buffers(old.chunk_length, old.max_chunk, 1, 0, true, false);
-					old.destroy();
+					bufs = Mem.alloc!Buffers(old.chunk_length, old.max_chunk, 1, 0, true, false);
+					Mem.free(old);
 				}
 				else if ((m_safety_level & SafetyLevel.LockMemory) == 0 && bufs.use_secure_mem)
 				{ // switch from Secure to Insecure
 					bufs.free();
 					Buffers old = bufs;
-					bufs = new Buffers(old.chunk_length, old.max_chunk, 1, 0, false, false);
-					old.destroy();
+					bufs = Mem.alloc!Buffers(old.chunk_length, old.max_chunk, 1, 0, false, false);
+					Mem.free(old);
 				}
 				
 				if (m_safety_level & SafetyLevel.ZeroizeBuffers)
@@ -1103,8 +1100,8 @@ private:
 		}
 		
 		m_rx.notifyAll();
+		if (m_session && m_session.isServer) m_rx.free();
 		onClose();
-		m_rx.free();
 	}
 
 	void onClose() {
@@ -1178,8 +1175,8 @@ private:
 		int remote_window_size = m_session.get().getRemoteSettings(Setting.INITIAL_WINDOW_SIZE);
 		int local_window_size = m_session.m_defaultStreamWindowSize;
 		m_maxFrameSize = min(chunk_size, remote_chunk_size);
-		m_rx.bufs = new Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
-		m_tx.bufs = new Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
 		m_rx_bufs++;
 		m_tx_bufs++;
 		// once read is called, the buffers will adjust to the user's desired memory safety level.
@@ -1424,8 +1421,8 @@ final class HTTP2Session
 		if (m_tcpConn !is null) { 
 			try onClose(); 
 			catch (Throwable th) {
-				import vibe.core.log : logError;
-				logError("HTTP2Session.~this: %s", th.msg);
+				//import std.stdio : writeln;
+				//writeln("HTTP2Stream ~this: ", th.msg);
 			} 
 		}
 	}
@@ -1672,7 +1669,7 @@ private:
 				stream.m_rx.notifyAll();
 				stream.m_tx.notify();
 				stream.onClose();
-				stream.m_rx.free();
+				if (isServer) stream.m_rx.free();
 			}
 		}
 		m_pushResponses.clear();
@@ -1681,13 +1678,16 @@ private:
 				stream.m_rx.notifyAll();
 				stream.m_tx.notify();
 				stream.onClose();
-				stream.m_rx.free();
+				if (isServer) stream.m_rx.free();
 			}
 		}
 		m_tx.dirty.clear();
 		if (m_session) m_session.free();
 		if (m_connector) Mem.free(m_connector);
-		if (m_session) m_session.destroy();
+		if (m_session) {
+			m_session.destroy();
+			m_session = null;
+		}
 		if (m_rx.buffer && m_tlsStream) {
 			SecureMem.free(m_rx.buffer);
 		}
