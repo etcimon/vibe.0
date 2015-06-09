@@ -1216,7 +1216,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		logTrace("waitForData TCP");
 		while (readEmpty) {
 			if (!connected) return false;
-
+			logTrace("Still Connected");
 			if (m_mustRecv)
 				onRead();
 			else {
@@ -1224,6 +1224,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_settings.reader.noExcept = true;
 				getDriverCore().yieldForEvent();
 				m_settings.reader.noExcept = false;
+				logTrace("Unyielded");
 			}
 			if (!_driver.isTimerPending(tm)) {
 				logTrace("WaitForData TCP: timer signal");
@@ -1477,9 +1478,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_tcpImpl.conn = null;
 			}
 		}
-		if (Task.getThis() != Task.init) {
-			return;
-		}
+
 		Exception ex;
 		if (!msg && wake_ex)
 			ex = new ConnectionClosedException("Connection closed");
@@ -1488,20 +1487,13 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				ex = new ConnectionClosedException(msg);
 			else ex = new Exception(msg);
 		}
-		bool hasUniqueReader;
-		bool hasUniqueWriter;
-		Task reader;
-		Task writer;
 
-		if (m_settings.reader.isWaiting && m_settings.reader.task != writer) 
-		{
-			reader = m_settings.reader.task;
-			hasUniqueReader = true;
-		}
-		if (m_settings.writer.isWaiting) {
-			writer = m_settings.writer.task;
-			hasUniqueWriter = true;
-		}
+		Task reader = m_settings.reader.task;
+		Task writer = m_settings.writer.task;
+
+		bool hasUniqueReader = m_settings.reader.isWaiting;
+		bool hasUniqueWriter = m_settings.writer.isWaiting && reader != writer;
+
 		if (hasUniqueReader && Task.getThis() != reader && wake_ex) {
 			getDriverCore().resumeTask(reader, m_settings.reader.noExcept?null:ex);
 		}

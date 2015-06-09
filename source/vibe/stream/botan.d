@@ -2,6 +2,7 @@
 
 version(Botan):
 version = X509;
+import core.thread : Thread;
 import botan.constants;
 import botan.cert.x509.x509cert;
 import botan.cert.x509.certstor;
@@ -75,7 +76,7 @@ public:
 		assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 		// todo: add service name?
 		TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
-		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		try m_tls_channel.doHandshake();
 		catch(Exception e) m_ex = e;
 	}
@@ -90,14 +91,14 @@ public:
 		if (state == TLSStreamState.accepting)
 		{
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
-			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
+			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
 		
 		}
 		else if (state == TLSStreamState.connecting) {
 			assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 			// todo: add service name?
 			TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
-			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		}
 		else /*if (state == TLSStreamState.connected)*/ {
 			m_tls_channel = TLSBlockingChannel.init;
@@ -108,8 +109,6 @@ public:
 	}
 
 	~this() {
-		//import std.stdio : writeln;
-		//writeln("Botan");
 		try m_tls_channel.destroy();
 		catch (Exception e) {
 		}
@@ -151,7 +150,7 @@ public:
 					return false;
 			}
 
-			if (!connected) return false;
+			if (!connected || !m_tcp_conn.connected) return false;
 			m_tls_channel.readBuf(null); // force an exchange			
 		}
 		return true;
@@ -281,17 +280,27 @@ private:
 
 class BotanTLSContext : TLSContext {
 private:
+	Thread m_owner;
 	TLSSessionManager m_session_manager;
 	TLSPolicy m_policy;
 	TLSCredentialsManager m_credentials;
 	TLSContextKind m_kind;
-	AutoSeededRNG m_rng;
+	Unique!AutoSeededRNG m_rng;
 	TLSProtocolVersion m_offer_version;
 	TLSServerNameCallback m_sniCallback;
 	TLSALPNCallback m_serverCb;
 	Vector!string m_clientOffers;
 	void* m_userData;
 	bool m_is_datagram;
+
+	~this() {
+		// fixme: This needs to defer destruction instead
+		if (m_owner != Thread.getThis()) return;
+		m_credentials.destroy();
+		if (m_policy !is gs_default_policy) m_policy.destroy();
+		m_offer_version.destroy();
+		m_session_manager.destroy();
+	}
 
 public:
 
@@ -301,6 +310,7 @@ public:
 		 TLSSessionManager session_manager = null,
 		 bool is_datagram = false)
 	{
+		m_owner = Thread.getThis();
 		if (!credentials)
 			credentials = new CustomTLSCredentials();
 		m_kind = kind;
@@ -312,14 +322,17 @@ public:
 		else
 			m_offer_version = TLSProtocolVersion.TLS_V12;
 
-		m_rng = AutoSeededRNG();
+		m_rng = new AutoSeededRNG;
 		if (!session_manager)
-			session_manager = new TLSSessionManagerInMemory(m_rng);
+			session_manager = new TLSSessionManagerInMemory(*m_rng);
 		m_session_manager = session_manager;
 
 		if (!policy) {
-			if (!gs_default_policy)
+			if (!gs_default_policy) {
+				import core.thread : Thread;
+				gs_ctor = Thread.getThis();
 				gs_default_policy = new CustomTLSPolicy();
+			}
 			policy = cast(TLSPolicy)gs_default_policy;
 		}
 		m_policy = policy;
@@ -458,7 +471,7 @@ public:
 	void usePrivateKeyFile(string path) { 
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			import botan.pubkey.pkcs8 : loadKey;
-			credentials.m_key = loadKey(path, m_rng);
+			credentials.m_key = loadKey(path, *m_rng);
 			return;
 		}
 		else assert(false, "Cannot handle usePrivateKeyFile if CustomTLSCredentials is not used");
@@ -772,7 +785,13 @@ public:
 	
 	override SymmetricKey psk(in string type, in string context, in string identity)
 	{ return super.psk(type, context, identity); }
-	
+
+	~this() { 
+		m_key.destroy(); 
+		foreach (ref CertificateStore store; m_stores[]) {
+			store.destroy();
+		}
+	}
 public:
 	X509Certificate m_server_cert, m_ca_cert;
 	PrivateKey m_key;
@@ -793,36 +812,43 @@ CustomTLSCredentials createCreds()
 	import botan.pubkey.algo.rsa;
 	import botan.codec.hex;
 	import botan.utils.types;
-	auto rng = AutoSeededRNG();
-	PrivateKey ca_key = RSAPrivateKey(rng, 1024);
-	
+
+	Unique!AutoSeededRNG rng = new AutoSeededRNG;
+
+	auto ca_key = RSAPrivateKey(*rng, 1024);
+	scope(exit) ca_key.destroy();
 	X509CertOptions ca_opts;
 	ca_opts.common_name = "Test CA";
 	ca_opts.country = "US";
 	ca_opts.CAKey(1);
 	
-	X509Certificate ca_cert = x509self.createSelfSignedCert(ca_opts, ca_key, "SHA-256", rng);
+	X509Certificate ca_cert = x509self.createSelfSignedCert(ca_opts, *ca_key, "SHA-256", *rng);
 	
-	PrivateKey server_key = RSAPrivateKey(rng, 1024);
+	auto server_key = RSAPrivateKey(*rng, 1024);
 	
 	X509CertOptions server_opts;
 	server_opts.common_name = "localhost";
 	server_opts.country = "US";
 	
-	PKCS10Request req = x509self.createCertReq(server_opts, server_key, "SHA-256", rng);
+	PKCS10Request req = x509self.createCertReq(server_opts, *server_key, "SHA-256", *rng);
 	
-	X509CA ca = X509CA(ca_cert, ca_key, "SHA-256");
+	X509CA ca = X509CA(ca_cert, *ca_key, "SHA-256");
 	
 	auto now = Clock.currTime(UTC());
 	X509Time start_time = X509Time(now);
 	X509Time end_time = X509Time(now + 365.days);
 	
-	X509Certificate server_cert = ca.signRequest(req, rng, start_time, end_time);
+	X509Certificate server_cert = ca.signRequest(req, *rng, start_time, end_time);
 	
-	return new CustomTLSCredentials(server_cert, ca_cert, server_key);
+	return new CustomTLSCredentials(server_cert, ca_cert, server_key.release());
 }
 
 private:
+static ~this() {
+	if (Thread.getThis() == gs_ctor)
+		gs_default_policy.destroy();
+}
 
+__gshared Thread gs_ctor;
 __gshared CustomTLSPolicy gs_default_policy;
 

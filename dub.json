@@ -23,7 +23,7 @@
 		{
 			"name": "libasync_botan",
 			"dependencies": {
-				"botan": {"version": "~>1.11.12", "path": "../botan" },
+				"botan": {"version": "~>1.11.13", "path": "../botan" },
 				"libasync": {"version": "~>0.7.4", "path": "../libasync" }
 			},
 			"versions": ["Botan", "VibeUseNativeDriverType", "VibeLibasyncDriver"]

@@ -69,7 +69,6 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		logTrace("Enter proxy");
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
-			logInfo("Handle proxy client request");
 			creq.method = req.method;
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
@@ -92,12 +91,13 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			// copy the response to the original requester
 			res.statusCode = cres.statusCode;
 
-
 			// special case for empty response bodies
-			if (("Content-Encoding" !in cres.headers && "Content-Length" !in cres.headers && "Transfer-Encoding" !in cres.headers) || req.method == HTTPMethod.HEAD) {
+			if (cres.isFinalized) {
 				foreach (key, value; cres.headers) {
-					if (icmp2(key, "Connection") != 0)
+					if (icmp2(key, "Connection") != 0) {
 						res.headers[key] = value;
+						break;
+					}
 				}
 				res.writeVoidBody();
 				return;
@@ -128,13 +128,10 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 						res.headers[key] = value;
 				}
 				auto size = cres.headers["Content-Length"].to!size_t();
-				if (res.isHeadResponse) res.writeVoidBody();
-				else {
-					logDebug("Request was: %s", req.requestURL);
-					logDebug("Got headers: %s", cres.headers);
-					cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
-				}
-				assert(res.headerWritten);
+				logDebug("Request was: %s", req.requestURL);
+				logDebug("Got headers: %s", cres.headers);
+				cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
+				if (!res.headerWritten) res.writeVoidBody();
 				return;
 			}
 
@@ -144,8 +141,10 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				if (n !in non_forward_headers_map)
 					res.headers[n] = v;
 			}
-			if (res.isHeadResponse) res.writeVoidBody();
-			else res.bodyWriter.write(cres.bodyReader);
+			if (!cres.bodyReader.empty) 
+				res.bodyWriter.write(cres.bodyReader);
+			else
+				res.writeVoidBody();
 		}
 		logTrace("Proxy requestHTTP");
 		requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);

@@ -35,7 +35,6 @@ struct DictionaryList(VALUE, bool case_sensitive = true, size_t NUM_STATIC_FIELD
 		Field[NUM_STATIC_FIELDS] m_fields;
 		size_t m_fieldCount = 0;
 		Field[] m_extendedFields;
-		static char[256] s_keyBuffer;
 	}
 	
 	alias ValueType = VALUE;

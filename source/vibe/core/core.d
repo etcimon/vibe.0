@@ -195,7 +195,8 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	if (f is null) {
 		// if there is no fiber available, create one.
 		if (s_availableFibers.capacity == 0) s_availableFibers.capacity = 1024;
-		logTrace("Creating new fiber...");
+		version(VibeFiberDebug)
+			logTrace("Creating new fiber #%d", s_fiberCount);
 		s_fiberCount++;
 		f = new CoreTask;
 	}
@@ -217,6 +218,24 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	}
 
 	return handle;
+}
+
+version(VibeFiberDebug)
+{
+	void interruptAll() {
+		runTask({
+				int i;
+				ulong j = g_tasks.length;
+				foreach (t; g_tasks) {
+					if (!t.task) continue;
+					t.task.interrupt();
+					i++;
+				}
+				logDebug("Interrupted %d tasks of %d with %d running", i, j, s_fiberCount);
+			});
+	}
+
+	static CoreTask[] g_tasks;
 }
 
 /**
@@ -946,6 +965,9 @@ private class CoreTask : TaskFiber {
 
 	private void run()
 	{
+		scope(exit) 
+			s_fiberCount--;
+		version(EnableDebugger) g_tasks ~= this;
 		version (VibeDebugCatchAll) alias UncaughtException = Throwable;
 		else alias UncaughtException = Exception;
 		try {
@@ -1014,11 +1036,12 @@ private class CoreTask : TaskFiber {
 				messageQueue.clear();
 
 				s_availableFibers.put(this);
+				version(VibeFiberDebug) 
+					logTrace("Recycling fiber, now have %d fibers available and %d total", s_availableFibers.length, s_fiberCount);
 			}
 		} catch(UncaughtException th) {
 			logCritical("CoreTaskFiber was terminated unexpectedly: %s", th.msg);
 			logDiagnostic("Full error: %s", th.toString().sanitize());
-			s_fiberCount--;
 		}
 	}
 
@@ -1089,8 +1112,9 @@ private class VibeDriverCore : DriverCore {
 
 	void resumeTask(Task task, Exception event_exception = null)
 	{
-		assert(Task.getThis() == Task.init, "Calling resumeTask from another task.");
-		resumeTask(task, event_exception, false);
+		if (Task.getThis() != Task.init)
+			yieldAndResumeTask(task, event_exception);
+		else resumeTask(task, event_exception, false);
 	}
 
 	void yieldAndResumeTask(Task task, Exception event_exception = null)

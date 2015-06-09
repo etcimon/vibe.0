@@ -33,6 +33,7 @@ import memutils.circularbuffer;
 import memutils.vector;
 import memutils.utils;
 
+import core.thread : Thread;
 import std.base64;
 import std.datetime;
 import std.conv : to;
@@ -101,7 +102,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		// state
 		int m_stream_id = -1; // -1 if fresh client request. >0 and always defined on server streams
 		@property int streamId() { return m_stream_id; }
-
+		Thread m_owner;
 		HTTP2Session m_session;
 		bool m_opener; // used to determine if we should close the session and redirect
 		bool m_connected;
@@ -273,6 +274,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 						if (icmp2(hf.name, "Set-Cookie") == 0) Mem.free(hf.value);
 						if (icmp2(hf.name, "HTTP2-Settings") == 0) Mem.free(hf.value);
 					}
+					headers.destroy();
 				}
 			}
 
@@ -319,6 +321,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	}
 
 	this() {
+		m_owner = Thread.getThis();
 		m_rx.signal = getEventDriver.createManualEvent();
 		m_tx.signal = getEventDriver.createManualEvent();
 	}
@@ -326,6 +329,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	this(HTTP2Session sess, int stream_id, int chunk_size = 16*1024, bool push = false)
 	in { assert(sess !is null && stream_id != 0); }
 	body {
+		m_owner = Thread.getThis();
 		logDebug("Stream ctor");
 		m_session = sess;
 		m_rx.signal = getEventDriver.createManualEvent();
@@ -341,6 +345,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	~this()
 	{
+		// fixme: This should never be called, but needs to defer the destructor
+		if (m_owner != Thread.getThis()) return;
 		try {
 			if (m_session && m_session.get() && streamId > 0) {
 				auto stream_internal = m_session.get().getStream(streamId);
@@ -351,7 +357,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 		}
 		catch (Throwable th) {
-			import vibe.core.log : logError;
+			//import vibe.core.log : logError;
 			//import std.stdio : writeln;
 			//writeln("HTTP2Stream ~this: ", th.msg);
 		} 
@@ -450,36 +456,35 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	/// Queue server response headers, sent when responding to a client. The session must be opened as a server.
 	void writeHeader(in HTTPStatus status, const ref InetHeaderMap header, ref Cookie[string] cookies)
-	in { assert(m_session.isServer); }
+	in { enforce(m_session); assert(m_session.isServer); }
 	body {
 		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
-		int len = cast(int)( 1 /*:status*/ + header.length + cookies.length );
-		HeaderField[] headers = Mem.alloc!(HeaderField[])(len);
+		//int len = cast(int)( 1 /*:status*/ + header.length + cookies.length );
+		import std.array : Appender;
+		Appender!(HeaderField[]) headers;
 		scope(failure) {
-			foreach (hf; headers)
+			foreach (hf; headers.data)
 			{
 				if (hf.name == ":status") Mem.free(hf.value);
 				if (icmp2(hf.name, "Set-Cookie") == 0) Mem.free(hf.value);
 			}
-			Mem.free(headers);
 		}
 		char[] status_str = Mem.alloc!(char[])(3);
 		import std.c.stdio : sprintf;
 		sprintf(status_str.ptr, "%d\0", cast(int)status);
-		size_t i;
 		// write status code
-		headers[i++] = HeaderField(":status", cast(string) status_str);
+		headers ~= HeaderField(":status", cast(string) status_str);
 
 		// write headers
 		foreach (string name, const ref string value; header) 
 		{
 			if (icmp2(name, "Host") == 0)
-				headers[i++] = HeaderField(":authority", value);
+				headers ~= HeaderField(":authority", value);
 			else
-				headers[i++] = HeaderField(name, value);
+				headers ~= HeaderField(name, value);
 
 		}
 
@@ -498,19 +503,18 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			dst.flush();
 			char[] cookie_val = cast(char[]) Mem.copy(memstream.data);
 			memstream.reset();
-			headers[i++] = HeaderField("Set-Cookie", cast(string) cookie_val);
+			headers ~= HeaderField("Set-Cookie", cast(string) cookie_val);
 		}
 
 		//commit
-		m_tx.headers = headers;
-		
-		assert(len == i);
+		m_tx.headers = headers.data;
+
 		dirty();
 	}
 
 	/// Queue client request headers, sent when requesting data from a server. The session must be opened as a client.
 	void writeHeader(in string path, in string scheme, in HTTPMethod method, const ref InetHeaderMap header, in CookieStore cookie_jar, bool concatenate_cookies)
-	in { assert(!m_session.isServer); }
+	in { enforce(m_session); assert(!m_session.isServer); }
 	body {
 		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
@@ -737,7 +741,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_tx.error = error;
 			dirty();
 
-			while (m_stream_id > 0 && !m_rx.close) {
+			while (connected && m_stream_id > 0 && !m_rx.close) {
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
 				m_rx.signal.waitLocal();
@@ -1030,7 +1034,7 @@ private:
 	
 	void releaseReader() { 
 		logDebug("HTTP2 Reader Released");
-		if (Task.getThis() == Task()) return;
+		if (Task.getThis() == Task() || m_tx.owner == Task.init) return;
 		assert(m_rx.owner == Task.getThis());
 		m_rx.owner = Task();
 	}
@@ -1047,7 +1051,7 @@ private:
 	}
 	
 	void releaseWriter() { 
-		if (Task.getThis() == Task()) return;
+		if (Task.getThis() == Task() || m_tx.owner == Task.init) return;
 		assert(m_tx.owner == Task.getThis()); 
 		m_tx.owner = Task();
 	}
@@ -1106,6 +1110,8 @@ private:
 
 	void onClose() {
 		m_connected = false;
+		m_rx.owner = Task.init;
+		m_tx.owner = Task.init;
 		if (m_session && m_session.m_tcpConn) {
 			if (m_session.m_closing && !m_session.m_tx.dataSignalRaised) {
 				m_session.m_tx.dataSignalRaised = true;
@@ -1234,6 +1240,7 @@ final class HTTP2Session
 	static ulong total_sessions_running;
 
 	import vibe.stream.tls : TLSStream;
+	Thread m_owner;
 	Session m_session; // libhttp2 implementation
 	TCPConnection m_tcpConn;
 	TLSStream m_tlsStream;
@@ -1320,6 +1327,7 @@ final class HTTP2Session
 	/// Starts the session assuming the client and server both fully support the implementation protocol
 	this(bool is_server, HTTP2RequestHandler handler, TCPConnection conn, TLSStream tls, HTTP2Settings local_settings, void delegate(ref HTTP2Settings) on_remote_settings = null)
 	{
+		m_owner = Thread.getThis();
 		m_server = is_server;
 		m_requestHandler = handler;
 		m_tcpConn = conn;
@@ -1351,7 +1359,7 @@ final class HTTP2Session
 	/// Starts a server "HTTP/2 over cleartext" session requested from a client with the HTTP/1.1 upgrade mechanism
 	this(HTTP2RequestHandler handler, TCPConnection conn, string remote_settings_base64, HTTP2Settings local_settings = HTTP2Settings.init, void delegate(ref HTTP2Settings) on_remote_settings = null)
 	{
-		
+		m_owner = Thread.getThis();
 		m_server = true;
 		m_tcpConn = conn;
 		m_requestHandler = handler;
@@ -1389,6 +1397,7 @@ final class HTTP2Session
 	/// If called from a server, a new Task will be opened to process the stream ID #1
 	this(TCPConnection conn, out HTTP2Stream stream, HTTP2Settings local_settings = HTTP2Settings.init, void delegate(ref HTTP2Settings) on_remote_settings = null)
 	{
+		m_owner = Thread.getThis();
 		m_server = false;
 		m_tcpConn = conn;
 		m_defaultStreamWindowSize = local_settings.streamWindowSize;
@@ -1418,7 +1427,8 @@ final class HTTP2Session
 	}
 
 	~this() { 
-		if (m_tcpConn !is null) { 
+		// fixme: This needs to defer destruction instead
+		if (m_owner == Thread.getThis() && m_tcpConn !is null) { 
 			try onClose(); 
 			catch (Throwable th) {
 				//import std.stdio : writeln;
@@ -1453,7 +1463,12 @@ final class HTTP2Session
 			onClose();
 		}
 		Task reader = runTask(&readLoop, is_upgrade);
-		scope(exit) { if (isServer) reader.join(); }
+		scope(exit) { 
+			if (!isServer && reader != Task.init) 
+				reader.interrupt();
+			else if (isServer && reader != Task.init)
+				reader.join();
+		}
 		writeLoop(is_upgrade);
 	}
 
@@ -1663,6 +1678,7 @@ private:
 	}
 
 	void onClose() {
+		if (!m_tcpConn) return;
 		m_tcpConn = null;
 		foreach(HTTP2Stream stream; m_pushResponses) {
 			if (stream.m_connected) {
@@ -1700,6 +1716,7 @@ private:
 		destroy(m_rx);
 		m_tx.closed = true;
 		m_rx.closed = true;
+		m_settingsUpdater = null;
 	}
 
 	void pong(long sent) 
@@ -1803,6 +1820,9 @@ private:
 			// everything is processed correctly. We also prevent forever loops by keeping an eye on rv
 			do {
 				rv = m_session.memRecv(buf);
+
+				if (m_rx.ex) throw m_rx.ex;
+
 				if (m_forcedClose) break;
 				//logDebug("Buffer length was: ", buf.length);
 				if (rv == ErrorCode.PAUSE)
@@ -1881,6 +1901,10 @@ private:
 			processDirtyStreams();
 
 			ErrorCode rv = m_session.send();
+
+			if (m_rx.ex) // rethrow anything caught in Connector.write.
+				throw m_rx.ex;
+			
 			if (m_forcedClose) break;
 			if (rv == ErrorCode.PAUSE) {
 				m_tx.paused = true;
@@ -2354,6 +2378,10 @@ override:
 				m_session.m_rx.ex = new Exception("Could not update local settings: " ~ rv.to!string);
 			}
 		}
+		else if (frame.hd.type == FrameType.RST_STREAM) {
+			HTTP2Stream stream = getStream(frame.hd.stream_id);
+			if (stream) stream.destroy();
+		}
 		return true;
 	}
 	
@@ -2406,7 +2434,8 @@ override:
 	int write(in ubyte[] data) 
 	{
 		ConnectionStream stream = m_session.topStream;
-		stream.write(data);
+		try stream.write(data);
+		catch (Exception e) { m_session.m_rx.ex = e; return ErrorCode.CALLBACK_FAILURE; }
 		return cast(int)data.length;
 	}
 	

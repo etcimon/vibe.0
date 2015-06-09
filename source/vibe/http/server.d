@@ -6,7 +6,7 @@
 	Authors: Sönke Ludwig, Jan Krüger, Ilya Shipunov
 */
 module vibe.http.server;
-
+import core.thread : Thread;
 public import vibe.core.net;
 public import vibe.http.common;
 public import vibe.http.session;
@@ -73,7 +73,9 @@ import std.uri;
 void listenHTTP(HTTPServerSettings settings, HTTPServerRequestDelegate request_handler)
 {
 	enforce(settings.bindAddresses.length, "Must provide at least one bind address for a HTTP server.");
-
+	if (g_ctor)
+		assert(g_ctor == Thread.getThis(), "Listening from multiple threads is unsupported");
+	else g_ctor = Thread.getThis();
 	HTTPServerContext ctx = FreeListObjectAlloc!HTTPServerContext.alloc();
 	ctx.settings = settings;
 	ctx.requestHandler = request_handler;
@@ -513,7 +515,7 @@ final class HTTPServerSettings {
 
 		The default value is 10 seconds.
 	*/
-	Duration keepAliveTimeout;// = dur!"seconds"(10);
+	Duration keepAliveTimeout;
 
 	/// Maximum number of transferred bytes per request after which the connection is closed with
 	/// an error; not supported yet
@@ -1068,8 +1070,10 @@ final class HTTPServerResponse : HTTPResponse {
 		logDebug("Write raw body: %d", num_bytes);
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (auto null_writer = cast(NullOutputStream) writer)
+		if (auto null_writer = cast(NullOutputStream) writer) {
+			null_writer.write(stream, num_bytes);
 			return;
+		}
 		if (num_bytes > 0) {
 			topStream.write(stream, num_bytes);
 			m_bodyStream.counting.increment(num_bytes);
@@ -1130,6 +1134,11 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 		assert(!headerWritten);
 		logTrace("WriteHeader");
+		headers["Content-Length"] = "0";
+		if ("Transfer-Encoding" in headers)
+			headers.remove("Transfer-Encoding");
+		if ("Content-Encoding" in headers)
+			headers.remove("Content-Encoding");
 		writeHeader();
 		finalize();
 	}
@@ -1367,7 +1376,7 @@ final class HTTPServerResponse : HTTPResponse {
 	private void finalize()
 	{
 		ulong bytes_written = bytesWritten();
-		logDebug("Finalized to: %d", bytes_written);
+		scope(exit) logDebug("Finalized to: %d", bytes_written);
 
 		if (!m_headerWritten) {
 			writeHeader(); 
@@ -1384,11 +1393,13 @@ final class HTTPServerResponse : HTTPResponse {
 				if (hasCompression) {
 					if (m_isGzip) {
 						m_compressionStream.gzip.finalize();
+						bytes_written = bytesWritten();
 						FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
 						m_compressionStream.gzip = null;
 					}
 					else {
 						m_compressionStream.deflate.finalize();
+						bytes_written = bytesWritten();
 						FreeListObjectAlloc!DeflateOutputStream.free(m_compressionStream.deflate);
 						m_compressionStream.deflate = null;
 					}
@@ -1396,6 +1407,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 				if (m_isChunked) {
 					m_bodyStream.chunked.finalize();
+					bytes_written = bytesWritten();
 					FreeListObjectAlloc!ChunkedOutputStream.free(m_bodyStream.chunked);
 					m_bodyStream.chunked = null;
 				}
@@ -1557,6 +1569,35 @@ shared string s_distHost;
 shared ushort s_distPort = 11000;
 __gshared HTTPServerContext[] g_contexts;
 __gshared HTTPServerListener[] g_listeners;
+__gshared Thread g_ctor;
+
+static ~this() {
+	if (Thread.getThis() != g_ctor) return;
+	bool[void*] dtor_called;
+	foreach (ctx; g_contexts) { 
+		if (ctx.settings && ctx.settings.tlsContext !is null)
+		{
+			dtor_called[cast(const(void)*)ctx.settings.tlsContext] = true;
+			ctx.settings.tlsContext.destroy();
+		}
+		if (ctx.settings)
+			ctx.settings.destroy();
+		ctx.settings = null;
+		ctx.destroy();
+	}
+	g_contexts = null;
+	foreach (listener; g_listeners) {
+		if (listener.tlsContext) {
+			if ((cast(const(void)*)listener.tlsContext) !in dtor_called) {
+				listener.tlsContext.destroy(); 
+			}
+		}
+		listener.tlsContext = null;
+		listener.destroy();
+	}
+	g_listeners = null;
+	dtor_called.destroy();
+}
 
 HTTPServerContext getServerContext(ref HTTPServerListener listen_info, string authority /* example.com:port */) {
 	string reqhost;
@@ -1646,9 +1687,7 @@ class HTTP2HandlerContext
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
 		session = new HTTP2Session(true, &handler, tcpConn, tlsStream, local_settings);
-		scope(exit)
-			session.destroy();
-
+		scope(exit) session = null;
 		session.run(); // blocks, loops and handles requests here
 	}
 	
@@ -1658,8 +1697,7 @@ class HTTP2HandlerContext
 		if (context.settings)
 			local_settings = context.settings.http2Settings;
 		session = new HTTP2Session(true, &handler, tcpConn, null, local_settings);
-		scope(exit)
-			session.destroy();
+		scope(exit) session = null;
 		session.run(); // blocks, loops and handles requests here
 	}
 	
