@@ -206,15 +206,20 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	f.bumpTaskCounter();
 	auto handle = f.task();
 
-	debug Task self = Task.getThis();
-	debug if (s_taskEventCallback) {
-		if (self != Task.init) s_taskEventCallback(TaskEvent.yield, self);
-		s_taskEventCallback(TaskEvent.preStart, handle);
+	version(VibeFiberDebug) {
+		Task self = Task.getThis();
+		if (s_taskEventCallback) {
+			if (self != Task.init) s_taskEventCallback(TaskEvent.yield, self);
+			s_taskEventCallback(TaskEvent.preStart, handle);
+		}
 	}
 	s_core.resumeTask(handle, null, true);
-	debug if (s_taskEventCallback) {
-		s_taskEventCallback(TaskEvent.postStart, handle);
-		if (self != Task.init) s_taskEventCallback(TaskEvent.resume, self);
+
+	version(VibeFiberDebug) {
+		if (s_taskEventCallback) {
+			s_taskEventCallback(TaskEvent.postStart, handle);
+			if (self != Task.init) s_taskEventCallback(TaskEvent.resume, self);
+		}
 	}
 
 	return handle;
@@ -222,20 +227,43 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 
 version(VibeFiberDebug)
 {
-	void interruptAll() {
-		runTask({
-				int i;
-				ulong j = g_tasks.length;
-				foreach (t; g_tasks) {
-					if (!t.task) continue;
-					t.task.interrupt();
-					i++;
-				}
-				logDebug("Interrupted %d tasks of %d with %d running", i, j, s_fiberCount);
-			});
+	/// CTFE mixins - Registers the current function or string on the active Taskcall stack
+	string Trace(string info = null) {
+		version(VibeFiberDebug)
+			return "auto si = StackTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");";
+		else return "";
 	}
 
-	static CoreTask[] g_tasks;
+	void setPushTrace(void function(string) del) {
+		s_pushTrace = del;
+	}
+
+	void setPopTrace(void function() del) {
+		s_popTrace = del;
+	}
+
+	struct StackTrace {
+		bool pushed;
+	nothrow:
+		this(string info) {
+			scope(failure) assert(false);
+			if (s_pushTrace) {
+				s_pushTrace(info);
+				pushed = true;
+			}
+		}
+		
+		~this() {
+			scope(failure) assert(false);
+			if (s_popTrace && pushed) s_popTrace();
+		}
+	}
+
+	size_t getAvailableFiberCount() {
+		return s_availableFibers.length;
+	}
+
+	private static CoreTask[] g_tasks;
 }
 
 /**
@@ -716,7 +744,7 @@ void lowerPrivileges()
 */
 void setTaskEventCallback(TaskEventCb func)
 {
-	debug s_taskEventCallback = func;
+	version(VibeFiberDebug) s_taskEventCallback = func;
 }
 
 
@@ -901,7 +929,10 @@ struct TaskLocal(T)
 		return (cast(T[])data)[0];
 	}
 
-	alias storage this;
+	import memutils.helpers : Embed;
+	// allow object fallthrough to occur correctly
+	mixin Embed!(storage, false);
+	// alias storage this;
 }
 
 private struct FLSInfo {
@@ -967,7 +998,7 @@ private class CoreTask : TaskFiber {
 	{
 		scope(exit) 
 			s_fiberCount--;
-		version(EnableDebugger) g_tasks ~= this;
+		version(VibeFiberDebug) g_tasks ~= this;
 		version (VibeDebugCatchAll) alias UncaughtException = Throwable;
 		else alias UncaughtException = Exception;
 		try {
@@ -987,20 +1018,28 @@ private class CoreTask : TaskFiber {
 				try {
 					m_running = true;
 					scope(exit) m_running = false;
-					debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.start, handle);
+					version(VibeFiberDebug)
+						if (s_taskEventCallback)
+							s_taskEventCallback(TaskEvent.start, handle);
 					if (!s_eventLoopRunning) {
 						logTrace("Event loop not running at task start - yielding.");
 						.yield();
 						logTrace("Initial resume of task.");
 					}
 					task.func(&task);
-					debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.end, handle);
+					version(VibeFiberDebug)
+						if (s_taskEventCallback)
+							s_taskEventCallback(TaskEvent.end, handle);
 				} catch ( ConnectionClosedException e) {
-					//debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.fail, handle);
+					version(VibeFiberDebug)
+						if (s_taskEventCallback) 
+							s_taskEventCallback(TaskEvent.end, handle);
 					//import std.encoding;
 					logTrace("Task was terminated because the connection was closed: %s", e.toString());
 				} catch( Exception e ){
-					debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.fail, handle);
+					version(VibeFiberDebug)
+						if (s_taskEventCallback)
+							s_taskEventCallback(TaskEvent.fail, handle);
 					import std.encoding;
 					logCritical("Task terminated with uncaught exception: %s", e.msg);
 					logDebug("Full error: %s", e.toString().sanitize());
@@ -1008,6 +1047,7 @@ private class CoreTask : TaskFiber {
 
 				// check for any unhandled deferred exceptions
 				if (m_exception !is null) {
+					scope(exit) { m_exception.destroy(); m_exception = null; }
 					if (cast(InterruptException)m_exception) {
 						logDebug("InterruptException not handled by task before exit.");
 					} else {
@@ -1015,6 +1055,7 @@ private class CoreTask : TaskFiber {
 						logDebug("Full error: %s", m_exception.toString().sanitize());
 					}
 				}
+
 
 				foreach (t; m_yielders) s_yieldedTasks.insertBack(cast(CoreTask)t.fiber);
 				m_yielders.length = 0;
@@ -1199,10 +1240,14 @@ private class VibeDriverCore : DriverCore {
 	private void yieldForEventDeferThrow(Task task)
 	nothrow {
 		if (task != Task.init) {
-			debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.yield, task);
+			version(VibeFiberDebug)
+				if (s_taskEventCallback) 
+					s_taskEventCallback(TaskEvent.yield, task);
 			static if (__VERSION__ < 2067) scope (failure) assert(false); // Fiber.yield() not nothrow on 2.066 and below
 			task.fiber.yield();
-			debug if (s_taskEventCallback) s_taskEventCallback(TaskEvent.resume, task);
+			version(VibeFiberDebug)
+				if (s_taskEventCallback) 
+					s_taskEventCallback(TaskEvent.resume, task);
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
 		} else {
 
@@ -1256,8 +1301,8 @@ private struct ThreadContext {
 
 private struct TaskFuncInfo {
 	void function(TaskFuncInfo*) func;
-	void[2*size_t.sizeof] callable = void;
-	void[maxTaskParameterSize] args = void;
+	void[2*size_t.sizeof] callable;
+	void[maxTaskParameterSize] args;
 
 	@property ref C typedCallable(C)()
 	{
@@ -1293,7 +1338,6 @@ alias TaskArgsVariant = VariantN!maxTaskParameterSize;
 private {
 	static if ((void*).sizeof >= 8) enum defaultTaskStackSize = 16*1024*1024;
 	else enum defaultTaskStackSize = 512*1024;
-
 	__gshared VibeDriverCore s_core;
 	__gshared size_t s_taskStackSize = defaultTaskStackSize;
 
@@ -1302,7 +1346,11 @@ private {
 	__gshared ThreadContext[] st_threads;
 	__gshared TaskFuncInfo[] st_workerTasks;
 	__gshared Condition st_threadShutdownCondition;
-	__gshared debug TaskEventCb s_taskEventCallback;
+	version(VibeFiberDebug) {
+		TaskEventCb s_taskEventCallback;
+		void function(string) s_pushTrace;
+		void function() s_popTrace;
+	}
 	shared bool st_term = false;
 
 	bool s_exitEventLoop = false;
@@ -1588,6 +1636,7 @@ private void handleWorkerTasks()
 
 private void watchExitFlag()
 {
+	mixin(Trace);
 	auto emit_count = st_threadsSignal.emitCount;
 	while (true) {
 		synchronized (st_threadsMutex) {

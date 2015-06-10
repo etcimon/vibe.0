@@ -12,7 +12,8 @@ import vibe.utils.memory : FreeListRef;
 import core.time;
 import std.algorithm;
 import std.conv;
-
+import memutils.utils;
+import memutils.unique;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -104,10 +105,8 @@ interface OutputStream {
 
 	protected final void writeDefault(InputStream stream, ulong nbytes = 0)
 	{
-		static struct Buffer { ubyte[64*1024] bytes = void; }
-		auto bufferobj = FreeListRef!(Buffer, false)();
-		auto buffer = bufferobj.bytes[];
-
+		ubyte[] buffer = ThreadMem.alloc!(ubyte[])(65536);
+		scope(exit) ThreadMem.free(buffer);
 		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 		if( nbytes == 0 ){
 			while( !stream.empty ){

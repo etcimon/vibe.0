@@ -12,6 +12,8 @@ public import vibe.core.stream;
 import std.algorithm : min;
 import std.exception;
 import core.time;
+import memutils.utils;
+import memutils.unique;
 
 
 /**
@@ -136,13 +138,13 @@ struct StreamInputRange {
 			size_t fill = 0;
 		}
 		InputStream m_stream;
-		Buffer* m_buffer;
+		Unique!Buffer m_buffer;
 	}
 
-	this (InputStream stream)
+	this(InputStream stream)
 	{
 		m_stream = stream;
-		m_buffer = new Buffer;
+		m_buffer = ThreadMem.alloc!Buffer();
 	}
 
 	@property bool empty() { return !m_buffer.fill && m_stream.empty; }

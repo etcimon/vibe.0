@@ -42,7 +42,7 @@ Allocator manualAllocator() nothrow
 	if( !alloc ){
 		alloc = new MallocAllocator;
 		//alloc = new AutoFreeListAllocator(alloc);
-		//alloc = new DebugAllocator(alloc);
+		alloc = new DebugAllocator(alloc);
 		//alloc = new LockAllocator(alloc);
 	}
 	return alloc;
@@ -163,7 +163,7 @@ final class DebugAllocator : Allocator {
 	import vibe.utils.hashmap : HashMap;
 	private {
 		Allocator m_baseAlloc;
-		HashMap!(void*, size_t) m_blocks;
+		HashMap!(size_t, size_t) m_blocks;
 		size_t m_bytes;
 		size_t m_maxBytes;
 	}
@@ -171,19 +171,29 @@ final class DebugAllocator : Allocator {
 	this(Allocator base_allocator) nothrow
 	{
 		m_baseAlloc = base_allocator;
-		m_blocks = HashMap!(void*, size_t)(manualAllocator());
+		m_blocks = HashMap!(size_t, size_t)(manualAllocator());
 	}
 
 	@property size_t allocatedBlockCount() const { return m_blocks.length; }
 	@property size_t bytesAllocated() const { return m_bytes; }
 	@property size_t maxBytesAllocated() const { return m_maxBytes; }
+	@property size_t[] blocks() { 
+		size_t[] arr;
+		foreach (size_t key, size_t value; m_blocks)
+			arr ~= value; 
+		return arr;
+	}
 
 	void[] alloc(size_t sz)
 	{
+		/*if (sz == 5656) {
+			try throw new Exception("found 5656");
+			catch (Exception e) { import std.stdio : writeln;try  writeln(e.toString()); catch {} }
+		}*/
 		auto ret = m_baseAlloc.alloc(sz);
 		assert(ret.length == sz, "base.alloc() returned block with wrong size.");
-		assert(m_blocks.getNothrow(ret.ptr, size_t.max) == size_t.max, "base.alloc() returned block that is already allocated.");
-		m_blocks[ret.ptr] = sz;
+		assert(m_blocks.getNothrow(cast(size_t)ret.ptr, size_t.max) == size_t.max, "base.alloc() returned block that is already allocated.");
+		m_blocks[cast(size_t)ret.ptr] = sz;
 		m_bytes += sz;
 		if( m_bytes > m_maxBytes ){
 			m_maxBytes = m_bytes;
@@ -194,26 +204,30 @@ final class DebugAllocator : Allocator {
 
 	void[] realloc(void[] mem, size_t new_size)
 	{
-		auto sz = m_blocks.getNothrow(mem.ptr, size_t.max);
+		/*if (new_size == 5656) {
+			try throw new Exception("found 5656");
+			catch (Exception e) { import std.stdio : writeln;try  writeln(e.toString()); catch {} }
+		}*/
+		auto sz = m_blocks.getNothrow(cast(size_t)mem.ptr, size_t.max);
 		assert(sz != size_t.max, "realloc() called with non-allocated pointer.");
 		assert(sz == mem.length, "realloc() called with block of wrong size.");
 		auto ret = m_baseAlloc.realloc(mem, new_size);
 		assert(ret.length == new_size, "base.realloc() returned block with wrong size.");
-		assert(ret.ptr is mem.ptr || m_blocks.getNothrow(ret.ptr, size_t.max) == size_t.max, "base.realloc() returned block that is already allocated.");
+		assert(ret.ptr is mem.ptr || m_blocks.getNothrow(cast(size_t)ret.ptr, size_t.max) == size_t.max, "base.realloc() returned block that is already allocated.");
 		m_bytes -= sz;
-		m_blocks.remove(mem.ptr);
-		m_blocks[ret.ptr] = new_size;
+		m_blocks.remove(cast(size_t)mem.ptr);
+		m_blocks[cast(size_t)ret.ptr] = new_size;
 		m_bytes += new_size;
 		return ret;
 	}
 	void free(void[] mem)
 	{
-		auto sz = m_blocks.getNothrow(mem.ptr, size_t.max);
+		auto sz = m_blocks.getNothrow(cast(size_t)mem.ptr, size_t.max);
 		assert(sz != size_t.max, "free() called with non-allocated object.");
 		assert(sz == mem.length, "free() called with block of wrong size.");
 		m_baseAlloc.free(mem);
 		m_bytes -= sz;
-		m_blocks.remove(mem.ptr);
+		m_blocks.remove(cast(size_t)mem.ptr);
 	}
 }
 
@@ -261,7 +275,8 @@ final class MallocAllocator : Allocator {
 final class GCAllocator : Allocator {
 	void[] alloc(size_t sz)
 	{
-		auto mem = GC.malloc(sz+Allocator.alignment);
+		auto mem_arr = new ubyte[](sz+Allocator.alignment);
+		auto mem = cast(void*) mem_arr.ptr;
 		auto alignedmem = adjustPointerAlignment(mem);
 		assert(alignedmem - mem <= Allocator.alignment);
 		auto ret = alignedmem[0 .. sz];
@@ -270,6 +285,11 @@ final class GCAllocator : Allocator {
 	}
 	void[] realloc(void[] mem, size_t new_size)
 	{
+		auto ret = alloc(new_size);
+		import std.c.string;
+		memcpy(ret.ptr, mem.ptr, mem.length);
+		return ret;
+		/*
 		size_t csz = min(mem.length, new_size);
 
 		auto p = extractUnalignedPointer(mem.ptr);
@@ -286,7 +306,7 @@ final class GCAllocator : Allocator {
 			ret[0 .. csz] = mem[0 .. csz];
 		}
 		ensureValidMemory(ret);
-		return ret;
+		return ret;*/
 	}
 	void free(void[] mem)
 	{

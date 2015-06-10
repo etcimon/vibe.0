@@ -10,6 +10,7 @@ module vibe.http.http2;
 import vibe.core.core;
 import vibe.core.stream;
 import vibe.core.driver;
+import vibe.core.trace;
 import vibe.utils.memory;
 import vibe.utils.dictionarylist;
 import vibe.inet.message;
@@ -86,9 +87,6 @@ enum SafetyLevel {
 	LockMemory
 }
 
-int m_rx_bufs;
-int m_tx_bufs;
-
 final class HTTP2Stream : ConnectionStream, CountedStream
 {
 	@property bool isOpener() const { return m_opener; }
@@ -97,7 +95,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	@property ulong received() const { return m_bytesRecv; }	
 	/// Returns total amount of bytes sent with this connection
 	@property ulong sent() const { return m_bytesSend; }
-
+	static @property ulong totalStreams() { return s_totalStreams; }
 	private {
 		// state
 		int m_stream_id = -1; // -1 if fresh client request. >0 and always defined on server streams
@@ -116,6 +114,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		bool m_safety_level_changed;
 		int m_maxFrameSize; // The buffers also allocate their additional storage at these intervals
 
+		static ulong s_totalStreams;
 		ulong m_bytesRecv;
 		ulong m_bytesSend;
 
@@ -164,7 +163,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 			void free() {
 				if (bufs) {
-					m_rx_bufs--;
 					bufs.free();
 					Mem.free(bufs);
 					bufs = null;
@@ -255,7 +253,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 			void free() {
 				if (bufs && bufs.head) {
-					m_tx_bufs--;
 					bufs.free();
 					Mem.free(bufs);
 					bufs = null;
@@ -295,6 +292,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			if (stream_id > 0) 
 				m_session.m_totConnected++;
 			else if (old_stream_id > 0 && stream_id <= 0) {
+				s_totalStreams--;
 				m_session.m_totConnected--;
 				// schedule a pending (dirty) stream initialization
 				if (!m_session.m_closing && !m_session.m_tx.pending.empty) {
@@ -379,6 +377,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	in { assert(m_session.isServer); }
 	body
 	{
+		mixin(Trace);
 		import vibe.utils.dictionarylist : icmp2;
 		acquireReader();
 		scope(exit) releaseReader();
@@ -425,6 +424,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	void readHeader(out int status_code, out InetHeaderMap header, Allocator alloc = defaultAllocator())
 	in { assert(!m_session.isServer); }
 	body {
+		mixin(Trace);
 		acquireReader();
 		scope(exit) releaseReader();
 
@@ -625,6 +625,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	/// can produce multiple concurrent requests by calling it with using multiple tasks simultaneously
 	Duration ping() {
+		mixin(Trace);
 		Duration latency;
 
 		ManualEvent cb = getEventDriver().createManualEvent();
@@ -708,6 +709,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	
 	@property ulong leastSize()
 	{
+		mixin(Trace);
 		logDebug("HTTP/2: Leastsize");
 		acquireReader();
 		scope(exit) releaseReader();
@@ -727,6 +729,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	void close(FrameError error) {
 		if (m_session && m_session.isServer && !m_tx.bufs) return;
+		mixin(Trace);
 		// This could be called by a keep-alive timer. In this case we must forcefully free the read lock
 		if (m_rx.owner !is Task.init && m_rx.owner != Task.getThis())
 		{
@@ -760,6 +763,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	
 	bool waitForData(Duration timeout = 0.seconds) 
 	{
+		mixin(Trace);
 		logDebug("HTTP2: wait for data");
 		acquireReader();
 		scope(exit) releaseReader();
@@ -818,6 +822,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	
 	void read(ubyte[] dst)
 	{
+		mixin(Trace);
 		// we must block if dst is not filled
 		logDebug("HTTP/2: Read, dst len: ", dst.length); 
 		assert(dst !is null);
@@ -880,6 +885,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	
 	void write(in ubyte[] src)
 	{
+		mixin(Trace);
 		if (src.length == 0) return;
 		m_bytesSend += src.length;
 		acquireWriter();
@@ -926,6 +932,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			if (m_session && m_session.isServer) m_rx.free();
 			return;
 		}
+		mixin(Trace);
 		acquireWriter();
 		scope(exit) releaseWriter();
 		halfClose();
@@ -1183,8 +1190,7 @@ private:
 		m_maxFrameSize = min(chunk_size, remote_chunk_size);
 		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
 		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
-		m_rx_bufs++;
-		m_tx_bufs++;
+		s_totalStreams++;
 		// once read is called, the buffers will adjust to the user's desired memory safety level.
 		m_safety_level_changed = m_session.m_tlsStream?true:false;
 	}
@@ -1237,37 +1243,39 @@ struct HTTP2Settings {
 
 final class HTTP2Session
 {
-	static ulong total_sessions_running;
+	private {
+		static ulong s_totalSessions;
 
-	import vibe.stream.tls : TLSStream;
-	Thread m_owner;
-	Session m_session; // libhttp2 implementation
-	TCPConnection m_tcpConn;
-	TLSStream m_tlsStream;
-	HTTP2RequestHandler m_requestHandler;
-	HTTP2Connector m_connector;
-	Vector!HTTP2Stream m_pushResponses;
-	Vector!PingData m_pong;
-	int m_defaultStreamWindowSize;
-	int m_defaultChunkSize;
-	int m_totConnected;
-	uint m_maxConcurrency;
-	bool m_closing;
-	bool m_forcedClose;
-	bool m_server;
-	bool m_gotPreface;
-	bool m_paused;
-	bool m_aborted;
-	bool m_resume;
-	void delegate(ref HTTP2Settings) m_settingsUpdater;
+		import vibe.stream.tls : TLSStream;
+		Thread m_owner;
+		Session m_session; // libhttp2 implementation
+		TCPConnection m_tcpConn;
+		TLSStream m_tlsStream;
+		HTTP2RequestHandler m_requestHandler;
+		HTTP2Connector m_connector;
+		Vector!HTTP2Stream m_pushResponses;
+		Vector!PingData m_pong;
+		int m_defaultStreamWindowSize;
+		int m_defaultChunkSize;
+		int m_totConnected;
+		uint m_maxConcurrency;
+		bool m_closing;
+		bool m_forcedClose;
+		bool m_server;
+		bool m_gotPreface;
+		bool m_paused;
+		bool m_aborted;
+		bool m_resume;
+		void delegate(ref HTTP2Settings) m_settingsUpdater;
 
-	Duration m_readTimeout = 10.minutes; // max inactivity waiting for any data
-	Duration m_writeTimeout = 10.minutes; // max internal inactivity writing data
-	Duration m_pauseTimeout = 10.minutes; // max local pause duration
+		Duration m_readTimeout = 10.minutes; // max inactivity waiting for any data
+		Duration m_writeTimeout = 10.minutes; // max internal inactivity writing data
+		Duration m_pauseTimeout = 10.minutes; // max local pause duration
 
-	ReadLoop m_rx;
-	WriteLoop m_tx;
-
+		ReadLoop m_rx;
+		WriteLoop m_tx;
+	}
+	static @property ulong totalSessions() { return s_totalSessions; }
 	@property bool isServer() { return m_server; }
 	@property bool connected() { return m_tx.owner != Task() && m_tcpConn && m_tcpConn.connected() && !m_rx.closed && !m_tx.closed && m_gotPreface; }
 	@property string httpVersion() { if (m_tlsStream) return "h2"; else return "h2c"; }
@@ -1457,9 +1465,9 @@ final class HTTP2Session
 	void run(bool is_upgrade = false)
 	in { assert(!is_upgrade || (is_upgrade && !m_tlsStream), "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
 	body {
-		total_sessions_running++;
+		s_totalSessions++;
 		scope(exit) {
-			total_sessions_running--;
+			s_totalSessions--;
 			onClose();
 		}
 		Task reader = runTask(&readLoop, is_upgrade);
@@ -1643,6 +1651,7 @@ private:
 	}
 
 	void handleRequestImpl(HTTP2Stream stream, int stream_id) {
+		mixin(Trace);
 		scope(exit) {
 			if (m_session) {
 				m_session.closeStream(stream_id, FrameError.NO_ERROR); 
@@ -1754,6 +1763,8 @@ private:
 	// Task-blocking read event loop
 	void readLoop(bool wait_read)
 	{
+		mixin(Trace);
+		mixin(Name!"HTTP/2 Event Reader");
 		m_rx.closed = false;
 		scope(exit) {
 			m_closing = true;
@@ -1865,6 +1876,8 @@ private:
 	// Task-blocking write event loop
 	void writeLoop(bool wait_write = false)
 	{
+		mixin(Name!"HTTP/2 Event Writer");
+		mixin(Trace);
 		logDebug("HTTP/2: Starting write loop");
 		m_tx.closed = false;
 		scope(exit) {
@@ -1933,7 +1946,8 @@ private:
 	{
 		// fixme: Is this the best way to implement connection-level pausing?
 		if (m_paused) return;
-
+		
+		mixin(Trace);
 		scope(exit) {
 			logDebug("HTTP/2: Processed dirty streams");
 			m_tx.dirty.clear();
@@ -2433,6 +2447,7 @@ override:
 
 	int write(in ubyte[] data) 
 	{
+		mixin(Trace);
 		ConnectionStream stream = m_session.topStream;
 		try stream.write(data);
 		catch (Exception e) { m_session.m_rx.ex = e; return ErrorCode.CALLBACK_FAILURE; }

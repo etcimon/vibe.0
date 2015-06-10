@@ -16,8 +16,7 @@ import std.exception;
 import etc.c.zlib;
 
 import vibe.core.log;
-
-
+import memutils.utils;
 
 /**
 	Writes any data compressed in deflate format to the specified output stream.
@@ -59,7 +58,7 @@ class ZlibOutputStream : OutputStream {
 
 	this(OutputStream dst, HeaderFormat type, int level = Z_DEFAULT_COMPRESSION)
 	{
-		m_outbuffer = allocArray!ubyte(manualAllocator(), 1024);
+		m_outbuffer = ThreadMem.alloc!(ubyte[])(1024);
 		m_out = dst;
 		zlibEnforce(deflateInit2(&m_zstream, level, Z_DEFLATED, 15 + (type == HeaderFormat.gzip ? 16 : 0), 8, Z_DEFAULT_STRATEGY));
 	}
@@ -67,9 +66,10 @@ class ZlibOutputStream : OutputStream {
 	~this() {
 		//import std.stdio : writeln;
 		//writeln("ZLib output");
-		freeArray(manualAllocator(), m_outbuffer);
-		if (!m_finalized)
+		if (!m_finalized) {
 			deflateEnd(&m_zstream);
+			ThreadMem.free(m_outbuffer);
+		}
 	}
 
 	final void write(in ubyte[] data)
@@ -101,6 +101,8 @@ class ZlibOutputStream : OutputStream {
 	final void finalize()
 	{
 		if (m_finalized) return;
+		scope(exit)
+			ThreadMem.free(m_outbuffer);
 		m_finalized = true;
 		doFlush(Z_FINISH);
 		m_out.flush();
@@ -182,7 +184,7 @@ class ZlibInputStream : InputStream {
 
 	this(InputStream src, HeaderFormat type)
 	{
-		m_inbuffer = allocArray!ubyte(manualAllocator(), 1024);
+		m_inbuffer = ThreadMem.alloc!(ubyte[])(1024);
 		m_in = src;
 		if (!m_in || m_in.empty) {
 			m_finished = true;
@@ -198,9 +200,10 @@ class ZlibInputStream : InputStream {
 	~this() {
 		//import std.stdio : writeln;
 		//writeln("ZLib input");
-		freeArray(manualAllocator(), m_inbuffer);
-		if (!m_finished)
+		if (!m_finished) {
 			inflateEnd(&m_zstream);
+			ThreadMem.free(m_inbuffer);
+		}
 	}
 
 	@property bool empty() { return this.leastSize == 0; }
@@ -267,6 +270,8 @@ class ZlibInputStream : InputStream {
 
 			if (ret == Z_STREAM_END) {
 				m_finished = true;
+				scope(exit)
+					ThreadMem.free(m_inbuffer);
 				zlibEnforce(inflateEnd(&m_zstream));
 				assert(m_in.empty, "Input expected to be empty at this point.");
 				return;

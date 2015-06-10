@@ -10,6 +10,7 @@ module vibe.stream.operations;
 public import vibe.core.stream;
 
 import vibe.core.log;
+import vibe.core.core : StackTrace, Trace;
 import vibe.stream.memory;
 import vibe.utils.memory;
 
@@ -19,7 +20,8 @@ import std.datetime;
 import std.exception;
 import std.range : isOutputRange;
 import std.typecons;
-
+import memutils.utils;
+import memutils.unique;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -89,6 +91,7 @@ void readLine(R)(InputStream stream, ref R dst, size_t max_bytes = size_t.max, s
 ubyte[] readUntil()(InputStream stream, in ubyte[] end_marker, size_t max_bytes = size_t.max, Allocator alloc = defaultAllocator()) /*@ufcs*/
 {
 	auto output = scoped!MemoryOutputStream(alloc);
+	scope(exit) output.destroy();
 	output.reserve(max_bytes < 64 ? max_bytes : 64);
 	readUntil(stream, output, end_marker, max_bytes);
 	return output.data();
@@ -98,6 +101,7 @@ void readUntil()(InputStream stream, OutputStream dst, in ubyte[] end_marker, ul
 {
 	import vibe.stream.wrapper;
 	auto dstrng = StreamOutputRange(dst);
+	scope(exit) dstrng.destroy();
 	readUntil(stream, dstrng, end_marker, max_bytes);
 }
 /// ditto
@@ -106,7 +110,8 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 {
 	enforce(stream !is null);
 	assert(max_bytes > 0 && end_marker.length > 0);
-	
+
+	mixin(Trace);
 	// allocate internal jump table to optimize the number of comparisons
 	size_t[8] nmatchoffsetbuffer = void;
 	size_t[] nmatchoffset;
@@ -126,8 +131,8 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 	}
 
 	size_t nmatched = 0;
-	auto bufferobj = FreeListRef!(Buffer, false)();
-	auto buf = bufferobj.bytes[];
+	ubyte[] buf = ThreadMem.alloc!(ubyte[])(64*1024);
+	scope(exit) ThreadMem.free(buf);
 
 	ulong bytes_read = 0;
 
@@ -244,15 +249,18 @@ unittest {
 */
 ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserve_bytes = 0) /*@ufcs*/
 {
+	mixin(Trace);
 	if (max_bytes == 0) logDebug("Deprecated behavior: readAll() called with max_bytes==0, use max_bytes==size_t.max instead.");
 
 	// prepare output buffer
 	auto dst = appender!(ubyte[])();
+	scope(exit) dst.destroy();
 	reserve_bytes = max(reserve_bytes, min(max_bytes, stream.leastSize));
 	if (reserve_bytes) dst.reserve(reserve_bytes);
 
-	auto bufferobj = FreeListRef!(Buffer, false)();
-	auto buffer = bufferobj.bytes[];
+	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
+	scope(exit) ThreadMem.free(buffer);
+	
 	size_t n = 0;
 	while (!stream.empty) {
 		size_t chunk = cast(size_t)min(stream.leastSize, buffer.length);
@@ -282,6 +290,7 @@ ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserv
 */
 string readAllUTF8(InputStream stream, bool sanitize = false, size_t max_bytes = size_t.max)
 {
+	mixin(Trace);
 	import std.utf;
 	import vibe.utils.string;
 	auto data = readAll(stream, max_bytes);
@@ -307,9 +316,8 @@ string readAllUTF8(InputStream stream, bool sanitize = false, size_t max_bytes =
 */
 void pipeRealtime(OutputStream destination, ConnectionStream source, ulong nbytes = 0, Duration max_latency = 0.seconds)
 {
-	static struct Buffer { ubyte[64*1024] bytes = void; }
-	auto bufferobj = FreeListRef!(Buffer, false)();
-	auto buffer = bufferobj.bytes[];
+	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
+	scope(exit) ThreadMem.free(buffer);
 
 	//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 	auto least_size = source.leastSize;
@@ -339,5 +347,3 @@ void pipeRealtime(OutputStream destination, ConnectionStream source, ulong nbyte
 	}
 	destination.flush();
 }
-
-private struct Buffer { ubyte[64*1024-4] bytes = void; } // 64k - 4 bytes for reference count

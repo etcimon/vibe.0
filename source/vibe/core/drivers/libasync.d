@@ -43,9 +43,6 @@ private __gshared EventLoop gs_evLoop;
 private EventLoop s_evLoop;
 private DriverCore s_driverCore;
 
-int g_started;
-int g_closed;
-
 EventLoop getEventLoop() nothrow
 {
 	if (s_evLoop is null)
@@ -167,6 +164,7 @@ final class LibasyncDriver : EventDriver {
 	/** Resolves the given host name or IP address string. */
 	NetworkAddress resolveHost(string host, ushort family = 2, bool use_dns = true)
 	{
+		mixin(Trace);
 		import libasync.types : isIPv6;
 		isIPv6 is_ipv6;
 
@@ -254,6 +252,7 @@ final class LibasyncDriver : EventDriver {
 	
 	LibasyncTCPConnection connectTCP(NetworkAddress addr)
 	{
+		mixin(Trace);
 		AsyncTCPConnection conn = new AsyncTCPConnection(getEventLoop());
 
 		LibasyncTCPConnection tcp_connection = new LibasyncTCPConnection(conn, (TCPConnection conn) { 
@@ -355,6 +354,7 @@ final class LibasyncDriver : EventDriver {
 	
 	void waitTimer(size_t timer_id)
 	{
+		mixin(Trace);
 		logTrace("Waiting for timer in %s", Task.getThis());
 		assert(m_ownerThread is Thread.getThis());
 		while (true) {
@@ -444,14 +444,13 @@ final class LibasyncFileStream : FileStream {
 		ulong m_size;
 		ulong m_offset = 0;
 		FileMode m_mode;
-
 		Task m_task;
+		LibasyncManualEvent m_ev;
 		shared AsyncFile m_impl;
 
 		bool m_started;
 		bool m_truncated;
 		bool m_finished;
-		bool m_onHold;
 	}
 
 	this(Path path, FileMode mode)
@@ -459,6 +458,7 @@ final class LibasyncFileStream : FileStream {
 		import std.file : getSize;
 		if (mode != FileMode.createTrunc)
 			m_size = getSize(path.toNativeString());
+		m_ev = new LibasyncManualEvent(getEventDriver());
 		m_path = path;
 		m_mode = mode;
 
@@ -488,6 +488,8 @@ final class LibasyncFileStream : FileStream {
 	
 	void close()
 	{
+		if (m_task != Task())
+			getDriverCore().resumeTask(m_task, new ConnectionClosedException("The file was closed during an operation"));
 		if (m_impl) {
 			m_impl.kill();
 			m_impl = null;
@@ -510,11 +512,12 @@ final class LibasyncFileStream : FileStream {
 	
 	void read(ubyte[] dst)
 	{
+		mixin(Trace);
 		scope(failure)
 			close();
-		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		acquire();
 		scope(exit) release();
+		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		shared ubyte[] bytes = cast(shared) dst;
 		bool truncate_if_exists;
 		if (!m_truncated && m_mode == FileMode.createTrunc) {
@@ -525,11 +528,9 @@ final class LibasyncFileStream : FileStream {
 		m_finished = false;
 		enforce(dst.length <= leastSize);
 		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to read data from disk: " ~ m_impl.error);
-		while(!m_finished) {
-			m_onHold = true;
-			getDriverCore().yieldForEvent();
-			m_onHold = false;
-		}
+
+		if (!m_finished)
+			m_ev.wait(2.seconds, m_ev.emitCount());
 		m_finished = false;
 		m_offset += dst.length;
 		assert(m_impl.offset == m_offset, "Incoherent offset returned from file reader: " ~ m_offset.to!string ~ "B assumed but the implementation is at: " ~ m_impl.offset.to!string ~ "B");
@@ -539,6 +540,7 @@ final class LibasyncFileStream : FileStream {
 	void write(in ubyte[] bytes_)
 	{
 		assert(this.writable, "To write to a file, it must be opened in a write-enabled mode.");
+		mixin(Trace);
 		acquire();
 		scope(exit) release();
 
@@ -556,11 +558,8 @@ final class LibasyncFileStream : FileStream {
 			enforce(m_impl.append(m_path.toNativeString(), cast(shared ubyte[]) bytes, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
 		else
 			enforce(m_impl.write(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
-		while(!m_finished) {
-			m_onHold = true;
-			getDriverCore().yieldForEvent();
-			m_onHold = false;
-		}
+		if (!m_finished)
+			m_ev.wait(2.seconds, m_ev.emitCount());
 		m_finished = false;
 
 		if (m_mode == FileMode.append) {
@@ -577,6 +576,7 @@ final class LibasyncFileStream : FileStream {
 	
 	void write(InputStream stream, ulong nbytes = 0)
 	{
+		mixin(Trace);
 		writeDefault(stream, nbytes);
 	}
 	
@@ -608,17 +608,17 @@ final class LibasyncFileStream : FileStream {
 	}
 
 	private void handler() {
+		// This will probably be called by a remote thread, so we use a manual event
 		Exception ex;
 
 		if (m_impl.status.code != Status.OK)
 			ex = new Exception(m_impl.error);
 		m_finished = true;
-		if (m_task != Task() && m_onHold) {
-			try getDriverCore().resumeTask(m_task, ex);
-			catch (Exception e) {
-				logError("Error returning from file read: %s", e.toString());
-			}
+		try m_ev.emit();
+		catch (Exception e) {
+			logError("Error returning from file read: %s", e.toString());
 		}
+
 	}
 }
 
@@ -670,6 +670,7 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 	
 	bool readChanges(ref DirectoryChange[] dst, Duration timeout)
 	{
+		mixin(Trace);
 		dst.length = 0;
 		assert(!amOwner());
 		if (m_error)
@@ -808,6 +809,7 @@ final class LibasyncManualEvent : ManualEvent {
 
 	void waitLocal()
 	{
+		mixin(Trace);
 		if (m_localWaiters.length > 0)
 			assert(m_owner == Thread.getThis());
 		else m_owner = Thread.getThis();
@@ -817,6 +819,7 @@ final class LibasyncManualEvent : ManualEvent {
 
 	void waitLocal(Duration timeout)
 	{
+		mixin(Trace);
 		if (m_localWaiters.length > 0)
 			assert(m_owner == Thread.getThis());
 		else m_owner = Thread.getThis();
@@ -909,6 +912,7 @@ final class LibasyncManualEvent : ManualEvent {
 
 	private int doWait(bool INTERRUPTIBLE)(int reference_emit_count)
 	{
+		mixin(Trace);
 		static if (!INTERRUPTIBLE) scope (failure) assert(false); // still some function calls not marked nothrow
 		assert(!amOwner());
 		acquire();
@@ -925,6 +929,7 @@ final class LibasyncManualEvent : ManualEvent {
 	
 	private int doWait(bool INTERRUPTIBLE)(Duration timeout, int reference_emit_count)
 	{
+		mixin(Trace);
 		static if (!INTERRUPTIBLE) scope (failure) assert(false); // still some function calls not marked nothrow
 		assert(!amOwner());
 		acquire();
@@ -1042,6 +1047,7 @@ final class LibasyncTCPListener : TCPListener {
 final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
+		Thread m_owner;
 		FixedRingBuffer!ubyte m_readBuffer;
 		ubyte[] m_buffer;
 		ubyte[] m_slice;
@@ -1052,13 +1058,17 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		bool m_mustRecv = true;
 		ulong m_bytesRecv;
 		ulong m_bytesSend;
+		static ulong s_totalConnections;
 		// The socket descriptor is unavailable to motivate low-level/API feature additions 
 		// rather than high-lvl platform-dependent hacking
 		// fd_t socket; 
 	}
 
+	static @property ulong totalConnections() { return s_totalConnections; }
+
 	ubyte[] readBuf(ubyte[] buffer = null)
 	{
+		mixin(Trace);
 		logTrace("readBuf TCP: %d", buffer.length);
 		import std.algorithm : swap;
 		ubyte[] ret;
@@ -1096,14 +1106,15 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	this(AsyncTCPConnection conn, void delegate(TCPConnection) cb)
 	in { assert(conn !is null); }
 	body {
-		g_started++;
+		s_totalConnections++;
+		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
 		m_readBuffer.freeOnDestruct = true;
 		m_readBuffer.capacity = 64*1024;
 	}
 
 	~this() {
-		if (!m_closed) { 
+		if (!m_closed && m_owner == Thread.getThis()) { 
 			try onClose(null, false);
 			catch (Exception e)
 			{
@@ -1174,6 +1185,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	@property ulong leastSize()
 	{
+		mixin(Trace);
 		logTrace("leastSize TCP");
 		acquireReader();
 		scope(exit) releaseReader();
@@ -1203,6 +1215,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	bool waitForData(Duration timeout = 0.seconds) 
 	{
+		mixin(Trace);
 		//logTrace("WaitForData enter, timeout %s :: Ptr %s",  timeout.toString(), (cast(void*)this).to!string);
 		acquireReader();
 		auto _driver = getEventDriver();
@@ -1251,6 +1264,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	void read(ubyte[] dst)
 	{
 		if (!dst) return;
+		mixin(Trace);
 		m_bytesRecv += dst.length;
 		logTrace("Read TCP");
 		if (m_slice)
@@ -1282,6 +1296,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	void write(in ubyte[] bytes_)
 	{
 		assert(bytes_ !is null);
+		mixin(Trace);
 		logTrace("%s", "write enter");
 		acquireWriter();
 		scope(exit) releaseWriter();
@@ -1466,7 +1481,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (msg)
 			m_error = msg;
 		if (!m_closed) {
-			g_closed++;
+			s_totalConnections--;
 
 			m_closed = true;
 			destroy(m_readBuffer);
@@ -1589,7 +1604,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 }
 
-int total_conn;
 
 final class LibasyncUDPConnection : UDPConnection {
 	private {

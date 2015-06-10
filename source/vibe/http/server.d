@@ -12,6 +12,7 @@ public import vibe.http.common;
 public import vibe.http.session;
 
 import vibe.core.core;
+import vibe.core.trace;
 import vibe.core.file;
 import vibe.core.log;
 import vibe.data.json;
@@ -1745,6 +1746,7 @@ class HTTP2HandlerContext
 
 void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info)
 {
+	mixin(Trace);
 	TLSStream tls_stream;
 
 	scope(exit) {
@@ -1877,6 +1879,7 @@ void handleRequest(TCPConnection tcp_conn,
 				   ref HTTP2HandlerContext http2_handler,
 				   ref bool keep_alive)
 {
+	mixin(Trace);
 	ConnectionStream topStream() 
 	{ 
 		if (http2_stream !is null)
@@ -1907,15 +1910,16 @@ void handleRequest(TCPConnection tcp_conn,
 		{ // do something...?
 		}
 	}
-
+	import memutils.utils : ThreadMem;
 	// some instances that live only while the request is running
-	HTTPServerRequest req = FreeListObjectAlloc!HTTPServerRequest.alloc(listen_info.bindPort);
+	HTTPServerRequest req = ThreadMem.alloc!HTTPServerRequest(listen_info.bindPort);
 	HTTPServerResponse res;
 
 	scope(exit) {
-		FreeListObjectAlloc!HTTPServerRequest.free(req);
+		ThreadMem.free!HTTPServerRequest(req);
+		req = null;
 		if (res) {
-			FreeListObjectAlloc!HTTPServerResponse.free(res);
+			ThreadMem.free(res);
 			res = null;
 		}
 	}
@@ -1934,11 +1938,13 @@ void handleRequest(TCPConnection tcp_conn,
 	scope(exit) {
 		request_allocator.reset();
 		FreeListObjectAlloc!PoolAllocator.free(request_allocator);
+		request_allocator = null;
 	}
 	// parse the request
 	try {
 		bool is_upgrade;
 		BodyReader reqReader;
+		scope(exit) reqReader.destroy();
 		// During an upgrade, we would need to read with HTTP/1.1 and write with HTTP/2, 
 		// so we define the InputStream before the upgrade starts
 		reqReader.reader = cast(InputStream) topStream;
@@ -2000,7 +2006,7 @@ void handleRequest(TCPConnection tcp_conn,
 		// Lazily load the body reader because most requests don't need it
 		req.bodyReader = &reqReader.bodyReader;
 
-		res = FreeListObjectAlloc!HTTPServerResponse.alloc(tcp_conn, tls_stream, http2_stream, context.settings, request_allocator);
+		res = ThreadMem.alloc!HTTPServerResponse(tcp_conn, tls_stream, http2_stream, context.settings, request_allocator);
 		scope(exit) {
 			import vibe.stream.memory : MemoryStream;
 			// Flush the body if it still contains data when we're done
@@ -2093,6 +2099,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0) {
 				auto bodyStr = cast(string)req.bodyReader.readAll();
+				scope(exit) bodyStr.destroy();
 				if (!bodyStr.empty) req.json = parseJson(bodyStr);
 			}
 		}
@@ -2170,6 +2177,7 @@ void handleRequest(TCPConnection tcp_conn,
 
 void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Allocator alloc/*, max_header_size*/) // header sizes restricted through HTTP/2 settings
 {
+	mixin(Trace);
 	logTrace("----------------------");
 	logTrace("HTTP/2 server request:");
 	logTrace("----------------------");
@@ -2192,6 +2200,7 @@ void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Al
 
 void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocator alloc, ulong max_header_size)
 {
+	mixin(Trace);
 	auto stream = FreeListRef!LimitedHTTPInputStream(http_stream, max_header_size);
 
 	logTrace("HTTP server reading status line");
@@ -2227,6 +2236,7 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 
 void parseCookies(string str, ref CookieValueMap cookies)
 {
+	mixin(Trace);
 	while(str.length > 0) {
 		auto idx = str.indexOf('=');
 		enforceBadRequest(idx > 0, "Expected name=value.");

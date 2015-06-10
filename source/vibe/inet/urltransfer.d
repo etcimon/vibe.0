@@ -16,6 +16,8 @@ import vibe.core.stream;
 import std.exception;
 import std.string;
 import std.datetime : StopWatch;
+import memutils.utils;
+import memutils.unique;
 
 
 /**
@@ -96,10 +98,9 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 		auto fil = openFile(filename, FileMode.createTrunc);
 		scope(exit) fil.close();
 		
-		static struct Buffer { ubyte[64*1024] bytes = void; }
-		auto bufferobj = FreeListRef!(Buffer, false)();
-		auto buffer = bufferobj.bytes[];
-		
+		ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
+		scope(exit) ThreadMem.free(buffer);
+
 		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 		while( !input.empty ){
 			size_t chunk = min(input.leastSize, buffer.length);

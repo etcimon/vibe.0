@@ -3,6 +3,7 @@
 version(Botan):
 version = X509;
 import core.thread : Thread;
+import vibe.core.core : StackTrace, STrace = Trace;
 import botan.constants;
 import botan.cert.x509.x509cert;
 import botan.cert.x509.certstor;
@@ -144,6 +145,7 @@ public:
 
 	bool waitForData(Duration timeout = 0.seconds)
 	{
+		mixin(STrace);
 		if (m_tls_channel.pending() == 0) {
 			if (!m_tcp_conn.dataAvailableForRead()) {
 				if (!m_tcp_conn.waitForData(timeout))
@@ -166,6 +168,7 @@ public:
 	}
 
 	void read(ubyte[] dst) { 
+		mixin(STrace);
 		processException();
 		scope(exit) 
 			processException();
@@ -173,6 +176,7 @@ public:
 	}
 
 	ubyte[] readBuf(ubyte[] buf) { 
+		mixin(STrace);
 		processException();
 		scope(exit) 
 			processException();
@@ -180,6 +184,7 @@ public:
 	}
 
 	void write(in ubyte[] src) {
+		mixin(STrace);
 		processException();
 		scope(exit) 
 			processException();
@@ -197,6 +202,7 @@ public:
 	
 	@property ulong leastSize()
 	{
+		mixin(STrace);
 		size_t ret = m_tls_channel.pending();
 		if (ret > 0) return ret;
 		waitForData();
@@ -259,6 +265,7 @@ private:
 
 	ubyte[] onRead(ubyte[] buf) 
 	{
+		mixin(STrace);
 		ubyte[] ret;
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
 			ret = buffered.readBuf(buf);
@@ -272,6 +279,7 @@ private:
 	}
 
 	void onWrite(in ubyte[] src) {	
+		mixin(STrace);
 		//logDebug("Write: %s", src);
 		m_tcp_conn.write(src);
 	}

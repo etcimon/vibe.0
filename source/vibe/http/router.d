@@ -227,6 +227,11 @@ final class URLRouter : HTTPRouter {
 		auto method = req.method;
 
 		auto path = req.path;
+		import vibe.core.trace;
+		import std.conv : to;
+		mixin(Name!"Incoming HTTP Request");
+		mixin(Breadcrumb!"` ~ req.method.to!string ~ ` ` ~ path ~ `");
+		mixin(Trace);
 		if (path.length < m_prefix.length || path[0 .. m_prefix.length] != m_prefix) return;
 		path = path[m_prefix.length .. $];
 		version (VibeRouterTreeMatch) {
