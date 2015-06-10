@@ -3,7 +3,8 @@
 version(Botan):
 version = X509;
 import core.thread : Thread;
-import vibe.core.core : StackTrace, STrace = Trace;
+import vibe.core.core;
+alias STrace = vibe.core.core.Trace;
 import botan.constants;
 import botan.cert.x509.x509cert;
 import botan.cert.x509.certstor;

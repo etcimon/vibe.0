@@ -225,22 +225,15 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	return handle;
 }
 
+/// CTFE mixins - Registers the current function or string on the active Taskcall stack
+string Trace(string info = null) {
+	version(VibeFiberDebug)
+		return "auto si = StackTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");";
+	else return "";
+}
+
 version(VibeFiberDebug)
 {
-	/// CTFE mixins - Registers the current function or string on the active Taskcall stack
-	string Trace(string info = null) {
-		version(VibeFiberDebug)
-			return "auto si = StackTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");";
-		else return "";
-	}
-
-	void setPushTrace(void function(string) del) {
-		s_pushTrace = del;
-	}
-
-	void setPopTrace(void function() del) {
-		s_popTrace = del;
-	}
 
 	struct StackTrace {
 		bool pushed;
@@ -257,6 +250,14 @@ version(VibeFiberDebug)
 			scope(failure) assert(false);
 			if (s_popTrace && pushed) s_popTrace();
 		}
+	}
+	
+	void setPushTrace(void function(string) del) {
+		s_pushTrace = del;
+	}
+	
+	void setPopTrace(void function() del) {
+		s_popTrace = del;
 	}
 
 	size_t getAvailableFiberCount() {

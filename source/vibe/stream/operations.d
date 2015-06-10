@@ -10,7 +10,7 @@ module vibe.stream.operations;
 public import vibe.core.stream;
 
 import vibe.core.log;
-import vibe.core.core : StackTrace, Trace;
+import vibe.core.core;
 import vibe.stream.memory;
 import vibe.utils.memory;
 

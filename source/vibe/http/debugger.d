@@ -48,10 +48,10 @@ HTTPServerRequestDelegateS serveDebugger() {
 				if (++i != bcrumbs.length)
 					res.bodyWriter.write(" > ");
 			}
-			res.bodyWriter.write("]\n\n");
+			res.bodyWriter.write(std.string.format("] [Age: %s] [Inactivity: %s]\n\n", TaskDebugger.getAge(t).toString(), TaskDebugger.getInactivity(t).toString()));
 
 			res.bodyWriter.write(std.string.format("\tCall Stack:\n"));
-			auto cs = TaskDebugger.findCallStack(t);
+			auto cs = TaskDebugger.getCallStack(t);
 			foreach_reverse (string info; cs[])
 				res.bodyWriter.write(std.string.format("\t\t%s\n", info));
 		}

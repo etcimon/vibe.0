@@ -11,6 +11,8 @@ module vibe.http.router;
 
 public import vibe.http.server;
 
+import vibe.core.core;
+import vibe.core.trace;
 import vibe.core.log;
 
 import std.functional;
@@ -227,7 +229,6 @@ final class URLRouter : HTTPRouter {
 		auto method = req.method;
 
 		auto path = req.path;
-		import vibe.core.trace;
 		import std.conv : to;
 		mixin(Name!"Incoming HTTP Request");
 		mixin(Breadcrumb!"` ~ req.method.to!string ~ ` ` ~ path ~ `");

@@ -1,7 +1,5 @@
 ﻿module vibe.core.trace;
 
-// Trace is provided by vibe.core.core
-public import vibe.core.core : Trace, StackTrace;
 import std.stdio;
 /// Appends provided string for a breadcrumbs-style naming of the active Task
 string Name(string name)() {
@@ -24,6 +22,8 @@ version(VibeFiberDebug):
 public import memutils.vector;
 public import vibe.core.task;
 
+// Trace is provided by vibe.core.core
+public import vibe.core.core : Trace, StackTrace;
 import memutils.hashmap;
 import memutils.utils;
 import std.datetime;
@@ -44,7 +44,7 @@ nothrow static:
 	}
 
 	// Fetches the call stack of a currently yielded task
-	Vector!string findCallStack(Task t) {
+	Vector!string getCallStack(Task t = Task.getThis()) {
 		scope(failure) assert(false);
 		if (auto ptr = t in s_taskMap) {
 			return ptr.callStack.dup;
@@ -94,6 +94,24 @@ nothrow static:
 			return ptr.breadcrumbs[].dup;
 		}
 		return ["Invalid Task"];
+	}
+
+	Duration getAge(Task t = Task.getThis()) {
+		scope(failure) assert(false);
+		
+		if (auto ptr = t in s_taskMap) {
+			return Clock.currTime() - ptr.created;
+		}
+		return 0.seconds;
+	}
+
+	Duration getInactivity(Task t = Task.getThis()) {
+		scope(failure) assert(false);
+		
+		if (auto ptr = t in s_taskMap) {
+			return Clock.currTime() - ptr.lastResumed;
+		}
+		return 0.seconds;
 	}
 }
 

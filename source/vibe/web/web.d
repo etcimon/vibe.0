@@ -582,6 +582,8 @@ private void handleRequest(string M, alias overload, C, ERROR...)(HTTPServerRequ
 					readFormParamRec(req, params[i], param_names[i], true);
 				}
 			}
+		} catch (HTTPStatusException e) {
+			throw e;		
 		} catch (Exception ex) {
 			static if (erruda.found && ERROR.length == 0) {
 				auto err = erruda.value.getError(ex, param_names[i]);
@@ -589,7 +591,7 @@ private void handleRequest(string M, alias overload, C, ERROR...)(HTTPServerRequ
 				return;
 			} else {
 				auto hex = new HTTPStatusException(HTTPStatus.badRequest, "Error handling parameter "~param_names[i]~": "~ex.msg);
-				hex.debugMessage = ex.toString().sanitize;
+				//hex.debugMessage = ex.toString().sanitize;
 				throw hex;
 			}
 		}

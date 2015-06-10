@@ -516,7 +516,7 @@ final class HTTPServerSettings {
 
 		The default value is 10 seconds.
 	*/
-	Duration keepAliveTimeout;
+	Duration keepAliveTimeout = dur!"seconds"(10);
 
 	/// Maximum number of transferred bytes per request after which the connection is closed with
 	/// an error; not supported yet
@@ -597,15 +597,8 @@ final class HTTPServerSettings {
 
 		The default value is 60 seconds; set to Duration.zero to disable pings.
 	*/
-	Duration webSocketPingInterval;// = dur!"seconds"(60);
+	Duration webSocketPingInterval = dur!"seconds"(60);
 
-	this()
-	{
-		// need to use the contructor because the Ubuntu 13.10 GDC cannot CTFE dur()
-		maxRequestTime = 0.seconds;
-		keepAliveTimeout = 10.seconds;
-		webSocketPingInterval = 60.seconds;
-	}
 }
 
 
@@ -2136,27 +2129,31 @@ void handleRequest(TCPConnection tcp_conn,
 		string dbg_msg;
 		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
 			if (err.debugMessage) dbg_msg = err.debugMessage;
-			else dbg_msg = err.toString().sanitize;
+			else {
+				version(VibeFiberDebug) {
+					auto bc = TaskDebugger.getBreadcrumbs();
+					dbg_msg = bc[].join("\n").sanitize;
+				}
+			}
 		}
-		if (res && !res.headerWritten) errorOut(req, res, err.status, err.msg, dbg_msg, err);
+		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);
 		else logDiagnostic("HTTPSterrorOutatusException while writing the response: %s", err.msg);
-		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, err.toString().sanitize);
+		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
 	} catch (ConnectionClosedException e) {
-		// ok	
-		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
-		string dbg_msg;
-		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
-		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
-
+		// ok
 	} catch (UncaughtException e) {
-		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, e.toString().sanitize());
+		logDebug("Exception while handling request: %s %s", req.method, req.requestURL);
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
 		string dbg_msg;
-		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) dbg_msg = e.toString().sanitize;
+		version(VibeFiberDebug)
+			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
+				auto bc = TaskDebugger.getBreadcrumbs();
+				dbg_msg = bc[].join("\n").sanitize;
+			}
 		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
-		else logDiagnostic("Error while writing the response: %s", e.toString());
+		else logDiagnostic("Error while writing the response: %s", dbg_msg);
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}
 
