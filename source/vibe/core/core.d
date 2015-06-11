@@ -247,8 +247,10 @@ version(VibeFiberDebug)
 		}
 		
 		~this() {
-			scope(failure) assert(false);
-			if (s_popTrace && pushed) s_popTrace();
+			try if (s_popTrace && pushed) s_popTrace();
+			catch (Throwable e) {
+				import std.stdio; try writeln(e.toString()); catch {}
+			}
 		}
 	}
 	
@@ -1580,6 +1582,7 @@ nothrow {
 	} catch (InvalidMemoryOperationError e) {
 		import std.stdio;
 		scope(failure) assert(false);
+		asm { int 3; }
 		if (!VibeWindow) {
 			writeln("Error message: ", e.msg);
 			writeln("Full error: ", e.toString().sanitize());

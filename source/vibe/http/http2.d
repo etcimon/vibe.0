@@ -171,8 +171,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				if (!headers.empty) { // for inbound headers, we had to allocate...
 					foreach(HeaderField hf; headers[])
 						hf.free();
-					headers.clear();
 				}
+				headers.destroy();
 				//if (signal) destroy(signal);
 			}
 
@@ -940,14 +940,16 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			yield();
 		}
 		else {
-			while (!m_tx.finalized) {
+			scope(exit) 
+				m_rx.free();
+			while (!m_tx.finalized && connected) {
+				dirty();
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
 				m_rx.signal.waitLocal();
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
 			}
-			m_rx.free();
 		}
 		processExceptions();
 	}

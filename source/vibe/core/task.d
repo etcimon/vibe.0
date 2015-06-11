@@ -35,7 +35,7 @@ struct Task {
 		}
 	}
 
-	private this(TaskFiber fiber, size_t task_counter) nothrow
+	this(TaskFiber fiber, size_t task_counter) nothrow
 	{
 		m_fiber = cast(shared)fiber;
 		m_taskCounter = task_counter;
