@@ -1898,7 +1898,7 @@ void handleRequest(TCPConnection tcp_conn,
 			return res.m_settings.errorPageHandler(req, res, err);
 		}
 		//else
-		try res.writeBody(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
+		try res.write(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
 		catch (Exception ex) 
 		{ // do something...?
 		}
@@ -2136,7 +2136,7 @@ void handleRequest(TCPConnection tcp_conn,
 				}
 			}
 		}
-		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);
+		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);
 		else logDiagnostic("HTTPSterrorOutatusException while writing the response: %s", err.msg);
 		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
@@ -2152,7 +2152,7 @@ void handleRequest(TCPConnection tcp_conn,
 				auto bc = TaskDebugger.getBreadcrumbs();
 				dbg_msg = bc[].join("\n").sanitize;
 			}
-		if (res && !res.headerWritten && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
+		if (res && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
 		else logDiagnostic("Error while writing the response: %s", dbg_msg);
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}

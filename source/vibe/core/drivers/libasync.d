@@ -282,7 +282,7 @@ final class LibasyncDriver : EventDriver {
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
 		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
-		enforce(tcp_connection.connected, "Could not connect within 5 seconds");
+		enforceEx!TimeoutException(tcp_connection.connected, "Could not connect within 5 seconds");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1458,6 +1458,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
 			}
+			else if (conn.status.code == Status.ABORT) {
+				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
+			}
 			else if (conn.status.code != Status.OK) {
 				// We have a read error and the socket may now even be closed...
 				auto err = conn.error;
@@ -1736,7 +1739,7 @@ final class LibasyncUDPConnection : UDPConnection {
 				enforce(socket.status.code == Status.ASYNC, "Error receiving UDP packet");
 				
 				if (timeout != Duration.max) {
-					enforce(timeout > 0.seconds && m_driver.isTimerPending(tm), "UDP receive timeout.");
+					enforceEx!TimeoutException(timeout > 0.seconds && m_driver.isTimerPending(tm), "UDP receive timeout.");
 				}
 			}
 			m_waiting = true;

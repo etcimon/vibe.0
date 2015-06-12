@@ -225,10 +225,23 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	return handle;
 }
 
-/// CTFE mixins - Registers the current function or string on the active Taskcall stack
+/// CTFE mixins - Registers the current function or string on the active Task call stack.
+/// All error pages will show elements of this stack trace if enabled. Works in release builds.
 string Trace(string info = null) {
 	version(VibeFiberDebug)
 		return "auto si = StackTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");";
+	else return "";
+}
+
+/// Advanced logging feature which allows debugging of release builds without recompiling. 
+/// It gives the user runtime control of the capture event using task filters.
+/// Use this everywhere possible, it doesn't slow down the program when you are not capturing. 
+string OnCapture(string keyword, alias contents)() {
+	version(VibeFiberDebug) {
+		static if (__traits(identifier, contents) != "contents")
+			return "if (s_capturing) s_pushCaptured(" ~ __traits(identifier, contents) ~ ");";
+		else return "if (s_capturing) s_pushCaptured(`" ~ contents ~ "`);";
+	}
 	else return "";
 }
 
@@ -253,15 +266,20 @@ version(VibeFiberDebug)
 			}
 		}
 	}
-	
-	void setPushTrace(void function(string) del) {
-		s_pushTrace = del;
-	}
-	
-	void setPopTrace(void function() del) {
-		s_popTrace = del;
-	}
+	package {
+		void setCapturesCallback(void function(lazy string) del)
+		{
+			s_pushCaptured = del;
+		}
 
+		void setPushTrace(void function(string) del) {
+			s_pushTrace = del;
+		}
+		
+		void setPopTrace(void function() del) {
+			s_popTrace = del;
+		}
+	}
 	size_t getAvailableFiberCount() {
 		return s_availableFibers.length;
 	}
@@ -1353,6 +1371,7 @@ private {
 		TaskEventCb s_taskEventCallback;
 		void function(string) s_pushTrace;
 		void function() s_popTrace;
+		void function(lazy string) s_pushCaptured;
 	}
 	shared bool st_term = false;
 

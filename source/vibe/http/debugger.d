@@ -39,7 +39,7 @@ HTTPServerRequestDelegateS serveDebugger() {
 		res.bodyWriter.write("Active fibers:\n");
 		foreach (Task t; tasks)
 		{
-			res.bodyWriter.write(std.string.format("\nTask %s [%s] [", cast(void*)t.fiber, TaskDebugger.getTaskName(t)));
+			res.bodyWriter.write(std.string.format("\nTask %s (%d B) [%s] [", cast(void*)t.fiber, TaskDebugger.getMemoryUsage(t), TaskDebugger.getTaskName(t)));
 
 			auto bcrumbs = TaskDebugger.getBreadcrumbs(t);
 			int i;
@@ -55,6 +55,7 @@ HTTPServerRequestDelegateS serveDebugger() {
 			foreach_reverse (string info; cs[])
 				res.bodyWriter.write(std.string.format("\t\t%s\n", info));
 		}
+		/*
 		res.bodyWriter.write("\nVibe manual allocations: \n\n");
 		foreach (const ref size_t sz; (cast(DebugAllocator)manualAllocator()).blocks) {
 			res.bodyWriter.write(std.string.format("Entry sz %d\n", sz));
@@ -74,6 +75,7 @@ HTTPServerRequestDelegateS serveDebugger() {
 		res.bodyWriter.write("\nSecureMem allocations: \n");
 		foreach (const ref size_t ptr, const ref size_t sz; map2) 
 			res.bodyWriter.write(std.string.format("Entry %s => %d\n", cast(void*)ptr, sz));
+		*/
 
 	}
 	return &webDebug;
