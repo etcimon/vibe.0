@@ -56,17 +56,6 @@ class StreamExitException : ConnectionClosedException
 	}
 }
 
-/**
-	Thrown when the read loop has received no data for an amount of time defined by the Session timeout value
-*/
-class TimeoutException : Exception
-{
-	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe pure nothrow
-	{
-		super("The Connection Went Away: " ~ msg, file, line, next);
-	}
-}
-
 struct PingData
 {
 	long sent;

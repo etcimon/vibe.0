@@ -3,28 +3,31 @@
 import std.stdio;
 /// Appends provided string for a breadcrumbs-style naming of the active Task
 string Name(string name)() {
-	version(VibeFiberDebug)
+	version(VibeNoDebug) {
+		return "";
+	} else
 		return "TaskDebugger.setTaskName(`" ~ name ~ "`);";
-	else return "";
 }
 
 string Breadcrumb(alias bcrumb)() {
-	version(VibeFiberDebug) {
+	version(VibeNoDebug) {
+		return "";
+	} else {
 		static if (__traits(identifier, bcrumb) != "bcrumb")
 			return "TaskDebugger.addBreadcrumb(" ~ __traits(identifier, bcrumb) ~ ");";
 		else return "TaskDebugger.addBreadcrumb(`" ~ bcrumb ~ "`);";
 	}
-	else return "";
 }
 
-version(VibeFiberDebug):
+version(VibeNoDebug) {} else:
 
 public import memutils.vector;
 public import vibe.core.task;
 
 // Trace is provided by vibe.core.core
-public import vibe.core.core : Trace, StackTrace;
+public import vibe.core.core : Trace;
 import memutils.hashmap;
+import memutils.rbtree;
 import memutils.utils;
 import std.datetime;
 import vibe.core.core;
@@ -44,25 +47,37 @@ nothrow static:
 	}
 
 	// Fetches the call stack of a currently yielded task
-	Vector!string getCallStack(Task t = Task.getThis()) {
+	Vector!string getCallStack(Task t = Task.getThis(), bool in_catch = true) {
 		scope(failure) assert(false);
-		if (auto ptr = t.fiber in s_taskMap) {
-			return ptr.callStack.dup;
-		}
+		try if (auto ptr = t.fiber in s_taskMap) {
+			auto ret = ptr.callStack.dup;
+			if (in_catch && ptr.failures > 0) {
+				foreach (i; 0 .. ptr.failures)
+					ptr.callStack.removeBack();
+			}
+			return ret.move;
+		} catch (Exception e) { try writeln("Couldn't get call stack"); catch {} }
 		return Vector!string(["No call stack"]);
 	}
 
 	void setTaskName(string name) {
-		scope(failure) assert(false);
-		if (auto tls_tdi = Task.getThis().fiber in s_taskMap) {
-			tls_tdi.name = name;
-		}
+		setTaskName(Task.getThis(), name);
 	}
 
 	void setTaskName(Task t, string name) {
 		scope(failure) assert(false);
 		if (auto ptr = t.fiber in s_taskMap) {
 			ptr.name = name;
+
+			if (isCapturing) {
+				foreach (settings; s_captureSettings[]) {
+					if (settings.canCapture(*ptr))
+					{
+						settings.attachTask(*ptr);
+
+					}
+				}
+			}
 		}
 	}
 
@@ -76,8 +91,8 @@ nothrow static:
 
 	void addBreadcrumb(string bcrumb) {
 		scope(failure) assert(false);
-		if (auto tls_tdi = Task.getThis().fiber in s_taskMap) {
-			tls_tdi.breadcrumbs ~= bcrumb;
+		if (auto ptr = Task.getThis().fiber in s_taskMap) {
+			ptr.breadcrumbs ~= bcrumb;
 		}
 	}
 
@@ -125,13 +140,28 @@ nothrow static:
 
 	/// Starts capturing data using the specified handler. Returns the capture ID
 	ulong startCapturing(CaptureSettings settings) {
+		static ulong id;
 		// adds a filter to which one or more tasks will be attached according to predicates
 		// the handler will be called for each `onCapture` event.
 		settings.remainingTasks = settings.filters.maxTasks;
+		setIsCapturing(true);
+		// todo: add capture to existing tasks if option is set
+		settings.id = id++;
+		try s_captureSettings.insert(settings); 
+		catch (Exception e) { try writeln(e.toString()); catch {} }
+		return settings.id;
 	}
 
 	/// Stops capturing the specified handler ID
 	void stopCapturing(ulong id) {
+		try {
+			CaptureSettings cmp = ThreadMem.alloc!CaptureSettings();
+			scope(exit) ThreadMem.free(cmp);
+
+			auto settings = s_captureSettings.getValuesAt(cmp);
+			import std.range : front;
+			settings.front.detachAll();
+		} catch (Exception e) { try writeln(e.toString()); catch {} }
 		// removes the filter, detaches all attached tasks
 	}
 }
@@ -140,43 +170,91 @@ class CaptureSettings {
 	// The configuration to be respected during the capture
 	CaptureFilters filters;
 	// The delegate which will receive capture data
-	void delegate(lazy string) sink nothrow;
+	void delegate(string, lazy string) nothrow sink;
 	// Called when the capture is finished
-	void delegate() finalize nothrow;
+	void delegate() nothrow finalize;
 
+	int opCmp(CaptureSettings other) const {
+		if (other.id == this.id) return 0;
+		if (other.id < this.id) return -1;
+		else return 1;
+	}
 private:
 	// the unique ID for this capture
 	ulong id;
 	// All attached tasks will appear here
 	Vector!TaskDebugInfo tasks;
-	// To respect the total limits
-	int remainingTasks = size_t.max;
+	// The amount of tasks remaining before the capture is forcibly finalized
+	uint remainingTasks = uint.max;
+
+	bool canCapture(TaskDebugInfo t) {
+		if (remainingTasks == 0) return false;
+		import std.algorithm : canFind;
+		// name must be an exact match
+		if (!globMatch(filters.name, t.name)) 
+			return false;
+
+		// all of the filter breadcrumbs must be contained
+		if (filters.breadcrumbs != ["*"] ) {
+			foreach (glob; filters.breadcrumbs) {
+				foreach (breadcrumb; t.breadcrumbs[])
+					if (!globMatch(glob, breadcrumb))
+						return false;
+			}
+		}
+		return true;
+	}
 
 	bool attachTask(TaskDebugInfo t) {
 		if (remainingTasks == 0)
 			return false;
 		tasks ~= t;
+		t.captures ~= this;
 		remainingTasks--;
 		return true;
 	}
 
-	void detachTask(Task t) {
+	void detachTask(TaskDebugInfo t) {
+		removeFromArray(tasks, t);
+		checkFinished();
+	}
 
+	void detachTask(Task t) {
+		if (t == Task()) return;
+		if (auto ptr = t.fiber in s_taskMap) {
+			detachTask(*ptr);
+		}
+	}
+
+	void detachAll() {
+		foreach (TaskDebugInfo tdi; tasks[]) {
+			removeFromArray(tdi.captures, this);
+		}
+		checkFinished();
+	}
+
+	private void checkFinished() {
+		if (remainingTasks == 0) {
+			finalize();
+			s_captureSettings.remove(this);
+			if (s_captureSettings.empty)
+				setIsCapturing(false);
+		}
 	}
 }	
 
 struct CaptureFilters {
-	/// The name of the task. Use "*" for a wildcard
+	/// The name of the task. Use * ? globbing wildcards
 	string name;
-	/// The capture events requested. Use ["*"] for a wildcard
+	/// The capture events requested. Use * ? globbing wildcards
 	string[] keywords;
-	/// The breadcrumbs which must be contained within the monitored Task's breadcrumbs. Use ["*"] for a wildcard
+	/// The breadcrumbs which must be contained within the monitored Task's breadcrumbs. Use * ? globbing wildcards
 	string[] breadcrumbs;
 	/// The maximum number of tasks that can be monitored, after which the capture is automatically stopped
-	int maxTasks = size_t.max;
+	uint maxTasks = uint.max;
 	/// Whether existing tasks should be scanned. If not, tasks will join the capture 
 	/// the moment they match those filters (when adding breadcrumbs, changing names, etc).
-	bool scanExistingTasks;
+	// todo: bool scanExistingTasks;
 }
 
 private:
@@ -186,6 +264,7 @@ class TaskDebugInfo {
 	string name;
 	Vector!string breadcrumbs;
 	Vector!string callStack;
+	uint failures; // used to unwind the call stack
 	Vector!CaptureSettings captures;
 	SysTime created;
 	SysTime lastResumed;
@@ -198,7 +277,8 @@ void taskEventCallback(TaskEvent ev, Task t) nothrow {
 		{
 			if (auto ptr = t.fiber in s_taskMap)
 			{
-				// detach from capture settings
+				foreach (capture; ptr.captures)
+					capture.detachTask(*ptr);
 				ThreadMem.free(*ptr);
 				s_taskMap.remove(t.fiber);
 			}
@@ -222,31 +302,48 @@ void taskEventCallback(TaskEvent ev, Task t) nothrow {
 	}
 }
 
+void removeFromArray(T)(ref Vector!T arr, ref T t) {
+	// remove from the list
+	size_t idx;
+	foreach (i, val; arr[]) {
+		if (val is t) {
+			idx = i;
+			break;
+		}
+	}
 
-void pushTrace(string info) {
+	Vector!T tmp = Vector!T(arr[0 .. idx]);
+	if (arr.length - 1 > idx)
+		tmp ~= arr[idx .. $];
+	arr.swap(tmp);
+
+}
+
+void pushTraceImpl(string info) {
 	if (Task.getThis() == Task()) return;
-	if (auto tls_tdi = Task.getThis().fiber in s_taskMap) {
-		tls_tdi.callStack ~= info;
+	if (auto ptr = Task.getThis().fiber in s_taskMap) {
+		ptr.callStack ~= info;
 	}
 	
 }
 
-void popTrace() {
+void popTraceImpl(bool in_failure = false) {
 	if (Task.getThis() == Task()) return;
-	if (auto tls_tdi = Task.getThis().fiber in s_taskMap) {
-		tls_tdi.callStack.removeBack();
+	if (auto ptr = Task.getThis().fiber in s_taskMap) {
+		if (in_failure) ptr.failures++;
+		else ptr.callStack.removeBack();
 	}
 }
 
-
-void onCaptured(lazy string data) {
-	scope(failure) assert(false);
+void onCapturedImpl(string keyword, lazy string data) {
 	if (Task.getThis() == Task()) return;
 	if (auto t = Task.getThis().fiber in s_taskMap) {
 		if (t.captures.length > 0)
 		{
 			foreach (CaptureSettings capture; t.captures[]) {
-				capture.sink(data);
+				foreach (glob; capture.filters.keywords)
+					if (globMatch(glob, keyword))
+						capture.sink(keyword, data);
 			}
 		}
 	}
@@ -268,15 +365,15 @@ void onAlloc(size_t sz) {
 }
 
 HashMap!(TaskFiber, TaskDebugInfo, Malloc) s_taskMap;
-RBTree!(CaptureSettings, "a.id < b.id", Malloc) s_captureSettings;
+RBTree!(CaptureSettings, "a < b", false, Malloc) s_captureSettings;
 
 static this() {
 	import core.thread;
 	import memutils.allocators;
 	setTaskEventCallback(&taskEventCallback);
-	setPushTrace(&pushTrace);
-	setPopTrace(&popTrace);
-	setCapturesCallback(&TaskDebugger.onCaptured);
+	setPushTrace(&pushTraceImpl);
+	setPopTrace(&popTraceImpl);
+	setCapturesCallback(&onCapturedImpl);
 	enum NativeGC = 0x01;
 	enum Lockless = 0x02;
 	enum CryptoSafe = 0x03;
@@ -284,4 +381,36 @@ static this() {
 	getAllocator!Lockless().setAllocSizeCallbacks(&onAlloc, &onFree);
 	getAllocator!CryptoSafe().setAllocSizeCallbacks(&onAlloc, &onFree);
 
+}
+
+bool globMatch(string pattern, string str)
+{
+	immutable(char)* a_pos = pattern.ptr;
+	immutable(char)* b_pos = str.ptr;
+	immutable(char)* a_end = pattern.ptr + pattern.length;
+	immutable(char)* b_end = str.ptr + str.length;
+
+	while (a_pos !is a_end && b_pos !is b_end) {		
+		if (*a_pos == '*') {
+			while (a_pos !is a_end && *a_pos == '*')
+				a_pos++;
+			
+			if(a_pos is a_end)
+				return true;
+			
+			while(b_pos !is b_end && *b_pos != *a_pos)
+				b_pos++;
+			
+		} else if (*a_pos == '?' || *a_pos == *b_pos)
+		{
+			a_pos++;
+			b_pos++;
+		}
+		else
+			break;
+	}
+	
+	if(a_pos is a_end && b_pos is b_end)
+		return true;
+	return false;
 }

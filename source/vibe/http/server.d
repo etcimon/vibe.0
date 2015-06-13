@@ -1897,8 +1897,8 @@ void handleRequest(TCPConnection tcp_conn,
 			err.exception = ex;
 			return res.m_settings.errorPageHandler(req, res, err);
 		}
-		//else
-		try res.write(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
+
+		try res.bodyWriter.write(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
 		catch (Exception ex) 
 		{ // do something...?
 		}
@@ -2012,6 +2012,8 @@ void handleRequest(TCPConnection tcp_conn,
 				nullWriter.write(req.bodyReader);
 				logTrace("dropped body");
 			}
+		}
+		scope(success) {
 			if (topStream.connected) if (res) res.finalize();
 		}
 		if (req.tls)
@@ -2128,16 +2130,22 @@ void handleRequest(TCPConnection tcp_conn,
 	} catch (HTTPStatusException err) {
 		string dbg_msg;
 		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
-			if (err.debugMessage) dbg_msg = err.debugMessage;
-			else {
-				version(VibeFiberDebug) {
-					auto bc = TaskDebugger.getBreadcrumbs();
-					dbg_msg = bc[].join("\n").sanitize;
+			version(VibeNoDebug) {
+				debug {
+					if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
+						dbg_msg = format("\n\nD Stack trace: %s", err.toString().sanitize);
 				}
+			} else {
+				auto bs = TaskDebugger.getBreadcrumbs();
+				dbg_msg = bs[].join(" > ").sanitize;
+				dbg_msg ~= "Call Stack:\n";
+				auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
+				dbg_msg ~= cs[].join("\n").sanitize;
+				debug dbg_msg ~= format("\n\nD Stack trace: %s", e.toString().sanitize);
 			}
 		}
 		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);
-		else logDiagnostic("HTTPSterrorOutatusException while writing the response: %s", err.msg);
+		else logDiagnostic("HTTPStatusException while writing the response: %s", err.msg);
 		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
@@ -2147,11 +2155,21 @@ void handleRequest(TCPConnection tcp_conn,
 		logDebug("Exception while handling request: %s %s", req.method, req.requestURL);
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
 		string dbg_msg;
-		version(VibeFiberDebug)
-			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
-				auto bc = TaskDebugger.getBreadcrumbs();
-				dbg_msg = bc[].join("\n").sanitize;
+		version(VibeNoDebug) {
+			debug {
+				if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
+					dbg_msg = format("\n\nD Stack trace: %s", e.toString().sanitize);
 			}
+		} else {
+			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
+				auto bs = TaskDebugger.getBreadcrumbs();
+				dbg_msg = bs[].join(" > ").sanitize;
+				dbg_msg ~= "Call Stack:\n";
+				auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
+				dbg_msg ~= cs[].join("\n").sanitize;
+				debug dbg_msg ~= format("\n\nD Stack trace: %s", e.toString().sanitize);
+			}
+		}
 		if (res && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
 		else logDiagnostic("Error while writing the response: %s", dbg_msg);
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
@@ -2187,7 +2205,6 @@ void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Al
 	req.queryString = url.queryString;
 	req.username = url.username;
 	req.password = url.password;
-
 	logTrace("%s", url.toString());
 
 	foreach (k, v; req.headers)
@@ -2219,6 +2236,7 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 	enforceBadRequest(pos >= 0, "invalid request path");
 
 	req.requestURL = reqln[0 .. pos];
+	mixin(OnCapture!("HTTP Server Request Headers", "req.requestURL"));
 	reqln = reqln[pos+1 .. $];
 
 	req.httpVersion = parseHTTPVersion(reqln);

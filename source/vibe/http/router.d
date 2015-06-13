@@ -189,9 +189,22 @@ final class URLRouter : HTTPRouter {
 		string m_prefix;
 	}
 
+	static void delegate(URLRouter r) nothrow[] s_routes;
+
+	/// Always runs the provided delegate when a router is created
+	static void addCtor(void delegate(URLRouter) nothrow del) {
+		s_routes ~= del;
+	}
+	static void addCtor(void function(URLRouter) nothrow fct) {
+		import std.functional : toDelegate;
+		s_routes ~= toDelegate(fct);
+	}
+
 	this(string prefix = null)
 	{
 		m_prefix = prefix;
+		foreach (router_ctor; s_routes)
+			router_ctor(this);
 	}
 
 	@property string prefix() const { return m_prefix; }
@@ -229,9 +242,10 @@ final class URLRouter : HTTPRouter {
 		auto method = req.method;
 
 		auto path = req.path;
+
 		import std.conv : to;
 		mixin(Name!"Incoming HTTP Request");
-		mixin(Breadcrumb!(req.method.to!string));
+		mixin(Breadcrumb!"`~std.conv.to!string(req.method)~`");
 		mixin(Breadcrumb!path);
 		mixin(Trace);
 		if (path.length < m_prefix.length || path[0 .. m_prefix.length] != m_prefix) return;

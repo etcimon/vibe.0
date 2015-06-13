@@ -195,9 +195,6 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	if (f is null) {
 		// if there is no fiber available, create one.
 		if (s_availableFibers.capacity == 0) s_availableFibers.capacity = 1024;
-		version(VibeFiberDebug)
-			logTrace("Creating new fiber #%d", s_fiberCount);
-		s_fiberCount++;
 		f = new CoreTask;
 	}
 
@@ -206,7 +203,7 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	f.bumpTaskCounter();
 	auto handle = f.task();
 
-	version(VibeFiberDebug) {
+	version(VibeNoDebug) {} else {
 		Task self = Task.getThis();
 		if (s_taskEventCallback) {
 			if (self != Task.init) s_taskEventCallback(TaskEvent.yield, self);
@@ -215,7 +212,7 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	}
 	s_core.resumeTask(handle, null, true);
 
-	version(VibeFiberDebug) {
+	version(VibeNoDebug) {} else {
 		if (s_taskEventCallback) {
 			s_taskEventCallback(TaskEvent.postStart, handle);
 			if (self != Task.init) s_taskEventCallback(TaskEvent.resume, self);
@@ -228,46 +225,57 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 /// CTFE mixins - Registers the current function or string on the active Task call stack.
 /// All error pages will show elements of this stack trace if enabled. Works in release builds.
 string Trace(string info = null) {
-	version(VibeFiberDebug)
-		return "auto si = StackTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");";
-	else return "";
+	version(VibeNoDebug) {
+		return "";
+	} else
+		return "pushTrace(__PRETTY_FUNCTION__ " ~ (info ? "` [" ~ info ~ "] `" : "") ~ ");
+		scope(failure) popTrace(true); scope(success) popTrace(false);";
 }
 
 /// Advanced logging feature which allows debugging of release builds without recompiling. 
 /// It gives the user runtime control of the capture event using task filters.
 /// Use this everywhere possible, it doesn't slow down the program when you are not capturing. 
-string OnCapture(string keyword, alias contents)() {
-	version(VibeFiberDebug) {
-		static if (__traits(identifier, contents) != "contents")
-			return "if (s_capturing) s_pushCaptured(" ~ __traits(identifier, contents) ~ ");";
-		else return "if (s_capturing) s_pushCaptured(`" ~ contents ~ "`);";
-	}
-	else return "";
+string OnCapture(string keyword, string mixins)() {
+	version(VibeNoDebug) {
+		return "";
+	} else
+		return "pushCaptured(`" ~ keyword ~ "`, " ~ mixins ~ ");";
 }
 
-version(VibeFiberDebug)
+version(VibeNoDebug) {} else
 {
-
-	struct StackTrace {
-		bool pushed;
-	nothrow:
-		this(string info) {
-			scope(failure) assert(false);
-			if (s_pushTrace) {
-				s_pushTrace(info);
-				pushed = true;
-			}
-		}
-		
-		~this() {
-			try if (s_popTrace && pushed) s_popTrace();
-			catch (Throwable e) {
-				import std.stdio; try writeln(e.toString()); catch {}
-			}
+	void pushCaptured(string kw, lazy string info) nothrow {
+		try if (s_isCapturing) s_pushCaptured(kw, info);
+		catch (Throwable e) {
+			import std.stdio; try writeln(e.toString()); catch {}
 		}
 	}
+
+	void pushTrace(string info) nothrow {
+		scope(failure) assert(false);
+		if (s_pushTrace)
+			s_pushTrace(info);
+	}
+
+	void popTrace(bool in_failure) nothrow {
+		try if (s_popTrace)
+			s_popTrace(in_failure);
+		catch (Throwable e) {
+			import std.stdio; try writeln(e.toString()); catch {}
+		}
+	}
+
+	bool isCapturing() {
+		return s_isCapturing;
+	}
+
 	package {
-		void setCapturesCallback(void function(lazy string) del)
+
+		void setIsCapturing(bool b) nothrow {
+			s_isCapturing = b;
+		}
+
+		void setCapturesCallback(void function(string, lazy string) del)
 		{
 			s_pushCaptured = del;
 		}
@@ -276,15 +284,13 @@ version(VibeFiberDebug)
 			s_pushTrace = del;
 		}
 		
-		void setPopTrace(void function() del) {
+		void setPopTrace(void function(bool) del) {
 			s_popTrace = del;
 		}
 	}
 	size_t getAvailableFiberCount() {
 		return s_availableFibers.length;
 	}
-
-	private static CoreTask[] g_tasks;
 }
 
 /**
@@ -765,7 +771,7 @@ void lowerPrivileges()
 */
 void setTaskEventCallback(TaskEventCb func)
 {
-	version(VibeFiberDebug) s_taskEventCallback = func;
+	version(VibeNoDebug) {} else s_taskEventCallback = func;
 }
 
 
@@ -1017,9 +1023,6 @@ private class CoreTask : TaskFiber {
 
 	private void run()
 	{
-		scope(exit) 
-			s_fiberCount--;
-		version(VibeFiberDebug) g_tasks ~= this;
 		version (VibeDebugCatchAll) alias UncaughtException = Throwable;
 		else alias UncaughtException = Exception;
 		try {
@@ -1039,7 +1042,7 @@ private class CoreTask : TaskFiber {
 				try {
 					m_running = true;
 					scope(exit) m_running = false;
-					version(VibeFiberDebug)
+					version(VibeNoDebug) {} else
 						if (s_taskEventCallback)
 							s_taskEventCallback(TaskEvent.start, handle);
 					if (!s_eventLoopRunning) {
@@ -1048,17 +1051,17 @@ private class CoreTask : TaskFiber {
 						logTrace("Initial resume of task.");
 					}
 					task.func(&task);
-					version(VibeFiberDebug)
+					version(VibeNoDebug) {} else
 						if (s_taskEventCallback)
 							s_taskEventCallback(TaskEvent.end, handle);
 				} catch ( ConnectionClosedException e) {
-					version(VibeFiberDebug)
+					version(VibeNoDebug) {} else
 						if (s_taskEventCallback) 
 							s_taskEventCallback(TaskEvent.end, handle);
 					//import std.encoding;
 					logTrace("Task was terminated because the connection was closed: %s", e.toString());
 				} catch( Exception e ){
-					version(VibeFiberDebug)
+					version(VibeNoDebug) {} else
 						if (s_taskEventCallback)
 							s_taskEventCallback(TaskEvent.fail, handle);
 					import std.encoding;
@@ -1098,8 +1101,6 @@ private class CoreTask : TaskFiber {
 				messageQueue.clear();
 
 				s_availableFibers.put(this);
-				version(VibeFiberDebug) 
-					logTrace("Recycling fiber, now have %d fibers available and %d total", s_availableFibers.length, s_fiberCount);
 			}
 		} catch(UncaughtException th) {
 			logCritical("CoreTaskFiber was terminated unexpectedly: %s", th.msg);
@@ -1261,12 +1262,12 @@ private class VibeDriverCore : DriverCore {
 	private void yieldForEventDeferThrow(Task task)
 	nothrow {
 		if (task != Task.init) {
-			version(VibeFiberDebug)
+			version(VibeNoDebug) {} else
 				if (s_taskEventCallback) 
 					s_taskEventCallback(TaskEvent.yield, task);
 			static if (__VERSION__ < 2067) scope (failure) assert(false); // Fiber.yield() not nothrow on 2.066 and below
 			task.fiber.yield();
-			version(VibeFiberDebug)
+			version(VibeNoDebug) {} else
 				if (s_taskEventCallback) 
 					s_taskEventCallback(TaskEvent.resume, task);
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
@@ -1367,11 +1368,12 @@ private {
 	__gshared ThreadContext[] st_threads;
 	__gshared TaskFuncInfo[] st_workerTasks;
 	__gshared Condition st_threadShutdownCondition;
-	version(VibeFiberDebug) {
+	version(VibeNoDebug) {} else {
 		TaskEventCb s_taskEventCallback;
 		void function(string) s_pushTrace;
-		void function() s_popTrace;
-		void function(lazy string) s_pushCaptured;
+		void function(bool in_failure) s_popTrace;
+		void function(string, lazy string) s_pushCaptured;
+		bool s_isCapturing;
 	}
 	shared bool st_term = false;
 
@@ -1381,7 +1383,6 @@ private {
 	CoreTaskQueue s_yieldedTasks;
 	Variant[string] s_taskLocalStorageGlobal; // for use outside of a task
 	FixedRingBuffer!CoreTask s_availableFibers;
-	size_t s_fiberCount;
 
 	string s_privilegeLoweringUserName;
 	string s_privilegeLoweringGroupName;

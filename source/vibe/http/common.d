@@ -273,13 +273,6 @@ class HTTPStatusException : Exception {
 	this(int status, string message = null, string file = __FILE__, int line = __LINE__, Throwable next = null)
 	{
 		super(message != "" ? message : httpStatusText(status), file, line, next);
-		import vibe.core.trace;
-		import std.algorithm : joiner;
-		import std.conv : to;
-		version(VibeFiberDebug) {
-			auto cs = TaskDebugger.getCallStack(Task.getThis());
-			debugMessage = cs[].joiner("\n").to!string;
-		}
 		m_status = status;
 	}
 

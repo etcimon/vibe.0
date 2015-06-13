@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html><head><title>Capture Form</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.2/css/foundation.min.css" rel="stylesheet">
+    <script src="http://code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.2/js/vendor/modernizr.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.2/js/foundation.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/foundation/5.5.2/js/foundation/foundation.reveal.min.js"></script>
+</head>
+<body>
+<div class="row">
+    <div class="large-8 medium-8 columns">
+        <h1>Interactive Debugger</h1>
+    </div>
+</div>
+<div class="row">
+    <form action="/do_capture/" method="get">
+        <div class="row">
+            <div class="large-4 medium-4 columns">
+                <h4>Data Capture Tool</h4>
+            </div>
+        </div>
+        <div class="row">
+            <div class="large-8 medium-8 columns">
+                <p>Use this tool to get task-specific log information, according to the URL or task type. The data will start being recorded when task matches all the specified filters.</p>
+            </div>
+        </div>
+        <div class="row">
+            <div class="large-4 medium-4 columns">
+                <label>
+                    <span data-tooltip aria-haspopup="true" class="has-tip" title="You can use the wildcard '*' to help match multiple names">
+                        Task Name:
+                    </span>
+                    <a href="#" data-reveal-id="taskNamesHelp">(More)</a>
+                </label>
+                <input type="text" name="name" placeholder="Incoming HTTP Request *" />
+            </div>
+        </div>
+        <div class="row">
+            <div class="large-4 medium-4 columns">
+                <label>
+                    <span data-tooltip aria-haspopup="true" class="has-tip" title="You can use the comma operator and the wildcard '*' to match multiple breadcrumbs">
+                        Task Breadcrumbs:
+                    </span>
+                    <a href="#" data-reveal-id="breadcrumbsHelp">(More)</a>
+                </label>
+                <input type="text" name="breadcrumbs" placeholder="GET,/index/*" />
+            </div>
+        </div>
+        <div class="row">
+            <div class="large-4 medium-4 columns">
+                <label>
+                    <span data-tooltip aria-haspopup="true" class="has-tip" title="You can use the comma operator and the wildcard '*' to match multiple keywords">
+                        Debugging Keywords:
+                    </span>
+                    <a href="#" data-reveal-id="keywordsHelp">(More)</a>
+                </label>
+                <input type="text" name="keywords" placeholder="*Request Param*, *Request Cookies" />
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="large-4 medium-4 columns">
+                <button placeholder="large-4.columns" onclick="this.submit()">Start Capturing</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div id="taskNamesHelp" class="reveal-modal" data-reveal aria-labelledby="modalTitle" aria-hidden="true" role="dialog">
+    <h2 id="modalTitle">Possible Task Names.</h2>
+    <ul>
+        <li>
+            <strong>Incoming HTTP Request</strong>: When a new request is handled, a task is created and goes through the HTTP Server. Once it reaches the URLRouter, this name is attributed.
+        </li>
+    </ul>
+    <p>todo: List all possible names declared throughout vibe.d.</p>
+    <a class="close-reveal-modal" aria-label="Close">&#215;</a>
+</div>
+<div id="breadcrumbsHelp" class="reveal-modal" data-reveal aria-labelledby="modalTitle" aria-hidden="true" role="dialog">
+    <h2 id="modalTitle">What are breadcrumbs?</h2>
+    <p>Breadcrumbs are persistent tags that are given to tasks when they go through certain execution paths. For example,
+        when a task is created to handle an HTTP request, it is given the HTTP method as a breadcrumb, and the request URL as another one.
+        When you enter a list of breadcrumbs in the textbox, you are specifying which path the task must have had taken first in order to be eligible for the data capture operations.</p>
+
+    <p>todo: List all default vibe.d breadcrumb declaration areas.</p>
+    <a class="close-reveal-modal" aria-label="Close">&#215;</a>
+</div>
+<div id="keywordsHelp" class="reveal-modal" data-reveal aria-labelledby="modalTitle" aria-hidden="true" role="dialog">
+    <h2 id="modalTitle">What are these keywords?</h2>
+    <p>The keywords you are specifying are attached to each piece of data that we will want to capture.</p>
+    <p>They have been declared in-code this way for parameters: mixin(OnCapture!("HTTP Server Request Parameters", "req.params"))</p>
+    <p>todo: List all default vibe.d keywords.</p>
+    <a class="close-reveal-modal" aria-label="Close">&#215;</a>
+</div>
+<script type="text/javascript">$(document).foundation();</script>
+</body>
+</html>
