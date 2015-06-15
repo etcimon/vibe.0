@@ -36,7 +36,7 @@ struct TaskDebugger {
 nothrow static:
 	// Returns all tasks currently started
 	Task[] getActiveTasks() {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		import std.array : Appender;
 		Appender!(Task[]) keys;
 
@@ -48,7 +48,7 @@ nothrow static:
 
 	// Fetches the call stack of a currently yielded task
 	Vector!string getCallStack(Task t = Task.getThis(), bool in_catch = true) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		try if (auto ptr = t.fiber in s_taskMap) {
 			auto ret = ptr.callStack.dup;
 			if (in_catch && ptr.failures > 0) {
@@ -65,24 +65,25 @@ nothrow static:
 	}
 
 	void setTaskName(Task t, string name) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		if (auto ptr = t.fiber in s_taskMap) {
 			ptr.name = name;
+			tryCapture(*ptr);
+		}
+	}
 
-			if (isCapturing) {
-				foreach (settings; s_captureSettings[]) {
-					if (settings.canCapture(*ptr))
-					{
-						settings.attachTask(*ptr);
-
-					}
-				}
+	private void tryCapture(TaskDebugInfo tdi) {
+		scope(failure) assert(false, "Memory allocation failed");
+		if (isCapturing) {
+			foreach (settings; s_captureSettings[]) {
+				if (settings.canCapture(tdi))
+					settings.attachTask(tdi);
 			}
 		}
 	}
 
 	string getTaskName(Task t = Task.getThis()) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		if (auto ptr = t.fiber in s_taskMap) {
 			return ptr.name;
 		}
@@ -90,21 +91,20 @@ nothrow static:
 	}
 
 	void addBreadcrumb(string bcrumb) {
-		scope(failure) assert(false);
-		if (auto ptr = Task.getThis().fiber in s_taskMap) {
-			ptr.breadcrumbs ~= bcrumb;
-		}
+		scope(failure) assert(false, "Memory allocation failed");
+		addBreadcrumb(Task.getThis(), bcrumb);
 	}
 
 	void addBreadcrumb(Task t, string bcrumb) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		if (auto ptr = t.fiber in s_taskMap) {
 			ptr.breadcrumbs ~= bcrumb;
+			tryCapture(*ptr);
 		}
 	}
 
 	string[] getBreadcrumbs(Task t = Task.getThis()) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		if (auto ptr = t.fiber in s_taskMap) {
 			return ptr.breadcrumbs[].dup;
 		}
@@ -112,7 +112,7 @@ nothrow static:
 	}
 
 	Duration getAge(Task t = Task.getThis()) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		
 		if (auto ptr = t.fiber in s_taskMap) {
 			return Clock.currTime() - ptr.created;
@@ -121,7 +121,7 @@ nothrow static:
 	}
 
 	Duration getInactivity(Task t = Task.getThis()) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		
 		if (auto ptr = t.fiber in s_taskMap) {
 			return Clock.currTime() - ptr.lastResumed;
@@ -130,7 +130,7 @@ nothrow static:
 	}
 
 	size_t getMemoryUsage(Task t = Task.getThis()) {
-		scope(failure) assert(false);
+		scope(failure) assert(false, "Memory allocation failed");
 		
 		if (auto ptr = t.fiber in s_taskMap) {
 			return ptr.memoryUsage;
@@ -183,25 +183,33 @@ private:
 	// the unique ID for this capture
 	ulong id;
 	// All attached tasks will appear here
-	Vector!TaskDebugInfo tasks;
+	TaskDebugInfo[] tasks;
 	// The amount of tasks remaining before the capture is forcibly finalized
 	uint remainingTasks = uint.max;
 
 	bool canCapture(TaskDebugInfo t) {
 		if (remainingTasks == 0) return false;
 		import std.algorithm : canFind;
+		import std.stdio : writeln;
 		// name must be an exact match
 		if (!globMatch(filters.name, t.name)) 
 			return false;
 
 		// all of the filter breadcrumbs must be contained
 		if (filters.breadcrumbs != ["*"] ) {
+			if (t.breadcrumbs.length == 0) return false;
 			foreach (glob; filters.breadcrumbs) {
-				foreach (breadcrumb; t.breadcrumbs[])
-					if (!globMatch(glob, breadcrumb))
+				foreach (breadcrumb; t.breadcrumbs[]) {
+					if (!globMatch(glob, breadcrumb)) {
+						writeln("Globmatch => ", glob, ", ", breadcrumb, " = false");
 						return false;
+					}
+					writeln("Globmatch => ", glob, ", ", breadcrumb, " = true");
+				}
 			}
 		}
+		import std.stdio : writeln;
+		writeln("Capturing Task, bc: ", filters.breadcrumbs, " name: ", filters.name, " keywords: ", filters.keywords);
 		return true;
 	}
 
@@ -227,7 +235,7 @@ private:
 	}
 
 	void detachAll() {
-		foreach (TaskDebugInfo tdi; tasks[]) {
+		foreach (TaskDebugInfo tdi; tasks) {
 			removeFromArray(tdi.captures, this);
 		}
 		checkFinished();
@@ -311,12 +319,29 @@ void removeFromArray(T)(ref Vector!T arr, ref T t) {
 			break;
 		}
 	}
-
+	
 	Vector!T tmp = Vector!T(arr[0 .. idx]);
 	if (arr.length - 1 > idx)
 		tmp ~= arr[idx .. $];
 	arr.swap(tmp);
+	
+}
 
+void removeFromArray(T)(ref T[] arr, ref T t) {
+	// remove from the list
+	size_t idx;
+	foreach (i, val; arr) {
+		if (val is t) {
+			idx = i;
+			break;
+		}
+	}
+	
+	T[] tmp = arr[0 .. idx];
+	if (arr.length - 1 > idx)
+		tmp ~= arr[idx .. $];
+	arr = tmp;
+	
 }
 
 void pushTraceImpl(string info) {

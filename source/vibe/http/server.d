@@ -2141,7 +2141,7 @@ void handleRequest(TCPConnection tcp_conn,
 				dbg_msg ~= "Call Stack:\n";
 				auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
 				dbg_msg ~= cs[].join("\n").sanitize;
-				debug dbg_msg ~= format("\n\nD Stack trace: %s", e.toString().sanitize);
+				debug dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
 			}
 		}
 		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);

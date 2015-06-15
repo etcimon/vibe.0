@@ -56,7 +56,7 @@ struct AllocAppender(ArrayType : E[], E) {
 		m_remaining = initial_buffer;
 	}
 
-	@disable this(this);
+	//@disable this(this);
 
 	@property ArrayType data() { return cast(ArrayType)m_data[0 .. m_data.length - m_remaining.length]; }
 
@@ -239,6 +239,7 @@ struct FixedAppender(ArrayType : E[], size_t NELEM, E) {
 	TODO: clear ring buffer fields upon removal (to run struct destructors, if T is a struct)
 */
 struct FixedRingBuffer(T, size_t N = 0) {
+	import memutils.utils;
 	private {
 		static if( N > 0 ) T[N] m_buffer;
 		else T[] m_buffer;
@@ -247,8 +248,8 @@ struct FixedRingBuffer(T, size_t N = 0) {
 	}
 
 	static if( N == 0 ){
-		this(size_t capacity) { m_buffer = new T[capacity]; }
-		~this() { if (m_buffer.length > 0) delete m_buffer; }
+		this(size_t capacity) { m_buffer = ThreadMem.alloc!(T[])(capacity); }
+		~this() { if (m_buffer.length > 0) ThreadMem.free(m_buffer); }
 	}
 
 	@property bool empty() const { return m_fill == 0; }
@@ -266,17 +267,17 @@ struct FixedRingBuffer(T, size_t N = 0) {
 		@property void capacity(size_t new_size)
 		{
 			if( m_buffer.length ){
-				auto newbuffer = new T[new_size];
+				auto newbuffer = ThreadMem.alloc!(T[])(new_size);
 				auto dst = newbuffer;
 				auto newfill = min(m_fill, new_size);
 				read(dst[0 .. newfill]);
-				if (m_buffer.length > 0) delete m_buffer;
+				if (m_buffer.length > 0) ThreadMem.free(m_buffer);
 				m_buffer = newbuffer;
 				m_start = 0;
 				m_fill = newfill;
 			} else {
-				if (m_buffer.length > 0) delete m_buffer;
-				m_buffer = new T[new_size];
+				if (m_buffer.length > 0) ThreadMem.free(m_buffer);
+				m_buffer = ThreadMem.alloc!(T[])(new_size);
 			}
 		}
 	}

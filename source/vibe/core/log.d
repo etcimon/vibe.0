@@ -115,9 +115,12 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 	try {
 		foreach (l; getLoggers())
 			if (l.minLevel <= level) { // WARNING: TYPE SYSTEM HOLE: accessing field of shared class!
-				auto app = appender!string();
-				() @trusted { formattedWrite(app, fmt, args); }(); // not @safe as of 2.065
-				rawLog(/*mod, func,*/ file, line, level, app.data);
+				import memutils.vector;
+				import std.format : sformat;
+				Vector!char app;
+				app.length = 64*1024;
+				auto str = sformat(app[], fmt, args);
+				rawLog(/*mod, func,*/ file, line, level, cast(string)str);
 				break;
 			}
 	} catch(Exception e) debug assert(false, e.msg);

@@ -1023,8 +1023,8 @@ private class CoreTask : TaskFiber {
 
 	private void run()
 	{
-		version (VibeDebugCatchAll) alias UncaughtException = Throwable;
-		else alias UncaughtException = Exception;
+		alias UncaughtException = Throwable;
+		//else alias UncaughtException = Exception;
 		try {
 			while(true){
 				while (!m_taskFunc.func) {

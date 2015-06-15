@@ -419,6 +419,7 @@ final class HTTPClient {
 		if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
 			logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 			HTTP2Settings local_settings = m_settings.http2.settings;
+			enforce(m_conn.tcp.connected, "Not connected");
 			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
 			m_http2Context.worker = runTask(&runHTTP2Worker, false);
 			yield();
@@ -455,7 +456,6 @@ final class HTTPClient {
 				m_conn.tlsStream.finalize();
 				m_conn.tlsStream.close(); // TLS has an alert for connection closure
 			}
-			m_conn.tlsStream.destroy();
 		}
 		if (m_conn.tcp) {
 			if (m_conn.tcp.connected)
@@ -463,7 +463,6 @@ final class HTTPClient {
 				m_conn.tcp.finalize();
 				m_conn.tcp.close();
 			}
-			m_conn.tcp.destroy();
 		}
 		m_conn.tcp = null;
 		m_conn.tlsStream = null;
@@ -759,6 +758,7 @@ private:
 
 		bool timed_out;
 		// starting...
+		enforce(m_conn.tcp.connected);
 		try m_http2Context.session.run(upgrade);
 		catch (Exception e) { 
 			timed_out = true;
