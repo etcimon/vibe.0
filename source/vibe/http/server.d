@@ -2124,7 +2124,7 @@ void handleRequest(TCPConnection tcp_conn,
 			string dbg_msg;
 			logDiagnostic("No response written for %s", req.requestURL);
 			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
-				dbg_msg = format("Not routes match path '%s'", req.requestURL);
+				dbg_msg = format("No routes match path '%s'", req.requestURL);
 			errorOut(req, res, HTTPStatus.notFound, httpStatusText(HTTPStatus.notFound), dbg_msg, null);
 		}
 	} catch (HTTPStatusException err) {

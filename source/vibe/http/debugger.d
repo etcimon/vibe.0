@@ -111,7 +111,7 @@ HTTPServerRequestDelegateS serveTaskManager() {
 
 /// must supply parameters: name, breadcrumbs, keywords
 HTTPServerRequestDelegateS serveCapture() {
-	void capture(scope HTTPServerRequest req, scope HTTPServerResponse res) {
+	void do_capture(scope HTTPServerRequest req, scope HTTPServerResponse res) {
 		import std.array : array;
 		import std.algorithm : splitter;
 		import vibe.core.driver;
@@ -119,12 +119,13 @@ HTTPServerRequestDelegateS serveCapture() {
 		bool finished;
 
 		CaptureFilters filters;
-		filters.name = req.params.get("name", "");
-		filters.breadcrumbs = req.params.get("breadcrumbs", "").splitter(",").array;
-		filters.keywords = req.params.get("keywords", "").splitter(",").array;
+		filters.name = req.form.get("name", "");
+		filters.breadcrumbs = req.form.get("breadcrumbs", "").splitter(",").array;
+		filters.keywords = req.form.get("keywords", "").splitter(",").array;
 
 		if (filters.name == "" || filters.breadcrumbs.length == 0 || filters.keywords.length == 0)
 			return;
+		
 
 		filters.maxTasks = 1;
 		CaptureSettings settings = new CaptureSettings;
@@ -154,14 +155,13 @@ HTTPServerRequestDelegateS serveCapture() {
 		while(!finished) ev.waitLocal();
 	}
 
-	return &capture;
+	return &do_capture;
 }
 
 HTTPServerRequestDelegateS serveCaptureForm() {
 	void captureForm(scope HTTPServerRequest req, scope HTTPServerResponse res) 
 	{
-		res.contentType = "text/html";
-		res.writeBody(import("capture.html"));
+		res.writeBody(import("capture.html"), "text/html");
 	}
 
 
@@ -170,14 +170,9 @@ HTTPServerRequestDelegateS serveCaptureForm() {
 
 void setupDebugger(URLRouter router) nothrow {
 	try {
-		if (router.prefix.length > 0) return;
-		router.get("/allocations/", serveAllocations());
-		router.get("/task_manager/", serveTaskManager());
-		router.get("/do_capture/", serveCapture());
-		router.get("/capture/", serveCaptureForm());
+		router.get("/debugger/", serveCaptureForm());
+		router.get("/debugger/allocations/", serveAllocations());
+		router.get("/debugger/task_manager/", serveTaskManager());
+		router.post("/debugger/capture/", serveCapture());
 	} catch (Exception e) { try logError("%s", e.toString()); catch {} }
-}
-
-static this() {
-	URLRouter.addCtor(&setupDebugger);
 }

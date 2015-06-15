@@ -148,7 +148,7 @@ nothrow static:
 		// todo: add capture to existing tasks if option is set
 		settings.id = id++;
 		try s_captureSettings.insert(settings); 
-		catch (Exception e) { try writeln(e.toString()); catch {} }
+		catch (Exception e) { setIsCapturing(false); return 0; }
 		return settings.id;
 	}
 
@@ -390,6 +390,10 @@ bool globMatch(string pattern, string str)
 	immutable(char)* a_end = pattern.ptr + pattern.length;
 	immutable(char)* b_end = str.ptr + str.length;
 
+	immutable(char) downcase(immutable(char) c) {
+		return cast(char)('A' <= c && c <= 'Z' ? (c - 'A' + 'a') : c);
+	}
+
 	while (a_pos !is a_end && b_pos !is b_end) {		
 		if (*a_pos == '*') {
 			while (a_pos !is a_end && *a_pos == '*')
@@ -397,11 +401,13 @@ bool globMatch(string pattern, string str)
 			
 			if(a_pos is a_end)
 				return true;
-			
-			while(b_pos !is b_end && *b_pos != *a_pos)
+			do {
 				b_pos++;
-			
-		} else if (*a_pos == '?' || *a_pos == *b_pos)
+				if (bool is_match = globMatch(a_pos[0 .. a_end-a_pos], b_pos[0 .. b_end-b_pos]))
+					return true;
+			}
+			while (b_pos !is b_end && downcase(*b_pos) != downcase(*a_pos));
+		} else if (*a_pos == '?' || downcase(*a_pos) == downcase(*b_pos))
 		{
 			a_pos++;
 			b_pos++;
