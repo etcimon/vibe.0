@@ -948,7 +948,29 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		writeDefault(stream, nbytes);
 	}
 
+	void notifyClose() {
+		try notifyClose(FrameError.NO_ERROR);
+		catch (Exception e) {
+
+		}
+	}
+
+	invariant() { }
 private:
+		
+	void notifyClose(FrameError error_code) {
+		m_rx.close = true;
+		streamId = -1;
+		// in case of an error, we let the reading fail
+		if (error_code != FrameError.NO_ERROR) {
+			m_rx.error = error_code;
+			m_tx.notify();
+		}
+		
+		m_rx.notifyAll();
+		if (m_session && m_session.m_server) m_rx.free();
+		onClose();
+	}
 
 	void checkSafetyLevel() {
 		if (!m_safety_level_changed) return;
@@ -1090,20 +1112,6 @@ private:
 			m_rx.prispec = PrioritySpec.init;
 		}
 
-	}
-
-	void notifyClose(FrameError error_code = FrameError.NO_ERROR) {
-		m_rx.close = true;
-		streamId = -1;
-		// in case of an error, we let the reading fail
-		if (error_code != FrameError.NO_ERROR) {
-			m_rx.error = error_code;
-			m_tx.notify();
-		}
-		
-		m_rx.notifyAll();
-		if (m_session && m_session.isServer) m_rx.free();
-		onClose();
 	}
 
 	void onClose() {
@@ -1680,23 +1688,13 @@ private:
 	void onClose() {
 		if (!m_tcpConn) return;
 		m_tcpConn = null;
-		foreach(HTTP2Stream stream; m_pushResponses) {
-			if (stream.m_connected) {
-				stream.m_rx.notifyAll();
-				stream.m_tx.notify();
-				stream.onClose();
-				if (isServer) stream.m_rx.free();
-			}
-		}
+		foreach(HTTP2Stream stream; m_pushResponses) 
+			if (stream.m_connected) 
+				stream.notifyClose();
 		m_pushResponses.clear();
-		foreach(HTTP2Stream stream; m_tx.dirty) {
-			if (stream.m_connected) {
-				stream.m_rx.notifyAll();
-				stream.m_tx.notify();
-				stream.onClose();
-				if (isServer) stream.m_rx.free();
-			}
-		}
+		foreach(HTTP2Stream stream; m_tx.dirty)
+			if (stream.m_connected)
+				stream.notifyClose();
 		m_tx.dirty.clear();
 		if (m_session) m_session.free();
 		if (m_connector) Mem.free(m_connector);

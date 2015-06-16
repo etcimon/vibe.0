@@ -94,9 +94,17 @@ class ConnectionProxyStream : ProxyStream, ConnectionStream {
 	{
 		if (!m_connection) 
 			return;
-
+		
 		if (m_connection.connected) finalize();
 		m_connection.close();
+	}
+
+	void notifyClose()
+	{
+		if (!m_connection) 
+			return;
+
+		m_connection.notifyClose();
 	}
 
 	bool waitForData(Duration timeout = 0.seconds)

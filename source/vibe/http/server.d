@@ -1195,7 +1195,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (auto pce = "Content-Encoding" in headers) {
-			logTrace("Apply Compression: ", *pce);
+			logTrace("Apply Compression: %s", *pce);
 			if (!applyCompression(*pce))
 			{
 				logWarn("Attemped to return body with a Content-Encoding which is not supported");

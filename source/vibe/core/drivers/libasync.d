@@ -123,7 +123,7 @@ final class LibasyncDriver : EventDriver {
 			getDriverCore().notifyIdle();
 		}
 		m_break = false;
-		logInfo("Event loop exit", m_break);
+		logInfo("Event loop exit %s", m_break);
 		return 0;
 	}
 	
@@ -265,7 +265,6 @@ final class LibasyncDriver : EventDriver {
 			if (tcp_connection) {
 				if (tcp_connection.connected)
 					tcp_connection.close();
-				tcp_connection.destroy();
 			}
 		}
 		if (Task.getThis() != Task()) 
@@ -1210,6 +1209,11 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 		// checkConnected();
 
+		onClose(null, false);
+	}
+
+	void notifyClose()
+	{
 		onClose(null, false);
 	}
 

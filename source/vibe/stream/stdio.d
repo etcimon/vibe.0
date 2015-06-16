@@ -55,7 +55,7 @@ class StdFileStream : ConnectionStream {
 		enforceReadable();
 		return m_readPipe.leastSize;
 	}
- 
+ 	
 	override @property bool dataAvailableForRead()
 	{
 		enforceReadable();
@@ -66,6 +66,10 @@ class StdFileStream : ConnectionStream {
  
 	override void close() { m_writePipe.close(); }
  
+	override void notifyClose() {
+		m_writePipe.notifyClose();
+	}
+
 	override bool waitForData(Duration timeout) { return m_readPipe.waitForData(timeout); }
  
 	override const(ubyte)[] peek()

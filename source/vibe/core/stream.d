@@ -177,6 +177,9 @@ interface ConnectionStream : Stream {
 	*/
 	void close();
 
+	/// Frees the resources related to the connection while allowing task owners to complete
+	void notifyClose();
+
 	/// Sets a timeout until data has to be availabe for read. Returns false on timeout.
 	bool waitForData(Duration timeout = 0.seconds);
 

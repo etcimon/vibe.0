@@ -125,6 +125,15 @@ public:
 		m_tls_channel.destroy();
 	}
 
+	void notifyClose() {
+		try {
+			m_tcp_conn.notifyClose();
+			m_tls_channel.destroy();
+		}
+		catch (Exception e) {
+		}
+	}
+
 	void flush() { 
 		processException();
 		m_tcp_conn.flush();

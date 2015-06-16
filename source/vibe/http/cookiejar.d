@@ -140,7 +140,7 @@ public:
 			import std.stdio;
 			auto file = File(m_filePath.toNativeString(), "w+");
 		}
-		logDebug("Using cookie jar on file: ", m_filePath.toNativeString());
+		logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
 	}
 
 	this(string path)

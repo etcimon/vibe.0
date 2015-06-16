@@ -301,9 +301,9 @@ final class HTTPClient {
 	/*shared*/ ~this() {
 		// fixme: will be called from the GC, ie. from any thread
 		if (master && Thread.getThis() == m_owner)
-			disconnect(false);
+			disconnect(false, "dtor", true);
 		else if (!master && m_http2Context && Thread.getThis() == m_owner) {
-			disconnect(true);
+			disconnect(true, "dtor", true);
 		}
 
 	}
@@ -410,7 +410,7 @@ final class HTTPClient {
 				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 			}
 		}
-
+		enforce(m_conn.tcp, "Connection failed");
 		if (m_settings.http2.pingInterval != Duration.zero) {
 			m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
 		}
@@ -419,7 +419,7 @@ final class HTTPClient {
 		if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
 			logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 			HTTP2Settings local_settings = m_settings.http2.settings;
-			enforce(m_conn.tcp.connected, "Not connected");
+			enforce(m_conn.tcp && m_conn.tcp.connected, "Not connected");
 			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
 			m_http2Context.worker = runTask(&runHTTP2Worker, false);
 			yield();
@@ -446,22 +446,30 @@ final class HTTPClient {
 		connect();
 	}
 
-	private void closeTCP() {
+	private void closeTCP(bool notify = false) {
 		if (!m_conn) return;
 		if (m_conn.keepAlive !is Timer.init && m_conn.keepAlive.pending)
 			m_conn.keepAlive.stop();
 		if (m_conn.tlsStream) {
 			if (m_conn.tlsStream.connected)
 			{
-				m_conn.tlsStream.finalize();
-				m_conn.tlsStream.close(); // TLS has an alert for connection closure
+				if (notify)
+					m_conn.tlsStream.notifyClose();
+				else {
+					m_conn.tlsStream.finalize();
+					m_conn.tlsStream.close(); // TLS has an alert for connection closure
+				}
 			}
 		}
 		if (m_conn.tcp) {
 			if (m_conn.tcp.connected)
 			{
-				m_conn.tcp.finalize();
-				m_conn.tcp.close();
+				if (notify) 
+					m_conn.tcp.notifyClose();
+				else {
+					m_conn.tcp.finalize();
+					m_conn.tcp.close();
+				}
 			}
 		}
 		m_conn.tcp = null;
@@ -475,7 +483,7 @@ final class HTTPClient {
 
 		Before calling this method, be sure that the request is not currently being processed.
 	*/
-	void disconnect(bool rst_stream = true, string reason = "")
+	void disconnect(bool rst_stream = true, string reason = "", bool notify = false)
 	{
 		m_state.responding = false;
 		m_conn.totRequest = 0;
@@ -491,22 +499,28 @@ final class HTTPClient {
 
 			import libhttp2.frame : FrameError;
 			if (m_state.http2Stream && m_state.http2Stream.connected) {
-				m_state.http2Stream.close();
+				if (notify)
+					m_state.http2Stream.notifyClose();
+				else m_state.http2Stream.close();
 				m_state.http2Stream = null;
 			}
 			m_http2Context.session.stop(FrameError.NO_ERROR, reason);
 			m_http2Context.worker.join();
-			closeTCP();
+			closeTCP(notify);
 		}
 		else if (isHTTP2Started && rst_stream) {
 			if (m_state.http2Stream) {
-				try m_state.http2Stream.close();
+				try {
+					if (notify)
+						m_state.http2Stream.notifyClose();
+					else m_state.http2Stream.close();
+				}
 				catch (Exception e) logDebug("Failed to finalize connection stream when closing HTTP client connection: %s", e.msg);
 			}
 			m_state.http2Stream = null;
 		}
 		else if (!isHTTP2Started && m_conn.tcp && m_conn.tcp.connected) {
-			closeTCP();
+			closeTCP(notify);
 		}
 		else {
 			// no need to disconnect anything...
@@ -1458,15 +1472,6 @@ class HTTPClientConnection {
 	Duration nextTimeout; //keepalive
 	int totRequest;
 	int maxRequests = int.max;
-
-	~this() {
-		if (tlsStream) {
-			tlsStream.destroy();
-		}
-		if (tcp) {
-			tcp.destroy();
-		}
-	}
 
 	void rearmKeepAlive() {
 		if (keepAlive is Timer.init) {

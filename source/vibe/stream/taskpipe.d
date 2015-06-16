@@ -44,6 +44,7 @@ final class TaskPipe : ConnectionStream {
 	@property bool connected() const { return m_pipe.open; }
 
 	void close() { m_pipe.close(); }
+	void notifyClose() { m_pipe.notifyClose(); }
 	bool waitForData(Duration timeout)
 	{
 		if (dataAvailableForRead) return true;
@@ -103,7 +104,13 @@ private final class TaskPipeImpl {
 		synchronized (m_mutex) m_closed = true;
 		m_condition.notifyAll();
 	}
-
+	
+	void notifyClose()
+	{
+		synchronized (m_mutex) m_closed = true;
+		m_condition.notifyAll();
+	}
+	
 	/** Blocks until at least one byte of data has been written to the pipe.
 	*/
 	void waitForData(Duration timeout = 0.seconds)
