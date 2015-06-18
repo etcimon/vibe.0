@@ -1145,7 +1145,7 @@ final class HTTPServerResponse : HTTPResponse {
 	@property OutputStream bodyWriter()
 	{
 		if (outputStream) {
-			logDebug("Returning existing outputstream: ", cast(void*) outputStream);
+			logDebug("Returning existing outputstream: %s", cast(void*) outputStream);
 			return outputStream;
 		}
 		logDebug("Calculating bodyWriter");
@@ -1468,8 +1468,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 		// write all normal headers
 		foreach (k, v; this.headers) {
-			logTrace("Key: %s", k);
-			logTrace("Value: %s", v);
+			logTrace("%s: %s", k, v);
 			writeLine("%s: %s", k, v);
 		}
 
@@ -1800,6 +1799,8 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 			http2_handler.continueHTTP2Upgrade();
 			return;
 		}
+		version(VibeNoDebug) {}
+		else TaskDebugger.resetBreadcrumbs();
 		if (!keep_alive) { logTrace("No keep-alive - disconnecting client."); break; }
 		
 		logTrace("Waiting for next request...");
@@ -1873,6 +1874,7 @@ void handleRequest(TCPConnection tcp_conn,
 				   ref bool keep_alive)
 {
 	mixin(Trace);
+	mixin(Name!"Incoming HTTP Request");
 	ConnectionStream topStream() 
 	{ 
 		if (http2_stream !is null)
@@ -1992,6 +1994,26 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 
 		logTrace("Got request header.");
+		mixin(OnCapture!("Test", "`test`"));
+		import std.stdio : writeln;
+		// Capture
+		{
+			auto headers_to_str = {
+				Appender!string app;
+				app ~= "Headers: ";
+				foreach (k, v; req.headers) {
+					app ~= k;
+					app ~= ": ";
+					app ~= v;
+					app ~= "\r\n";
+				}
+				return app.data;
+			};
+			mixin(Breadcrumb!("httpMethodString(req.method)"));
+			mixin(Breadcrumb!("req.requestURL"));
+			mixin(OnCapture!("HTTPServerRequest.headers", "headers_to_str()"));
+		}
+
 		enforce(context !is null && context.settings !is null, "Context settings failed");
 		req.m_settings = context.settings;		
 		reqReader.req = req;

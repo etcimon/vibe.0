@@ -839,7 +839,7 @@ final class LibasyncManualEvent : ManualEvent {
 		logTrace("Emitting signal");
 		atomicOp!"+="(m_emitCount, 1);
 		synchronized (m_mutex) {
-			logTrace("Looping signals. found: " ~ ms_signals.length.to!string);
+			logTrace("Looping signals. found: %d", ms_signals.length);
 			foreach (ref signal; ms_signals[]) {
 				auto evloop = getEventLoop();
 				shared AsyncSignal sig = cast(shared AsyncSignal) signal;

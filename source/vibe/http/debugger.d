@@ -112,6 +112,10 @@ HTTPServerRequestDelegateS serveTaskManager() {
 /// must supply parameters: name, breadcrumbs, keywords
 HTTPServerRequestDelegateS serveCapture() {
 	void do_capture(scope HTTPServerRequest req, scope HTTPServerResponse res) {
+		import vibe.core.core;
+
+		mixin(Trace);
+
 		import std.array : array;
 		import std.algorithm : splitter;
 		import vibe.core.driver;
@@ -152,7 +156,8 @@ HTTPServerRequestDelegateS serveCapture() {
 		};
 
 		TaskDebugger.startCapturing(settings);
-		while(!finished) ev.waitLocal();
+		import std.datetime : seconds;
+		ev.waitLocal(30.seconds);
 	}
 
 	return &do_capture;

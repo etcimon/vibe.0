@@ -373,6 +373,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		while (!m_active)
 		{
+			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			m_rx.dataSignalRaised = false;
 			m_rx.signal.waitLocal();
@@ -419,6 +420,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		while (!m_active)
 		{
+			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			logDebug("Waiting for response headers");
 			m_rx.dataSignalRaised = false;
@@ -841,7 +843,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				ub = ub[payload.length .. $];
 
 				if (ub.length > 0 && bufs.length == 0) { // we should wait for more data...
-					enforce(connected);
+					enforceEx!ConnectionClosedException(connected);
 					m_rx.waitingData = true;
 					m_rx.dataSignalRaised = false;
 					logDebug("HTTP/2: Waiting for more data in read()");
@@ -968,7 +970,7 @@ private:
 		}
 		
 		m_rx.notifyAll();
-		if (m_session && m_session.m_server) m_rx.free();
+		if ((m_session && m_session.m_server) || m_rx.owner == Task()) m_rx.free();
 		onClose();
 	}
 

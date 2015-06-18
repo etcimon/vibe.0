@@ -15,7 +15,7 @@ string Breadcrumb(alias bcrumb)() {
 	} else {
 		static if (__traits(identifier, bcrumb) != "bcrumb")
 			return "TaskDebugger.addBreadcrumb(" ~ __traits(identifier, bcrumb) ~ ");";
-		else return "TaskDebugger.addBreadcrumb(`" ~ bcrumb ~ "`);";
+		else return "TaskDebugger.addBreadcrumb(" ~ bcrumb ~ ");";
 	}
 }
 
@@ -52,8 +52,9 @@ nothrow static:
 		try if (auto ptr = t.fiber in s_taskMap) {
 			auto ret = ptr.callStack.dup;
 			if (in_catch && ptr.failures > 0) {
-				foreach (i; 0 .. ptr.failures)
-					ptr.callStack.removeBack();
+				foreach (i; 0 .. ptr.failures) {
+					if (!ptr.callStack.empty) ptr.callStack.removeBack();
+				}
 			}
 			return ret.move;
 		} catch (Exception e) { try writeln("Couldn't get call stack"); catch {} }
@@ -76,8 +77,15 @@ nothrow static:
 		scope(failure) assert(false, "Memory allocation failed");
 		if (isCapturing) {
 			foreach (settings; s_captureSettings[]) {
-				if (settings.canCapture(tdi))
+				if (settings.canCapture(tdi)) {
+					// we will publish events to that setting
 					settings.attachTask(tdi);
+				}
+				else {
+					// make sure won't publish events to that setting
+					settings.detachTask(tdi);
+					removeFromArray(tdi.captures, settings);
+				}
 			}
 		}
 	}
@@ -97,10 +105,12 @@ nothrow static:
 
 	void addBreadcrumb(Task t, string bcrumb) {
 		scope(failure) assert(false, "Memory allocation failed");
-		if (auto ptr = t.fiber in s_taskMap) {
+		try if (auto ptr = t.fiber in s_taskMap) {
 			ptr.breadcrumbs ~= bcrumb;
+			writeln(ptr.breadcrumbs[]);
 			tryCapture(*ptr);
 		}
+		catch (Exception e) { try writeln("Error: ", e.msg); catch {} }
 	}
 
 	string[] getBreadcrumbs(Task t = Task.getThis()) {
@@ -109,6 +119,15 @@ nothrow static:
 			return ptr.breadcrumbs[].dup;
 		}
 		return ["Invalid Task"];
+	}
+
+	void resetBreadcrumbs(Task t = Task.getThis()) {
+		scope(failure) assert(false, "Memory allocation failed");
+		if (auto ptr = t.fiber in s_taskMap) {
+			ptr.breadcrumbs.destroy();
+			tryCapture(*ptr);
+		}
+
 	}
 
 	Duration getAge(Task t = Task.getThis()) {
@@ -188,28 +207,24 @@ private:
 	uint remainingTasks = uint.max;
 
 	bool canCapture(TaskDebugInfo t) {
-		if (remainingTasks == 0) return false;
+		import std.algorithm : countUntil;
+		if (tasks.countUntil(t) == -1 && remainingTasks == 0) return false;
 		import std.algorithm : canFind;
-		import std.stdio : writeln;
 		// name must be an exact match
 		if (!globMatch(filters.name, t.name)) 
 			return false;
-
 		// all of the filter breadcrumbs must be contained
 		if (filters.breadcrumbs != ["*"] ) {
 			if (t.breadcrumbs.length == 0) return false;
 			foreach (glob; filters.breadcrumbs) {
+				bool is_match;
 				foreach (breadcrumb; t.breadcrumbs[]) {
-					if (!globMatch(glob, breadcrumb)) {
-						writeln("Globmatch => ", glob, ", ", breadcrumb, " = false");
-						return false;
-					}
-					writeln("Globmatch => ", glob, ", ", breadcrumb, " = true");
+					if (globMatch(glob, breadcrumb))
+						is_match = true;
 				}
+				if (!is_match) return false;
 			}
 		}
-		import std.stdio : writeln;
-		writeln("Capturing Task, bc: ", filters.breadcrumbs, " name: ", filters.name, " keywords: ", filters.keywords);
 		return true;
 	}
 
@@ -313,6 +328,7 @@ void taskEventCallback(TaskEvent ev, Task t) nothrow {
 void removeFromArray(T)(ref Vector!T arr, ref T t) {
 	// remove from the list
 	size_t idx;
+	if (arr.length == 0) return;
 	foreach (i, val; arr[]) {
 		if (val is t) {
 			idx = i;
@@ -363,12 +379,12 @@ void popTraceImpl(bool in_failure = false) {
 void onCapturedImpl(string keyword, lazy string data) {
 	if (Task.getThis() == Task()) return;
 	if (auto t = Task.getThis().fiber in s_taskMap) {
-		if (t.captures.length > 0)
-		{
+		if (t.captures.length > 0) {
 			foreach (CaptureSettings capture; t.captures[]) {
-				foreach (glob; capture.filters.keywords)
+				foreach (glob; capture.filters.keywords) {
 					if (globMatch(glob, keyword))
 						capture.sink(keyword, data);
+				}
 			}
 		}
 	}
@@ -426,12 +442,15 @@ bool globMatch(string pattern, string str)
 			
 			if(a_pos is a_end)
 				return true;
-			do {
-				b_pos++;
+
+			while(b_pos !is b_end) {
+				while (downcase(*b_pos) != downcase(*a_pos))
+					b_pos++;
 				if (bool is_match = globMatch(a_pos[0 .. a_end-a_pos], b_pos[0 .. b_end-b_pos]))
 					return true;
 			}
-			while (b_pos !is b_end && downcase(*b_pos) != downcase(*a_pos));
+			return false;
+			
 		} else if (*a_pos == '?' || downcase(*a_pos) == downcase(*b_pos))
 		{
 			a_pos++;

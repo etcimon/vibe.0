@@ -230,10 +230,6 @@ final class URLRouter : HTTPRouter {
 
 		auto path = req.path;
 
-		import std.conv : to;
-		mixin(Name!"Incoming HTTP Request");
-		mixin(Breadcrumb!"`~std.conv.to!string(req.method)~`");
-		mixin(Breadcrumb!path);
 		mixin(Trace);
 		if (path.length < m_prefix.length || path[0 .. m_prefix.length] != m_prefix) return;
 		path = path[m_prefix.length .. $];
