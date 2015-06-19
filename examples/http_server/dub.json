@@ -5,7 +5,5 @@
 	"dependencies": {
 		"vibe-d": {"path": "../../"}
 	},
-	"subConfigurations": { "vibe-d": "libasync_botan_win32" },
-	"dflags-windows-x86": ["-m32mscoff"],
 	"versions": ["VibeDefaultMain"]
 }
