@@ -285,6 +285,33 @@ unittest {
 }
 
 
+///
+unittest {
+	
+	void login(scope HTTPServerRequest req, scope HTTPServerResponse res)
+	{
+		// TODO: validate username+password
+		
+		// ensure that there is an active session
+		if (!req.session) req.session = res.startSession();
+		
+		// update session variables
+		req.session.set("loginUser", req.form["user"]);
+	}
+}
+
+///
+unittest {	
+	// sends all session entries to the requesting browser
+	// assumes that all entries are strings
+	void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
+	{
+		res.contentType = "text/plain";
+		foreach(key; req.session)
+			res.bodyWriter.write(key ~ ": " ~ req.session.get!string(key) ~ "\n");
+	}
+}
+
 /**
 	Sets a VibeDist host to register with.
 */

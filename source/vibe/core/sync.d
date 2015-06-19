@@ -56,7 +56,7 @@ struct ScopedMutexLock
 	~this()
 	{
 		if( m_locked )
-			m_mutex.unlock_nothrow();
+			try m_mutex.unlock(); catch {}
 	}
 	
 	@property bool locked() const { return m_locked; }
@@ -244,6 +244,7 @@ unittest {
 		auto lock2 = ScopedMutexLock(mutex, LockMode.tryLock);
 		assert(!lock2.locked);
 	}
+
 	assert(!mutex.m_impl.m_locked);
 	
 	auto lock = ScopedMutexLock(mutex, LockMode.tryLock);
@@ -641,7 +642,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 	{
 		if (cas(&m_locked, false, true)) {
 			debug m_owner = Task.getThis();
-			version(MutexPrint) writefln("mutex %s lock %s", cast(void*)this, atomicLoad(m_waiters));
+			version(MutexPrint) try writefln("mutex %s lock %s", cast(void*)&this, atomicLoad(m_waiters)); catch {}
 			return true;
 		}
 		return false;
@@ -652,7 +653,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 		if (tryLock()) return;
 		debug assert(m_owner == Task() || m_owner != Task.getThis(), "Recursive mutex lock.");
 		atomicOp!"+="(m_waiters, 1);
-		version(MutexPrint) writefln("mutex %s wait %s", cast(void*)this, atomicLoad(m_waiters));
+		version(MutexPrint) try writefln("mutex %s wait %s", cast(void*)&this, atomicLoad(m_waiters)); catch {}
 		scope(exit) atomicOp!"-="(m_waiters, 1);
 		auto ecnt = m_signal.emitCount();
 		while (!tryLock()) {
@@ -669,7 +670,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 			m_owner = Task();
 		}
 		atomicStore!(MemoryOrder.rel)(m_locked, false);
-		version(MutexPrint) writefln("mutex %s unlock %s", cast(void*)this, atomicLoad(m_waiters));
+		version(MutexPrint) try writefln("mutex %s unlock %s", cast(void*)&this, atomicLoad(m_waiters)); catch {}
 		if (atomicLoad(m_waiters) > 0)
 			m_signal.emit();
 	}
@@ -713,7 +714,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 	{
 		if (tryLock()) return;
 		atomicOp!"+="(m_waiters, 1);
-		version(MutexPrint) writefln("mutex %s wait %s", cast(void*)this, atomicLoad(m_waiters));
+		version(MutexPrint) try writefln("mutex %s wait %s", cast(void*)&this, atomicLoad(m_waiters)); catch {}
 		scope(exit) atomicOp!"-="(m_waiters, 1);
 		auto ecnt = m_signal.emitCount();
 		while (!tryLock()) {
@@ -733,7 +734,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 				m_owner = Task.init;
 			}
 		});
-		version(MutexPrint) writefln("mutex %s unlock %s", cast(void*)this, atomicLoad(m_waiters));
+		version(MutexPrint) try writefln("mutex %s unlock %s", cast(void*)&this, atomicLoad(m_waiters)); catch {}
 		if (atomicLoad(m_waiters) > 0)
 			m_signal.emit();
 	}

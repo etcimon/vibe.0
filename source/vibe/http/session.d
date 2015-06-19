@@ -59,22 +59,6 @@ final struct Session {
 	*/
 	bool opCast() const { return m_store !is null; }
 
-	///
-	unittest {
-		import vibe.http.server;
-
-		void login(scope HTTPServerRequest req, scope HTTPServerResponse res)
-		{
-			// TODO: validate username+password
-
-			// ensure that there is an active session
-			if (!req.session) req.session = res.startSession();
-
-			// update session variables
-			req.session.set("loginUser", req.form["user"]);
-		}
-	}
-
 	/// Returns the unique session id of this session.
 	@property string id() const { return m_id; }
 
@@ -103,19 +87,6 @@ final struct Session {
 	int opApply(scope int delegate(string key) del)
 	{
 		return m_store.iterateSession(m_id, del);
-	}
-	///
-	unittest {
-		import vibe.http.server;
-		
-		// sends all session entries to the requesting browser
-		// assumes that all entries are strings
-		void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
-		{
-			res.contentType = "text/plain";
-			foreach(key; req.session)
-				res.bodyWriter.write(key ~ ": " ~ req.session.get!string(key) ~ "\n");
-		}
 	}
 
 	/**
