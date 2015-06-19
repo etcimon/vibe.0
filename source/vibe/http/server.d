@@ -1042,7 +1042,6 @@ final class HTTPServerResponse : HTTPResponse {
 	/// Writes the entire response body at once.
 	void writeBody(in ubyte[] data, string content_type = null)
 	{
-		mixin(Trace);
 		logDebug("Write body: %d", data.length);
 		if (content_type != "") headers["Content-Type"] = content_type;
 		headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", data.length);
@@ -1078,7 +1077,6 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	void writeRawBody(RandomAccessStream stream)
 	{
-		mixin(Trace);
 		logDebug("Write raw body RAS");
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
@@ -1091,7 +1089,6 @@ final class HTTPServerResponse : HTTPResponse {
 	/// ditto
 	void writeRawBody(InputStream stream, size_t num_bytes = 0)
 	{
-		mixin(Trace);
 		logDebug("Write raw body: %d", num_bytes);
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
@@ -1120,7 +1117,6 @@ final class HTTPServerResponse : HTTPResponse {
 	/// Writes a JSON message with the specified status
 	void writeJsonBody(T)(T data, int status = HTTPStatus.OK, string content_type = "application/json; charset=UTF-8", bool allow_chunked = false)
 	{
-		mixin(Trace);
 		import std.traits;
 		import vibe.stream.wrapper;
 
@@ -1153,7 +1149,6 @@ final class HTTPServerResponse : HTTPResponse {
 	 */
 	void writeVoidBody()
 	{
-		mixin(Trace);
 		logTrace("WriteVoidBody");
 		if (!m_isHeadResponse) {
 			assert("Content-Length" !in headers);
@@ -1177,7 +1172,6 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	@property OutputStream bodyWriter()
 	{
-		mixin(Trace);
 		if (outputStream) {
 			logDebug("Returning existing outputstream: %s", cast(void*) outputStream);
 			return outputStream;
@@ -1251,7 +1245,6 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	void redirect(string url, int status = HTTPStatus.Found)
 	{
-		mixin(Trace);
 		statusCode = status;
 		headers["Location"] = url;
 		headers["Content-Length"] = "14";

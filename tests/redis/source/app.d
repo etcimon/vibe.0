@@ -91,6 +91,7 @@ void runTest()
 	
 	assert(!sub.isListening);
 	sub.listen((string channel, string msg){
+		import std.conv : to;
 		logInfo("LISTEN Recv Channel: %s, Message: %s", channel.to!string, msg.to!string);
 		logInfo("LISTEN Recv Time: %s", Clock.currTime().toString());
 	});

@@ -15,6 +15,7 @@ import vibe.stream.operations;
 
 import std.conv;
 import std.exception;
+import vibe.core.core;
 
 
 /*
@@ -51,6 +52,7 @@ void listenHTTPReverseProxy(HTTPServerSettings settings, string destination_host
 */
 HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings)
 {
+	mixin(Trace);
 	static immutable string[] non_forward_headers = ["Content-Length", "Transfer-Encoding", "Content-Encoding", "Connection"];
 	static InetHeaderMap non_forward_headers_map;
 	if (non_forward_headers_map.length == 0)
@@ -64,11 +66,13 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 
 	void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
+		mixin(Trace);
 		auto rurl = url;
 		rurl.localURI = req.requestURL;
 		logTrace("Enter proxy");
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
+			mixin(Trace);
 			creq.method = req.method;
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
@@ -86,6 +90,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 
 		void handleClientResponse(scope HTTPClientResponse cres)
 		{
+			mixin(Trace);
 			import vibe.utils.string;
 
 			// copy the response to the original requester

@@ -118,7 +118,6 @@ nothrow static:
 		scope(failure) assert(false, "Memory allocation failed");
 		try if (auto ptr = t.fiber in s_taskMap) {
 			ptr.breadcrumbs ~= bcrumb;
-			writeln(ptr.breadcrumbs[]);
 			tryCapture(*ptr);
 		}
 		catch (Exception e) { try writeln("Error: ", e.msg); catch {} }
