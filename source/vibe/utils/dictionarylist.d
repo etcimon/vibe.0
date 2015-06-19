@@ -40,7 +40,7 @@ struct DictionaryList(VALUE, bool case_sensitive = true, size_t NUM_STATIC_FIELD
 	alias ValueType = VALUE;
 
 	struct FieldTuple { string key; ValueType value; }
-
+	@property bool empty() const { return length == 0; }
 	/** The number of fields present in the map.
 	*/
 	@property size_t length() const { return m_fieldCount + m_extendedFields.length; }
@@ -54,9 +54,10 @@ struct DictionaryList(VALUE, bool case_sensitive = true, size_t NUM_STATIC_FIELD
 	}
 	/// ditto
 	FieldTuple[] toRepresentation() {
-		FieldTuple[] ret;
+		import std.array : Appender;
+		Appender!(FieldTuple[]) ret;
 		foreach (k, ref v; this) ret ~= FieldTuple(k, v);
-		return ret;
+		return ret.data;
 	}
 
 	/** Removes the first field that matches the given key.

@@ -115,13 +115,12 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 	try {
 		foreach (l; getLoggers())
 			if (l.minLevel <= level) { // WARNING: TYPE SYSTEM HOLE: accessing field of shared class!
-				
 				import std.format : formattedWrite, FormatException;
 				
 				Sink sink;
 				char[1024*16] buf = void;
 				sink.buf = buf[];
-				auto n = formattedWrite(sink, fmt, args);
+				auto n = formattedWrite(&sink, fmt, args);
 				version (all)
 				{
 					// In the future, this check will be removed to increase consistency
@@ -156,7 +155,6 @@ struct Sink
 	{
 		if (buf.length < i + s.length)
 			return;
-		
 		buf[i .. i + s.length] = s[];
 		i += s.length;
 	}

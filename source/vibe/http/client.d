@@ -994,6 +994,8 @@ final class HTTPClientRequest : HTTPRequest {
 			headers["Content-Length"] = clengthString(length);
 		}
 
+		mixin(OnCapture!("HTTPClientRequest.jsonBody", "serializeToJson(data).toPrettyString()"));
+
 		auto rng = StreamOutputRange(bodyWriter);
 		serializeToJson(&rng, data);
 		rng.flush();
@@ -1031,33 +1033,11 @@ final class HTTPClientRequest : HTTPRequest {
 		return m_bodyWriter;
 	}
 
-	private void writeHeader()
+	private void writeHeader(OutputStream ostream)
 	{
-		import vibe.stream.wrapper;
-		assert(!m_headerWritten, "HTTPClient tried to write headers twice.");
-		m_headerWritten = true;
-		if (m_location !is URL.init) {
-			if (m_proxy !is URL.init)
-				requestURL = m_location.toString();
-			else
-				requestURL = m_location.localURI;
-		}
-		// http/2
-		if (isHTTP2) {
-			import std.exception : enforceEx;
-			enforceEx!ConnectionClosedException(http2Stream !is null, "Connection closed");
-			httpVersion = HTTPVersion.HTTP_2;
-			if (auto pka = "Connection" in headers) {
-				headers.remove("Connection");
-			}
-			logTrace("Writing HTTP/2 headers");
-			http2Stream.writeHeader(requestURL, tlsStream ? "https" : "http", method, headers, m_cookieJar, m_concatCookies);
-			return;
-		}
-
-		/// http/1.1 or lower
-		auto output = StreamOutputRange(topStream);
-
+		import vibe.stream.wrapper : StreamOutputRange;
+		auto output = StreamOutputRange(ostream);
+		
 		formattedWrite(&output, "%s %s %s\r\n", httpMethodString(method), requestURL, getHTTPVersionString(httpVersion));
 		logTrace("--------------------");
 		logTrace("HTTP client request:");
@@ -1072,13 +1052,54 @@ final class HTTPClientRequest : HTTPRequest {
 				logTrace("Cookie: %s", cookies);
 				formattedWrite(&output, "Cookie: %s\r\n", cookies);
 			}
-
+			
 		}
 		if (m_cookieJar !is null)
 			m_cookieJar.get(headers["Host"], requestURL, tlsStream !is null, &cookieSinkConcatenate);
 		output.put("\r\n");
 		logTrace("Done with cookies");
 		logTrace("--------------------");
+	}
+
+	private void writeHeader()
+	{
+		import vibe.stream.wrapper;
+		assert(!m_headerWritten, "HTTPClient tried to write headers twice.");
+		m_headerWritten = true;
+		if (m_location !is URL.init) {
+			if (m_proxy !is URL.init)
+				requestURL = m_location.toString();
+			else
+				requestURL = m_location.localURI;
+		}
+
+		scope(success) {
+			auto headers_to_string = {
+				import vibe.stream.memory : MemoryOutputStream;
+				auto output = scoped!MemoryOutputStream(defaultAllocator());
+				scope(exit) output.destroy();
+				writeHeader(output);
+				return output.data.to!string;
+			};
+			mixin(OnCapture!("HTTPClientRequest.headers", "headers_to_string()"));
+		}
+
+		// http/2
+		if (isHTTP2) {
+			import std.exception : enforceEx;
+			enforceEx!ConnectionClosedException(http2Stream !is null, "Connection closed");
+			httpVersion = HTTPVersion.HTTP_2;
+			if (auto pka = "Connection" in headers) {
+				headers.remove("Connection");
+			}
+			logTrace("Writing HTTP/2 headers");
+			http2Stream.writeHeader(requestURL, tlsStream ? "https" : "http", method, headers, m_cookieJar, m_concatCookies);
+			return;
+		}
+
+		// http/1 or http/1.1
+		writeHeader(topStream);
+
 	}
 
 	private void finalize()
@@ -1252,7 +1273,26 @@ final class HTTPClientResponse : HTTPResponse {
 				m_client.m_state.location = URL.init;
 			}
 		}
-
+		{
+			auto headers_to_str = {
+				Appender!string app;
+				app ~= getHTTPVersionString(this.httpVersion);
+				app ~= " ";
+				app ~= this.statusCode.to!string;
+				app ~= " ";
+				app ~= httpStatusText(this.statusCode);
+				app ~= "\r\n";
+				foreach (k, v; this.headers) {
+					app ~= k;
+					app ~= ": ";
+					app ~= v;
+					app ~= "\r\n";
+				}
+				app ~= "\r\n";
+				return app.data;
+			};
+			mixin(OnCapture!("HTTPClientResponse.headers","headers_to_str()"));
+		}
 		// Treat HTTP/2 keep-alive and return
 		if (m_client.isHTTP2Started)
 			return;
@@ -1393,7 +1433,10 @@ final class HTTPClientResponse : HTTPResponse {
 	*/
 	Json readJson(){
 		auto bdy = bodyReader.readAllUTF8();
-		return parseJson(bdy);
+		auto json = parseJson(bdy);
+
+		mixin(OnCapture!("HTTPClientResponse.json", "json.toPrettyString()"));
+		return json;
 	}
 
 	/**

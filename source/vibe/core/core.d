@@ -242,6 +242,14 @@ string OnCapture(string keyword, string mixins)() {
 		return "pushCaptured(`" ~ keyword ~ "`, " ~ mixins ~ ");";
 }
 
+string OnCaptureIf(string condition, string keyword, string mixins)() {
+	version(VibeNoDebug) {
+		return "";
+	} else {
+		return "if (" ~ condition ~ ") pushCaptured(`" ~ keyword ~ "`, " ~ mixins ~ ");";
+	}
+	
+}
 version(VibeNoDebug) {} else
 {
 	void pushCaptured(string kw, lazy string info) nothrow {

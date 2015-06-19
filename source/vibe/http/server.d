@@ -906,9 +906,10 @@ final class HTTPServerResponse : HTTPResponse {
 		bool m_headerWritten;
 		bool m_isHeadResponse;
 		bool m_outputStream;
+		bool m_isSilent;
 		SysTime m_timeFinalized;
 	}
-
+	void silent() { m_isSilent = true; }
 	union CompressionStream {
 		GzipOutputStream gzip;
 		DeflateOutputStream deflate;
@@ -1014,6 +1015,7 @@ final class HTTPServerResponse : HTTPResponse {
 	/// Writes the entire response body at once.
 	void writeBody(in ubyte[] data, string content_type = null)
 	{
+		mixin(Trace);
 		logDebug("Write body: %d", data.length);
 		if (content_type != "") headers["Content-Type"] = content_type;
 		headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", data.length);
@@ -1049,6 +1051,7 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	void writeRawBody(RandomAccessStream stream)
 	{
+		mixin(Trace);
 		logDebug("Write raw body RAS");
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
@@ -1061,6 +1064,7 @@ final class HTTPServerResponse : HTTPResponse {
 	/// ditto
 	void writeRawBody(InputStream stream, size_t num_bytes = 0)
 	{
+		mixin(Trace);
 		logDebug("Write raw body: %d", num_bytes);
 		OutputStream writer = bodyWriter();
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
@@ -1089,6 +1093,7 @@ final class HTTPServerResponse : HTTPResponse {
 	/// Writes a JSON message with the specified status
 	void writeJsonBody(T)(T data, int status = HTTPStatus.OK, string content_type = "application/json; charset=UTF-8", bool allow_chunked = false)
 	{
+		mixin(Trace);
 		import std.traits;
 		import vibe.stream.wrapper;
 
@@ -1107,7 +1112,7 @@ final class HTTPServerResponse : HTTPResponse {
 			serializeToJson(counter, data);
 			headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", length);
 		}
-
+		mixin(OnCapture!("HTTPServerResponse.jsonBody", "serializeToJson(data).toPrettyString()"));
 		auto rng = StreamOutputRange(bodyWriter);
 		serializeToJson(&rng, data);
 	}
@@ -1121,6 +1126,7 @@ final class HTTPServerResponse : HTTPResponse {
 	 */
 	void writeVoidBody()
 	{
+		mixin(Trace);
 		logTrace("WriteVoidBody");
 		if (!m_isHeadResponse) {
 			assert("Content-Length" !in headers);
@@ -1144,6 +1150,7 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	@property OutputStream bodyWriter()
 	{
+		mixin(Trace);
 		if (outputStream) {
 			logDebug("Returning existing outputstream: %s", cast(void*) outputStream);
 			return outputStream;
@@ -1217,6 +1224,7 @@ final class HTTPServerResponse : HTTPResponse {
 	*/
 	void redirect(string url, int status = HTTPStatus.Found)
 	{
+		mixin(Trace);
 		statusCode = status;
 		headers["Location"] = url;
 		headers["Content-Length"] = "14";
@@ -1369,6 +1377,7 @@ final class HTTPServerResponse : HTTPResponse {
 	// Finalizes the response. This is called automatically by the server.
 	private void finalize()
 	{
+		mixin(Trace);
 		ulong bytes_written = bytesWritten();
 		scope(exit) logDebug("Finalized to: %d", bytes_written);
 
@@ -1431,15 +1440,66 @@ final class HTTPServerResponse : HTTPResponse {
 		if (m_session) m_session.destroy();
 	}
 
+	private void writeHeader(OutputStream ostream) {
+		import vibe.stream.wrapper : StreamOutputRange;
+		auto dst = StreamOutputRange(ostream);
+		void writeLine(T...)(string fmt, T args)
+		{
+			logTrace(fmt, args);
+			dst.put(format(fmt, args));
+			dst.put("\r\n");
+		}
+		
+		logTrace("---------------------");
+		logTrace("HTTP server response:");
+		logTrace("---------------------");
+		
+		// write the status line
+		writeLine("%s %d %s",
+			getHTTPVersionString(this.httpVersion),
+			this.statusCode,
+			this.statusPhrase.length ? this.statusPhrase : httpStatusText(this.statusCode));
+		
+		// write all normal headers
+		foreach (k, v; this.headers) {
+			logTrace("%s: %s", k, v);
+			writeLine("%s: %s", k, v);
+		}
+		
+		logTrace("---------------------");
+		
+		// write cookies
+		foreach (n, cookie; this.cookies) {
+			dst.put("Set-Cookie: ");
+			cookie.writeString(&dst, n);
+			dst.put("\r\n");
+		}
+		
+		// finalize response header
+		dst.put("\r\n");
+		dst.flush();
+	}
+
 	private void writeHeader()
 	{
+		mixin(Trace);
 		import vibe.stream.wrapper;
 
 		assert(!m_headerWritten, "Try to write header after body has already begun.");
 		m_headerWritten = true;
 
-		if (isHTTP2)
-		{
+		scope(success) {
+			auto headers_to_string = {
+				import vibe.stream.memory : MemoryOutputStream;
+				auto output = scoped!MemoryOutputStream(defaultAllocator());
+				scope(exit) output.destroy();
+				writeHeader(output);
+				return cast(string)output.data;
+			};
+
+			mixin(OnCaptureIf!("!m_isSilent", "HTTPServerResponse.headers", "headers_to_string()"));
+		}
+		if (isHTTP2) {
 			httpVersion = HTTPVersion.HTTP_2;
 			// Use integrated header writer
 			m_conn.stack.http2.writeHeader(cast(HTTPStatus)this.statusCode, this.headers, this.cookies); 
@@ -1447,47 +1507,10 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		logTrace("writeHeader ...");
-		auto dst = StreamOutputRange(topStream);
 
-		void writeLine(T...)(string fmt, T args)
-		{
-			logTrace(fmt, args);
-			dst.put(format(fmt, args));
-			dst.put("\r\n");
-		}
+		writeHeader(topStream);
 
-		logTrace("---------------------");
-		logTrace("HTTP server response:");
-		logTrace("---------------------");
-
-		// write the status line
-		writeLine("%s %d %s",
-			getHTTPVersionString(this.httpVersion),
-			this.statusCode,
-			this.statusPhrase.length ? this.statusPhrase : httpStatusText(this.statusCode));
-
-		// write all normal headers
-		foreach (k, v; this.headers) {
-			logTrace("%s: %s", k, v);
-			writeLine("%s: %s", k, v);
-		}
-
-		logTrace("---------------------");
-
-		// write cookies
-		foreach (n, cookie; this.cookies) {
-			dst.put("Set-Cookie: ");
-			cookie.writeString(&dst, n);
-			dst.put("\r\n");
-		}
-
-		// finalize response header
-		dst.put("\r\n");
-		dst.flush();
-
-		// This would break atomic responses for HTTP/2
-		if (!isHTTP2)
-			topStream.flush();
+		topStream.flush();
 	}
 }
 
@@ -1730,6 +1753,8 @@ class HTTP2HandlerContext
 	
 	void handler(HTTP2Stream stream)
 	{
+		mixin(Trace);
+		mixin(Name!"HTTP/2 Request");
 		bool keep_alive = false;
 		enforce(context !is null);
 		.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, this, keep_alive);
@@ -1739,6 +1764,7 @@ class HTTP2HandlerContext
 void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info)
 {
 	mixin(Trace);
+	mixin(Breadcrumb!("tcp_conn.peerAddress()"));
 	TLSStream tls_stream;
 
 	scope(exit) {
@@ -1790,6 +1816,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		return;
 	
 	/// Loop for HTTP/1.1 or HTTP/1.0 only
+	mixin(Name!"HTTP Request");
 	do {
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
@@ -1800,9 +1827,13 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 			return;
 		}
 		version(VibeNoDebug) {}
-		else TaskDebugger.resetBreadcrumbs();
+		else { 
+			TaskDebugger.resetBreadcrumbs(); 
+		}
 		if (!keep_alive) { logTrace("No keep-alive - disconnecting client."); break; }
-		
+
+		mixin(Breadcrumb!("tcp_conn.peerAddress()"));
+
 		logTrace("Waiting for next request...");
 		// wait for another possible request on a keep-alive connection
 		if (!tcp_conn || !tcp_conn.waitForData(context.settings.keepAliveTimeout)) {
@@ -1874,7 +1905,6 @@ void handleRequest(TCPConnection tcp_conn,
 				   ref bool keep_alive)
 {
 	mixin(Trace);
-	mixin(Name!"Incoming HTTP Request");
 	ConnectionStream topStream() 
 	{ 
 		if (http2_stream !is null)
@@ -1994,19 +2024,23 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 
 		logTrace("Got request header.");
-		mixin(OnCapture!("Test", "`test`"));
-		import std.stdio : writeln;
 		// Capture
 		{
 			auto headers_to_str = {
 				Appender!string app;
-				app ~= "Headers: ";
+				app ~= getHTTPVersionString(req.httpVersion);
+				app ~= " ";
+				app ~= req.method.to!string;
+				app ~= " ";
+				app ~= req.requestURL;
+				app ~= "\r\n";
 				foreach (k, v; req.headers) {
 					app ~= k;
 					app ~= ": ";
 					app ~= v;
 					app ~= "\r\n";
 				}
+				app ~= "\r\n";
 				return app.data;
 			};
 			mixin(Breadcrumb!("httpMethodString(req.method)"));
@@ -2110,14 +2144,56 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		if (context.settings.options & HTTPServerOption.parseFormBody) {
 			auto ptype = "Content-Type" in req.headers;
-			if (ptype) parseFormData(req.form, req.files, *ptype, req.bodyReader, MaxHTTPHeaderLineLength);
+			if (ptype) {
+				parseFormData(req.form, req.files, *ptype, req.bodyReader, MaxHTTPHeaderLineLength);
+				import std.format : formattedWrite;
+				auto form_to_string = {
+					Appender!string app;
+					if (!req.form.empty)
+						app ~= "Encoded Data:\r\n";
+					foreach (k, v; req.form) {
+						app ~= k;
+						app ~= "=";
+						app ~= v;
+						app ~= "\r\n";
+					}
+					app ~= "\r\n";
+					if (!req.files.empty)
+						app ~= "Files:\r\n";
+					foreach (name, fp; req.files) {
+						app ~= "\tName: ";
+						app ~= name;
+						app ~= "\r\n";
+						foreach (k, v; fp.headers) {
+							app ~= "\t";
+							app ~= k;
+							app ~= ": ";
+							app ~= v;
+							app ~= "\r\n";
+						}
+						app ~= "\t(Remote File): ";
+						app ~= fp.filename.toString();
+						app ~= "\r\n";
+						app ~= "\t(Local File): ";
+						app ~= fp.tempPath.toString();
+						app ~= "\r\n";
+					}
+					app ~= "\r\n";
+					return app.data;
+				};
+
+				mixin(OnCapture!("HTTPServerRequest.form", "form_to_string()"));
+			}
 		}
 		
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0) {
 				auto bodyStr = cast(string)req.bodyReader.readAll();
 				scope(exit) bodyStr.destroy();
-				if (!bodyStr.empty) req.json = parseJson(bodyStr);
+				if (!bodyStr.empty) {
+					req.json = parseJson(bodyStr);
+					mixin(OnCapture!("HTTPServerRequest.json", "req.json.toPrettyString()"));
+				}
 			}
 		}
 		

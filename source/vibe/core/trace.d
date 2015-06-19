@@ -19,6 +19,16 @@ string Breadcrumb(alias bcrumb)() {
 	}
 }
 
+string OnCaptureTrace() {
+	version(VibeNoDebug) {
+		return "";
+	} else {
+		return `import std.algorithm : joiner;
+		mixin(OnCapture!("HTTPServerResponse.trace", "TaskDebugger.getCallStack()[].joiner(\"\n\").to!string"));`;
+	}
+
+}
+
 version(VibeNoDebug) {} else:
 
 public import memutils.vector;
@@ -50,9 +60,10 @@ nothrow static:
 	Vector!string getCallStack(Task t = Task.getThis(), bool in_catch = true) {
 		scope(failure) assert(false, "Memory allocation failed");
 		try if (auto ptr = t.fiber in s_taskMap) {
-			auto ret = ptr.callStack.dup;
+			Vector!string ret = ptr.callStack.dup;
 			if (in_catch && ptr.failures > 0) {
 				foreach (i; 0 .. ptr.failures) {
+					ptr.failures--;
 					if (!ptr.callStack.empty) ptr.callStack.removeBack();
 				}
 			}
@@ -443,11 +454,13 @@ bool globMatch(string pattern, string str)
 			if(a_pos is a_end)
 				return true;
 
-			while(b_pos !is b_end) {
-				while (downcase(*b_pos) != downcase(*a_pos))
+			while(true) {
+				while (b_pos !is b_end && downcase(*b_pos) != downcase(*a_pos))
 					b_pos++;
+				if (b_pos is b_end) break;
 				if (bool is_match = globMatch(a_pos[0 .. a_end-a_pos], b_pos[0 .. b_end-b_pos]))
 					return true;
+				else b_pos++;
 			}
 			return false;
 			

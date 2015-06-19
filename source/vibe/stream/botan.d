@@ -268,6 +268,12 @@ private:
 		m_ver = session.Version();
 		if (session.peerCerts().length > 0)
 			m_peer_cert = session.peerCerts()[0];
+
+		mixin(OnCapture!("TLSStream.Botan.Session.ID", "m_sess_id.to!string"));
+		mixin(OnCapture!("TLSStream.Botan.Session.Start", "m_session_age.toSimpleString()"));
+		mixin(OnCapture!("TLSStream.Botan.Session.Version", "m_ver.toString()"));
+		mixin(OnCapture!("TLSStream.Botan.Session.Ciphersuite", "m_cipher.toString()"));
+		mixin(OnCapture!("TLSStream.Botan.Session.Certificate", "m_peer_cert?m_peer_cert.toString():`Not provided`"));
 		if (m_handshake_complete)
 			return m_handshake_complete(session);
 		return true;

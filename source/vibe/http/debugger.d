@@ -23,14 +23,12 @@ enum CryptoSafe = 0x03;
 
 void printSummary(scope HTTPServerResponse res)
 {
-
 	res.bodyWriter.write(format("Have %d HTTP/2 sessions running\n\n", HTTP2Session.totalSessions));
 	res.bodyWriter.write(format("Have %d HTTP/2 streams running\n\n", HTTP2Stream.totalStreams));
 	res.bodyWriter.write(format("Have %d bytes of data in manualAllocator()\n\n", (cast(DebugAllocator)manualAllocator()).bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in AppMem\n\n", getAllocator!NativeGC().bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in ThreadMem\n\n", getAllocator!Lockless().bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in SecureMem\n\n", getAllocator!CryptoSafe().bytesAllocated()));
-
 }
 
 void printTaskInfo(scope HTTPServerResponse res, Task t = Task.getThis()) {
@@ -115,6 +113,7 @@ HTTPServerRequestDelegateS serveCapture() {
 		import vibe.core.core;
 
 		mixin(Trace);
+		res.silent();
 
 		import std.array : array;
 		import std.algorithm : splitter;
