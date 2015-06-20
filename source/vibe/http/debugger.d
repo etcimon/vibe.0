@@ -142,7 +142,7 @@ HTTPServerRequestDelegateS serveCapture() {
 					res.printTaskInfo();
 					task_info_printed = true;
 				}
-				res.bodyWriter.write(format("[%s] %s\n", keyword, str));
+				res.bodyWriter.write(format("\n[%s]\n%s\n", keyword, str));
 			}
 			catch (Exception e) {
 				try logError("%s", e.toString()); catch {}
@@ -150,7 +150,10 @@ HTTPServerRequestDelegateS serveCapture() {
 		};
 		settings.finalize = () nothrow { 
 			finished = true; 
-			try ev.emitLocal(); 
+			try {
+				res.bodyWriter.flush();
+				ev.emitLocal(); 
+			}
 			catch (Exception e) { try logError("%s", e.toString()); catch {} }
 		};
 

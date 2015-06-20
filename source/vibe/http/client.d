@@ -340,6 +340,7 @@ final class HTTPClient {
 	void connect(string server, ushort port = 80, bool use_tls = false, HTTPClientSettings settings = defaultSettings)
 	in { assert(!isHTTP2Started && (!m_conn || !m_conn.tcp || !m_conn.tcp.connected) && port != 0, "Cannot establish a new connection on a connected client. Use disconnect() before, or reconnect()."); }
 	body {
+		mixin(Trace);
 		m_settings = settings;
 		m_http2Context = new HTTP2ClientContext();
 		m_conn = new HTTPClientConnection();
@@ -353,6 +354,7 @@ final class HTTPClient {
 
 	private void setupTLS()
 	{
+		mixin(Trace);
 		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https"))
 			return;
 		m_conn.forceTLS = true;
@@ -410,7 +412,7 @@ final class HTTPClient {
 				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 			}
 		}
-		enforce(m_conn.tcp, "Connection failed");
+		enforce(m_conn.tcp !is null, "Connection failed");
 		if (m_settings.http2.pingInterval != Duration.zero) {
 			m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
 		}
@@ -419,7 +421,7 @@ final class HTTPClient {
 		if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
 			logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 			HTTP2Settings local_settings = m_settings.http2.settings;
-			enforce(m_conn.tcp && m_conn.tcp.connected, "Not connected");
+			enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
 			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
 			m_http2Context.worker = runTask(&runHTTP2Worker, false);
 			yield();
@@ -450,7 +452,7 @@ final class HTTPClient {
 		if (!m_conn) return;
 		if (m_conn.keepAlive !is Timer.init && m_conn.keepAlive.pending)
 			m_conn.keepAlive.stop();
-		if (m_conn.tlsStream) {
+		if (m_conn.tlsStream !is null) {
 			if (m_conn.tlsStream.connected)
 			{
 				if (notify)
@@ -461,7 +463,7 @@ final class HTTPClient {
 				}
 			}
 		}
-		if (m_conn.tcp) {
+		if (m_conn.tcp !is null) {
 			if (m_conn.tcp.connected)
 			{
 				if (notify) 
@@ -485,6 +487,7 @@ final class HTTPClient {
 	*/
 	void disconnect(bool rst_stream = true, string reason = "", bool notify = false)
 	{
+		mixin(Trace);
 		m_state.responding = false;
 		m_conn.totRequest = 0;
 		m_conn.maxRequests = int.max;
@@ -544,6 +547,7 @@ final class HTTPClient {
 	*/
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
+		mixin(Trace);
 
 		if (m_conn.nextTimeout == Duration.zero) {
 			logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
@@ -627,6 +631,7 @@ private:
 	
 	void processRequest(scope void delegate(HTTPClientRequest req) requester, ref HTTPMethod req_method, ref bool keepalive)
 	{
+		mixin(Trace);
 		assert(!m_state.requesting, "Interleaved HTTP client requests detected!");
 		assert(!m_state.responding, "Interleaved HTTP client request/response detected!");
 
@@ -649,6 +654,7 @@ private:
 
 	void processResponse(scope void delegate(scope HTTPClientResponse) responder, ref HTTPMethod req_method, ref bool keepalive) 
 	{
+		mixin(Trace);
 		// fixme: Close HTTP/2 session when a response is not handled properly?
 
 		m_state.responding = true;
@@ -690,6 +696,7 @@ private:
 	}
 
 	void startHTTP2Upgrade(ref InetHeaderMap headers) {
+		mixin(Trace);
 		HTTP2Settings local_settings = m_settings.http2.settings;
 		HTTP2Stream stream;
 		m_http2Context.session = new HTTP2Session(m_conn.tcp, stream, local_settings, &onRemoteSettings);
@@ -764,6 +771,7 @@ private:
 
 	void runHTTP2Worker(bool upgrade = false) 
 	{
+		mixin(Trace);
 		logTrace("Running HTTP/2 worker");
 
 		m_http2Context.session.setReadTimeout(m_settings.http2.maxInactivity);
@@ -1079,7 +1087,7 @@ final class HTTPClientRequest : HTTPRequest {
 				auto output = scoped!MemoryOutputStream(defaultAllocator());
 				scope(exit) output.destroy();
 				writeHeader(output);
-				return output.data.to!string;
+				return cast(string)output.data;
 			};
 			mixin(OnCapture!("HTTPClientRequest.headers", "headers_to_string()"));
 		}

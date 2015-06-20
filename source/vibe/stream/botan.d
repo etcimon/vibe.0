@@ -24,6 +24,8 @@ import vibe.core.net;
 import std.datetime;
 import std.exception;
 
+import std.stdio : writeln;
+
 class BotanTLSStream : TLSStream, Buffered
 {
 private:
@@ -80,7 +82,10 @@ public:
 		TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
 		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		try m_tls_channel.doHandshake();
-		catch(Exception e) m_ex = e;
+		catch(Exception e) {
+			m_ex = e;
+			writeln(e.toString());
+		}
 	}
 
 	// This constructor is used by the TLS Context for both server and client streams
@@ -107,7 +112,10 @@ public:
 			throw new Exception("Cannot load BotanTLSSteam from a connected TLS session");
 		}
 		try m_tls_channel.doHandshake();
-		catch(Exception e) m_ex = e;
+		catch(Exception e) {
+			writeln(e.toString());
+			m_ex = e;
+		}
 	}
 
 	~this() {
@@ -144,7 +152,7 @@ public:
 			return;
 
 		processException();
-		scope(exit) 
+		scope(success) 
 			processException();
 
 		m_tls_channel.close();
@@ -180,7 +188,7 @@ public:
 	void read(ubyte[] dst) { 
 		mixin(STrace);
 		processException();
-		scope(exit) 
+		scope(success) 
 			processException();
 		m_tls_channel.read(dst);
 	}
@@ -188,7 +196,7 @@ public:
 	ubyte[] readBuf(ubyte[] buf) { 
 		mixin(STrace);
 		processException();
-		scope(exit) 
+		scope(success) 
 			processException();
 		return m_tls_channel.readBuf(buf);
 	}
@@ -196,7 +204,7 @@ public:
 	void write(in ubyte[] src) {
 		mixin(STrace);
 		processException();
-		scope(exit) 
+		scope(success) 
 			processException();
 		try m_tls_channel.write(src);
 		catch (TLSClosedException e) {
@@ -249,6 +257,7 @@ public:
 	}
 
 	void processException() const {
+		mixin(STrace);
 		if (m_ex)
 			throw m_ex;
 	}
@@ -256,7 +265,7 @@ public:
 private:
 	void onAlert(in TLSAlert alert, in ubyte[] data) {
 		if (alert.isFatal)
-			m_ex = new Exception("TLS Alert Received: " ~ alert.typeString());
+			m_ex = new Exception("Fatal TLS Alert Received: " ~ alert.typeString());
 		if (m_alert_cb)
 			m_alert_cb(alert, data);
 	}
@@ -316,6 +325,7 @@ private:
 	Vector!string m_clientOffers;
 	void* m_userData;
 	bool m_is_datagram;
+	bool m_cert_checked;
 
 	~this() {
 		// fixme: This needs to defer destruction instead
@@ -401,6 +411,9 @@ public:
 	*/
 	TLSStream createStream(Stream underlying, TLSStreamState state, string peer_name = null, NetworkAddress peer_address = NetworkAddress.init)
 	{
+		if (!m_cert_checked) {
+			checkCert();
+		}
 		assert(cast(TCPConnection)underlying !is null, "BotanTLSStream can only be created from TCP Connections at the moment");
 		return new BotanTLSStream(cast(TCPConnection)underlying, this, state, peer_name, peer_address);
 	}
@@ -483,6 +496,7 @@ public:
 	/// Sets a certificate file to use for authenticating to the remote peer
 	void useCertificateChainFile(string path) { 
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+			m_cert_checked = false;
 			credentials.m_server_cert = X509Certificate(path);
 			return;
 		}
@@ -554,6 +568,28 @@ private:
 
 		// We cannot use anything else than a Botan stream, and any null value with serverSNI is a failure
 		throw new Exception("Could not find specified hostname");
+	}
+
+	void checkCert() {
+		m_cert_checked = true;
+		if (m_kind == TLSContextKind.client) return;
+		if (auto creds = cast(CustomTLSCredentials) m_credentials) {
+			auto sigs = m_policy.allowedSignatureMethods();
+			import botan.asn1.oids : OIDS;
+			import vibe.core.log : logDebug;
+			auto sig_algo = OIDS.lookup(creds.m_server_cert.signatureAlgorithm().oid());
+			import std.range : front;
+			import std.algorithm.iteration : splitter;
+			string sig_algo_str = sig_algo.splitter("/").front.to!string;
+			logDebug("Certificate algorithm: %s", sig_algo_str);
+			bool found;
+			foreach (sig; sigs[]) {
+				if (sig == sig_algo_str) {
+					found = true; break;
+				}
+			}
+			assert(found, "Server Certificate uses a signing algorithm that is not accepted in the server policy.");
+		}
 	}
 }
 

@@ -1949,10 +1949,18 @@ void handleRequest(TCPConnection tcp_conn,
 			err.exception = ex;
 			return res.m_settings.errorPageHandler(req, res, err);
 		}
-
-		try res.bodyWriter.write(format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg));
+		try {
+			string response = format("%s - %s\n\n%s\n\nInternal error information:\n%s", code, httpStatusText(code), msg, debug_msg);
+			res.contentType = "text/plain";
+			res.bodyWriter.write(cast(ubyte[])response);
+		}
 		catch (Exception ex) 
 		{ // do something...?
+			logError("errorOut Exception: %s", ex.msg);
+		}
+		finally {
+			res.bodyWriter.flush();
+			res.finalize();
 		}
 	}
 	import memutils.utils : ThreadMem;
@@ -2246,23 +2254,25 @@ void handleRequest(TCPConnection tcp_conn,
 			errorOut(req, res, HTTPStatus.notFound, httpStatusText(HTTPStatus.notFound), dbg_msg, null);
 		}
 	} catch (HTTPStatusException err) {
-		string dbg_msg;
-		if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
-			version(VibeNoDebug) {
-				debug {
-					if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
-						dbg_msg = format("\n\nD Stack trace: %s", err.toString().sanitize);
+		Appender!string dbg_msg;
+
+		dbg_msg ~= err.msg;
+		version(VibeNoDebug) {} else {
+			auto bs = TaskDebugger.getBreadcrumbs();
+			dbg_msg ~= "\n\nBreadcrumbs: ";
+			dbg_msg ~= bs[].join(" > ").sanitize;
+			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
+				version(VibeNoDebug) { } else {
+					dbg_msg ~= "\n\nCall Stack:\n";
+					auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
+					dbg_msg ~= cs[].join("\n").sanitize;
+					debug dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
 				}
-			} else {
-				auto bs = TaskDebugger.getBreadcrumbs();
-				dbg_msg = bs[].join(" > ").sanitize;
-				dbg_msg ~= "Call Stack:\n";
-				auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
-				dbg_msg ~= cs[].join("\n").sanitize;
-				debug dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
 			}
 		}
-		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg, err);
+		debug if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
+			dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
+		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg.data, err);
 		else logDiagnostic("HTTPStatusException while writing the response: %s", err.msg);
 		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
@@ -2272,24 +2282,24 @@ void handleRequest(TCPConnection tcp_conn,
 	} catch (UncaughtException e) {
 		logDebug("Exception while handling request: %s %s", req.method, req.requestURL);
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
-		string dbg_msg;
-		version(VibeNoDebug) {
-			debug {
-				if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
-					dbg_msg = format("\n\nD Stack trace: %s", e.toString().sanitize);
-			}
-		} else {
+		Appender!string dbg_msg;
+		dbg_msg ~= e.msg;
+		version(VibeNoDebug) { } else {
+			auto bs = TaskDebugger.getBreadcrumbs();
+			dbg_msg ~= "\n\nBreadcrumbs: ";
+			dbg_msg ~= bs[].join(" > ").sanitize;
 			if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces) {
-				auto bs = TaskDebugger.getBreadcrumbs();
-				dbg_msg = bs[].join(" > ").sanitize;
-				dbg_msg ~= "Call Stack:\n";
+				dbg_msg ~= "\n\nCall Stack:\n";
 				auto cs = TaskDebugger.getCallStack(Task.getThis(), true);
 				dbg_msg ~= cs[].join("\n").sanitize;
-				debug dbg_msg ~= format("\n\nD Stack trace: %s", e.toString().sanitize);
 			}
 		}
-		if (res && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg, e);
-		else logDiagnostic("Error while writing the response: %s", dbg_msg);
+
+		debug if (context.settings && context.settings.options & HTTPServerOption.errorStackTraces)
+			dbg_msg ~= format("\n\nStack trace: %s", e.toString().sanitize);
+
+		if (res && topStream.connected) errorOut(req, res, status, httpStatusText(status), dbg_msg.data, e);
+		else logDiagnostic("Error while writing the response: %s", dbg_msg.data);
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}
 
