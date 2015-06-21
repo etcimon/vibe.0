@@ -95,7 +95,6 @@ class ZlibOutputStream : OutputStream {
 	{
 		assert(!m_finalized);
 		//doFlush(Z_SYNC_FLUSH);
-		m_out.flush();
 	}
 
 	final void finalize()
@@ -105,7 +104,6 @@ class ZlibOutputStream : OutputStream {
 			ThreadMem.free(m_outbuffer);
 		m_finalized = true;
 		doFlush(Z_FINISH);
-		m_out.flush();
 		zlibEnforce(deflateEnd(&m_zstream));
 	}
 

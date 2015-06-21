@@ -1852,7 +1852,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		}
 		if (!keep_alive) { logTrace("No keep-alive - disconnecting client."); break; }
 
-		mixin(Breadcrumb!("tcp_conn.peerAddress()"));
+		mixin(Breadcrumb!("(tcp_conn !is null && tcp_conn.connected) ? tcp_conn.peerAddress() : `disconnecting`"));
 
 		logTrace("Waiting for next request...");
 		// wait for another possible request on a keep-alive connection

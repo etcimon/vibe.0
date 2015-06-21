@@ -151,7 +151,6 @@ HTTPServerRequestDelegateS serveCapture() {
 		settings.finalize = () nothrow { 
 			finished = true; 
 			try {
-				res.bodyWriter.flush();
 				ev.emitLocal(); 
 			}
 			catch (Exception e) { try logError("%s", e.toString()); catch {} }
