@@ -108,10 +108,10 @@ void readUntil()(InputStream stream, OutputStream dst, in ubyte[] end_marker, ul
 void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong max_bytes = ulong.max) /*@ufcs*/
 	if (isOutputRange!(R, ubyte))
 {
-	enforce(stream !is null);
+	mixin(Trace);
+	enforce(stream !is null, "Null stream in readUntil");
 	assert(max_bytes > 0 && end_marker.length > 0);
 
-	mixin(Trace);
 	// allocate internal jump table to optimize the number of comparisons
 	size_t[8] nmatchoffsetbuffer = void;
 	size_t[] nmatchoffset;
@@ -250,6 +250,7 @@ unittest {
 ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserve_bytes = 0) /*@ufcs*/
 {
 	mixin(Trace);
+	enforce(stream !is null, "Null stream in readAll");
 	if (max_bytes == 0) logDebug("Deprecated behavior: readAll() called with max_bytes==0, use max_bytes==size_t.max instead.");
 
 	// prepare output buffer

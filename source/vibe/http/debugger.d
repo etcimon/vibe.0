@@ -151,14 +151,17 @@ HTTPServerRequestDelegateS serveCapture() {
 		settings.finalize = () nothrow { 
 			finished = true; 
 			try {
-				ev.emitLocal(); 
+				ev.emit(); 
 			}
 			catch (Exception e) { try logError("%s", e.toString()); catch {} }
 		};
 
 		TaskDebugger.startCapturing(settings);
 		import std.datetime : seconds;
-		ev.waitLocal(30.seconds);
+		res.headers.remove("Content-Encoding");
+		res.bodyWriter.write("Loading...");
+		res.bodyWriter.flush();
+		ev.wait(30.seconds, ev.emitCount);
 	}
 
 	return &do_capture;

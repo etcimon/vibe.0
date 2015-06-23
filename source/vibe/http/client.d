@@ -424,7 +424,7 @@ final class HTTPClient {
 			enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
 			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
 			m_http2Context.worker = runTask(&runHTTP2Worker, false);
-			yield();
+			//yield();
 			logTrace("Worker started, continuing");
 			m_http2Context.isValidated = true;
 			m_http2Context.isSupported = true;
@@ -1231,7 +1231,8 @@ final class HTTPClientResponse : HTTPResponse {
 		if (m_client.isHTTP2Started) {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
-			m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
+			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
+			catch (ConnectionClosedException cc) { m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); return; }
 			this.statusPhrase = httpStatusText(this.statusCode);
 		}
 
@@ -1440,6 +1441,7 @@ final class HTTPClientResponse : HTTPResponse {
 		Reads the whole response body and tries to parse it as JSON.
 	*/
 	Json readJson(){
+		enforceEx!ConnectionClosedException(bodyReader !is null);
 		auto bdy = bodyReader.readAllUTF8();
 		auto json = parseJson(bdy);
 

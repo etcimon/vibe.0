@@ -165,8 +165,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				//if (signal) destroy(signal);
 			}
 
-			void notifyData() { if (waitingData && !dataSignalRaised) { dataSignalRaised=true; signal.emitLocal(); } }
-			void notifyHeaders() { if (waitingHeaders && !dataSignalRaised) { dataSignalRaised=true; signal.emitLocal(); } }
+			void notifyData() { if (waitingData && !dataSignalRaised) { dataSignalRaised=true; signal.emit(); } }
+			void notifyHeaders() { if (waitingHeaders && !dataSignalRaised) { dataSignalRaised=true; signal.emit(); } }
 
 			void notifyAll() {
 				if (waitingData || waitingHeaders || waitingStreamExit)
@@ -174,7 +174,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 					if (!dataSignalRaised)
 					{
 						dataSignalRaised = true;
-						signal.emitLocal();
+						signal.emit();
 					}
 				}
 			}
@@ -268,7 +268,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				if (!dataSignalRaised && waitingData)
 				{
 					dataSignalRaised = true;
-					signal.emitLocal();
+					signal.emit();
 				}
 			}
 		}
@@ -370,15 +370,16 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		import vibe.utils.dictionarylist : icmp2;
 		acquireReader();
 		scope(exit) releaseReader();
-
+		SysTime ref_time = Clock.currTime();
 		while (!m_active)
 		{
 			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.waitLocal();
+			m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
+			enforceEx!ConnectionClosedException(Clock.currTime() - ref_time < 2.seconds);
 			processExceptions();
 		}
 		
@@ -418,15 +419,19 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireReader();
 		scope(exit) releaseReader();
 
+		SysTime ref_time = Clock.currTime();
 		while (!m_active)
 		{
 			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			logDebug("Waiting for response headers");
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.waitLocal();
+			m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
+			// fixme: workaround for issue with server not sending data completely or client not waking up for it (window updates?)
+			//if (Clock.currTime() - ref_time >= 5.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
+			enforceEx!ConnectionClosedException(Clock.currTime() - ref_time < 2.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
@@ -629,7 +634,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		logDebug("send ping data"); 
 		m_session.ping(data);
 		logDebug("Waitlocal");
-		cb.waitLocal();
+		cb.wait();
 
 		latency = recv - start;
 
@@ -707,13 +712,16 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		
 		while( m_rx.bufs !is null && m_rx.bufs.length == 0 )
 		{
+			SysTime ref_time = Clock.currTime();
 			if (!connected)
 				return 0;
 			m_rx.waitingData = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.waitLocal();
+			m_rx.signal.wait(5.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingData = false;
+			if (Clock.currTime() - ref_time > 5.seconds)
+				return 0;
 		}
 		return (!m_rx.bufs) ? 0 : m_rx.bufs.length;
 	}
@@ -725,7 +733,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		if (m_rx.owner !is Task.init && m_rx.owner != Task.getThis())
 		{
 			m_rx.owner.interrupt();
-			yield();
+			//yield();
 		}
 		acquireReader();
 		scope(exit) releaseReader();
@@ -738,7 +746,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			while (connected && m_stream_id > 0 && !m_rx.close) {
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
-				m_rx.signal.waitLocal();
+				m_rx.signal.wait();
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
 			}
@@ -764,7 +772,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			assert(!m_rx.waitingData, "Another task is waiting already.");
 			m_rx.waitingData = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.waitLocal(timeout);
+			m_rx.signal.wait(timeout, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingData = false;
 		}
@@ -832,12 +840,14 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				{
 					m_session.get().consumeConnection(payload.length);
 					m_tx.windowUpdatePaused += payload.length;
+					m_session.m_tx.notify();
 				}
 				else if (connected) {
 					m_session.get().consume(streamId, payload.length);
 					m_session.m_tx.notify();
 				} else if (m_session.get()) {
 					m_session.get().consumeConnection(payload.length);
+					m_session.m_tx.notify();
 					break;
 				}
 				ub = ub[payload.length .. $];
@@ -847,7 +857,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 					m_rx.waitingData = true;
 					m_rx.dataSignalRaised = false;
 					logDebug("HTTP/2: Waiting for more data in read()");
-					m_rx.signal.waitLocal();
+					m_rx.signal.wait();
 					m_rx.dataSignalRaised = false;
 					m_rx.waitingData = false;
 				}
@@ -859,9 +869,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 			else if (m_session.get()) {
 				m_session.get().consumeConnection(payload.length);
+				m_session.m_tx.notify();
 				break;
 			}
-
 			processExceptions();
 		
 		}
@@ -870,7 +880,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		// we can read again
 		if (m_session.m_rx.paused)
-			m_session.m_rx.signal.emitLocal();
+			m_session.m_rx.signal.emit();
 		
 	}
 	
@@ -887,14 +897,14 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		{
 			size_t to_send = min(m_tx.bufs.available, ub.length);
 			ErrorCode rv = m_tx.bufs.add(cast(string) ub[0 .. to_send]);
+			dirty();
 			enforce(rv >= 0, "Error adding data to buffer");
 			if (to_send == ub.length) break;
 			ub = ub[to_send .. $];
-			dirty();
 			m_tx.waitingData = true;
 			assert(m_tx.signal);
 			m_tx.dataSignalRaised = false;
-			m_tx.signal.waitLocal();
+			m_tx.signal.wait();
 			m_tx.dataSignalRaised = false;
 			m_tx.waitingData = false;
 			processExceptions();
@@ -910,8 +920,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireWriter();
 		scope(exit) releaseWriter();
 		// enforce dirty?
-		dirty();
-		yield(); // will flush the buffers on the next run of the event loop
+		dirty(); // will flush the buffers on the next run of the event loop
 		
 	}
 
@@ -927,19 +936,19 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireWriter();
 		scope(exit) releaseWriter();
 		halfClose();
-		if (!m_session.isServer) {
-			yield();
-		}
-		else {
+		if (m_session.isServer) {
 			scope(exit) 
 				m_rx.free();
 			while (!m_tx.finalized && connected) {
+				SysTime ref_time = Clock.currTime();
 				dirty();
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
-				m_rx.signal.waitLocal();
+				m_rx.signal.wait(5.seconds, m_rx.signal.emitCount);
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
+				if (Clock.currTime() - ref_time > 5.seconds)
+					return;
 			}
 		}
 		processExceptions();
@@ -947,6 +956,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	
 	void write(InputStream stream, ulong nbytes = 0)
 	{
+		dirty();
 		writeDefault(stream, nbytes);
 	}
 
@@ -962,15 +972,11 @@ private:
 		
 	void notifyClose(FrameError error_code) {
 		m_rx.close = true;
-		streamId = -1;
-		// in case of an error, we let the reading fail
-		if (error_code != FrameError.NO_ERROR) {
-			m_rx.error = error_code;
-			m_tx.notify();
-		}
-		
+		// in case of an error, the reading will fail
+		m_rx.error = error_code;
+		m_tx.notify();
 		m_rx.notifyAll();
-		if ((m_session && m_session.m_server) || m_rx.owner == Task()) m_rx.free();
+		if (m_rx.error || (m_session && m_session.m_server) || m_rx.owner == Task()) m_rx.free();
 		onClose();
 	}
 
@@ -1012,7 +1018,7 @@ private:
 		.swap(m_stream_id, push_response.m_stream_id);
 		m_session.get().setStreamUserData(push_response.m_stream_id, cast(void*) this);
 		m_rx.dataSignalRaised = true;
-		m_rx.signal.emitLocal();
+		m_rx.signal.emit();
 		push_response.close(); // it is now the client stream
 		m_connected = true;
 		m_active = true;
@@ -1047,7 +1053,9 @@ private:
 			logDebug("Reading without task");
 			return;
 		}
-		assert(!m_rx.waitingData && !m_rx.waitingHeaders && !m_rx.waitingStreamExit, "Another task is waiting.");
+		/*try enforce(!m_rx.waitingData && !m_rx.waitingHeaders && !m_rx.waitingStreamExit, "Another task is waiting.");
+		catch (Exception e) { import std.stdio : writeln; writeln("Getting call stack"); writeln(TaskDebugger.getCallStack(Task.getThis(), true)[], TaskDebugger.getCallStack(m_rx.owner, false)[]); }
+		*/
 		assert(!m_rx.owner || m_rx.owner == Task.getThis()); 
 		m_rx.owner = Task.getThis();
 		processExceptions();
@@ -1117,14 +1125,15 @@ private:
 	}
 
 	void onClose() {
+		//import std.stdio : writeln;
+		//writeln(m_stream_id, " onclose");
 		m_connected = false;
-		m_rx.owner = Task.init;
-		m_tx.owner = Task.init;
+		m_rx.notifyAll();
 		if (m_session && m_session.m_tcpConn) {
 			if (m_session.m_closing && !m_session.m_tx.dataSignalRaised) {
 				m_session.m_tx.dataSignalRaised = true;
 				if (m_session.m_tx.signal)
-					m_session.m_tx.signal.emitLocal();
+					m_session.m_tx.signal.emit();
 			}
 			streamId = -1;
 		} else m_stream_id = -1;
@@ -1134,6 +1143,7 @@ private:
 	// This function retrieves the length of the next write and calls Connector.writeData when ready
 	int dataProvider(ubyte[] dst, ref DataFlags data_flags)
 	{
+		//import std.stdio : writeln;
 		data_flags |= DataFlags.NO_COPY; // dst is unused
 		if (!m_rx.bufs)
 			return ErrorCode.CALLBACK_FAILURE;
@@ -1158,9 +1168,11 @@ private:
 					dirty();
 					m_tx.finalized = true;
 					data_flags |= DataFlags.EOF;
+					//writeln(m_stream_id, " eof0");
 					return 0;
 				}
 				m_tx.deferred = true;
+				//writeln(m_stream_id, " wlen: 0");
 				return ErrorCode.DEFERRED;
 			}
 			// make sure this buffer is not going to enlarge while it is queued
@@ -1179,8 +1191,10 @@ private:
 			dirty();
 			m_tx.finalized = true;
 			data_flags |= DataFlags.EOF;
+			//writeln(m_stream_id, " eof");
 		}
-		else if (bufs.length == 0) return ErrorCode.DEFERRED;
+		else if (bufs.length == 0 && wlen == 0) { m_tx.notify(); m_rx.notifyAll(); return ErrorCode.DEFERRED; }
+		//writeln(m_stream_id, " wlen: ", wlen, " bufs: ", bufs.length);
 		return wlen;
 	}
 
@@ -1328,7 +1342,7 @@ final class HTTP2Session
 		void notify() {
 			if (!dataSignalRaised) {
 				dataSignalRaised = true;
-				if (signal) signal.emitLocal();
+				if (signal) signal.emit();
 			}
 		}
 	}
@@ -1491,9 +1505,9 @@ final class HTTP2Session
 		stream.m_rx.free();
 		if (!m_tx.dataSignalRaised) {
 			m_tx.dataSignalRaised = true;
-			m_tx.signal.emitLocal();
+			m_tx.signal.emit();
 		}
-		m_rx.signal.emitLocal();
+		m_rx.signal.emit();
 	}
 
 	/// Used when an upgrade from HTTP/1.1 is confirmed. Will resume the read loop
@@ -1501,9 +1515,9 @@ final class HTTP2Session
 	in { assert(!m_tlsStream, "Resuming is only available when a client was initially waiting for an h2c upgrade. Use unpause to unpause"); }
 	body  {
 		m_resume = true;
-		m_rx.signal.emitLocal();
-		m_tx.signal.emitLocal();
-		yield(); // start the loops and send the settings
+		m_rx.signal.emit();
+		m_tx.signal.emit();
+		//yield(); // start the loops and send the settings
 	}
 
 	void pause() {
@@ -1514,9 +1528,9 @@ final class HTTP2Session
 		m_paused = false;
 		if (!m_tx.dataSignalRaised) {
 			m_tx.dataSignalRaised = true;
-			m_tx.signal.emitLocal();
+			m_tx.signal.emit();
 		}
-		m_rx.signal.emitLocal();
+		m_rx.signal.emit();
 	}
 
 	/// Stop the session gracefully, waiting for existing streams to close by themselves and refusing new instances
@@ -1728,7 +1742,7 @@ private:
 				*ping.recv = Clock.currTime();
 
 				// should resume the task on the next run of the event loop
-				ping.cb.emitLocal(); 
+				ping.cb.emit(); 
 				
 				if (m_pong.length == 1) {
 					m_pong.clear();
@@ -1769,7 +1783,7 @@ private:
 		// HTTP/1.1 upgrade mechanism
 		while (wait_read && !m_resume && !m_aborted) {
 			logDebug("HTTP/2: ReadLoop Waiting for upgrade");
-			m_rx.signal.waitLocal(); // triggered in abort() or continue()
+			m_rx.signal.wait(); // triggered in abort() or continue()
 			if (m_closing) {
 				return;
 			}
@@ -1831,7 +1845,7 @@ private:
 				{
 					m_rx.paused = true;
 					logDebug("HTTP/2: Waiting for pause");
-					m_rx.signal.waitLocal(m_pauseTimeout); // wait for data or unpause
+					m_rx.signal.wait(m_pauseTimeout, m_rx.signal.emitCount); // wait for data or unpause
 					m_rx.paused = false;
 				}
 				else if (rv == ErrorCode.BAD_PREFACE)
@@ -1882,7 +1896,7 @@ private:
 		// HTTP/1.1 upgrade mechanism
 		while (wait_write && !m_resume && !m_aborted) {
 			logDebug("HTTP/2: ReadLoop Waiting for upgrade");
-			m_tx.signal.waitLocal(); // triggered in abort() or continue()
+			m_tx.signal.wait(); // triggered in abort() or continue()
 			if (m_closing) {
 				return;
 			}
@@ -1914,20 +1928,20 @@ private:
 				m_tx.paused = true;
 				if (!m_tx.dataSignalRaised) {
 					logDebug("HTTP/2: Pausing write loop!");
-					m_tx.signal.waitLocal(m_pauseTimeout);
+					m_tx.signal.wait(m_pauseTimeout, m_tx.signal.emitCount);
 				}
 				m_tx.dataSignalRaised = false;
 				m_tx.paused = false;
 
 				if (m_rx.paused)
-					m_rx.signal.emitLocal(); // make sure receiver also wakes up
+					m_rx.signal.emit(); // make sure receiver also wakes up
 			}
 			else if (rv != ErrorCode.OK) {
 				throw new Exception(libhttp2.types.toString(rv));
 			}
 
 			if (!m_tx.dataSignalRaised)
-				m_tx.signal.waitLocal(m_writeTimeout); // triggers when dirty streams are available
+				m_tx.signal.wait(m_writeTimeout, m_tx.signal.emitCount); // triggers when dirty streams are available
 			m_tx.dataSignalRaised = false;
 		}
 
@@ -2016,7 +2030,6 @@ private:
 					{
 						if (isServer) {
 							// handle full server response
-
 							ErrorCode rv = submitResponse(m_session, stream.m_stream_id, headers, &stream.dataProvider);
 							logDebug("HTTP/2: Submit response id ", stream.m_stream_id);
 							data_processed = true;
@@ -2103,14 +2116,14 @@ private:
 					// all strings stored in the headers are destroyed
 					freeHeaders();
 					headers = null;
-
 					headers_processed = true;
 				}
 
 				// Send the data if it wasn't done earlier
 				if ((!data_processed && !finalized && halfClosed && stream.m_connected && stream.m_stream_id > 0) || 
-					(!data_processed && stream.m_connected && stream.m_stream_id > 0 && bufs.length > 0 && ((isServer && stream.m_active) || !isServer)))
+					(!data_processed && stream.m_stream_id > 0 && ((isServer && stream.m_active) || !isServer)))
 				{
+					data_processed = true;
 					if (halfClosed)
 						stream.m_rx.notifyAll();
 					FrameFlags fflags;
@@ -2132,8 +2145,6 @@ private:
 					else if (rv != ErrorCode.OK) {
 						stream.m_rx.ex = new Exception("Could not send Data: " ~ rv.to!string);
 					}
-
-					data_processed = true;
 				}
 
 				// This stream was closed and we didn't "submit" this info earlier
@@ -2199,21 +2210,29 @@ override:
 	bool onStreamExit(int stream_id, FrameError error_code)
 	{
 		HTTP2Stream stream = getStream(stream_id);
-		logDebug("HTTP/2: onStreamExit"); 
-		stream.notifyClose(error_code);
+		logDebug("HTTP/2: onStreamExit");
+		logDebug("Stream ID#", stream_id);
+		if (stream !is null) {
+			//logDebug(stream.toString());
+			stream.notifyClose(error_code);
+		}
 		return true;
 	}
 
 	bool onFrame(in Frame frame)
 	{
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
-
-		if (stream && (frame.hd.flags & FrameFlags.END_HEADERS) != 0) {
-			assert(m_expectHeaderFields, "Did not expect header fields when we got END_HEADERS flag");
+		if ((stream && (frame.hd.flags & FrameFlags.END_HEADERS) != 0) ||
+			(stream && !stream.m_active && (frame.hd.flags & FrameFlags.END_STREAM) != 0)) {
+			//import std.stdio : writeln;
+			//writeln(frame.hd.stream_id, " eh");
+			logDebug("End Headers ID#", stream.m_stream_id);
+			//if (!m_expectHeaderFields) writeln("Did not expect header fields when we got END_HEADERS flag");
 			m_expectHeaderFields = false;
 			// headers are complete
 			stream.m_active = true;
-			stream.m_rx.notifyHeaders();
+			//writeln(TaskDebugger.getCallStack(stream.m_rx.owner, false)[][$-2]);
+			stream.m_rx.notifyAll();
 		}
 
 		if (frame.hd.type == FrameType.GOAWAY)
@@ -2256,6 +2275,8 @@ override:
 
 		if (frame.hd.type == FrameType.WINDOW_UPDATE)
 		{
+			//import std.stdio : writeln;
+			//writeln(frame.hd.stream_id, " wu: ", frame.window_update.window_size_increment);
 			if (stream) {
 				stream.m_tx.notify();
 			}
@@ -2291,8 +2312,11 @@ override:
 		m_expectHeaderFields = true;
 		if (frame.hd.type == FrameType.HEADERS) {
 			m_expectPushPromise = false;
-			if (frame.headers.cat == HeadersCategory.REQUEST)
+			if (frame.headers.cat == HeadersCategory.REQUEST) {
+				logDebug("Handling request stream ID#", frame.hd.stream_id);
+				assert(!getStream(frame.hd.stream_id), "Creating stream twice");
 				m_session.handleRequest(frame.hd.stream_id);
+			}
 
 		}
 		else if (frame.hd.type == FrameType.PUSH_PROMISE)
@@ -2305,6 +2329,7 @@ override:
 	
 	bool onHeaderField(in Frame frame, HeaderField hf, ref bool pause, ref bool rst_stream)
 	{
+		//import std.stdio : writeln;
 		assert(m_expectHeaderFields, "Did not expect header fields when we got one");
 
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
@@ -2312,6 +2337,7 @@ override:
 		HeaderField hf_copy;
 		hf_copy.name = cast(string)Mem.copy(hf.name);
 		hf_copy.value = cast(string)Mem.copy(hf.value);
+		//if (hf_copy.name == ":path") writeln(m_stream_id, " ", hf_copy.value);
 		stream.m_rx.headers ~= hf_copy;
 		logDebug("Got response header: ", hf_copy); 
 		return true;
@@ -2323,6 +2349,7 @@ override:
 		Buffers bufs = stream.m_rx.bufs;
 		if (!bufs) {
 			m_session.get().consumeConnection(data.length);
+			m_session.m_tx.notify();
 			return false; // the stream errored out...
 		}
 		if (stream.m_paused)
@@ -2330,10 +2357,11 @@ override:
 
 		if (ErrorCode.BUFFER_ERROR == bufs.add(cast(string)data)) {
 			m_session.get().consumeConnection(data.length);
+			m_session.m_tx.notify();
 			stream.m_rx.ex = new Exception("Remote peer didn't respect WINDOW SIZE");
 			return false; // protocol error, peer didn't respect WINDOW SIZE
 		}
-		stream.m_rx.notifyData();
+		stream.m_rx.notifyAll();
 
 		return true;
 	}
@@ -2371,7 +2399,7 @@ override:
 			m_session.m_closing = true;
 			// maybe all streams are already closed
 			if (m_session.m_rx.paused)
-				m_session.m_rx.signal.emitLocal();
+				m_session.m_rx.signal.emit();
 			m_session.m_tx.notify();
 		}
 
@@ -2386,6 +2414,9 @@ override:
 		else if (frame.hd.type == FrameType.RST_STREAM) {
 			HTTP2Stream stream = getStream(frame.hd.stream_id);
 			if (stream) stream.destroy();
+		}
+		else if (frame.hd.type == FrameType.HEADERS) {
+			logDebug("Sending Headers ID#", frame.hd.stream_id);
 		}
 		return true;
 	}

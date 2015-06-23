@@ -7,6 +7,7 @@
 */
 module vibe.core.drivers.threadedfile;
 
+version(VibeLibasyncDriver) {} else:
 import vibe.core.core : yield;
 import vibe.core.log;
 import vibe.core.driver;

@@ -249,8 +249,10 @@ class ZlibInputStream : InputStream {
 		while (!m_outbuffer.length) {
 			if (m_zstream.avail_in == 0) {
 				auto clen = min(m_inbuffer.length, m_in.leastSize);
-				if (clen == 0)
+				if (clen == 0) {
+					m_finished = true;
 					return;
+				}
 				m_in.read(m_inbuffer[0 .. clen]);
 				m_zstream.next_in = m_inbuffer.ptr;
 				m_zstream.avail_in = cast(uint)clen;

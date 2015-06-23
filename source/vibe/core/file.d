@@ -10,8 +10,9 @@ module vibe.core.file;
 public import vibe.core.stream;
 public import vibe.inet.url;
 
-import vibe.core.drivers.threadedfile; // temporarily needed tp get mkstemps to work
+version(Posix) import vibe.core.drivers.threadedfile; // temporarily needed tp get mkstemps to work
 import vibe.core.driver;
+import vibe.utils.string : globMatch;
 
 import core.stdc.stdio;
 import std.datetime;
@@ -19,12 +20,12 @@ import std.exception;
 import std.file;
 import std.path;
 import std.string;
-
+import memutils.vector;
+import memutils.hashmap;
 
 version(Posix){
 	private extern(C) int mkstemps(char* templ, int suffixlen);
 }
-
 
 /**
 	Opens a file stream with the specified mode.
@@ -33,12 +34,12 @@ FileStream openFile(Path path, FileMode mode = FileMode.read)
 {
 	return getEventDriver().openFile(path, mode);
 }
+
 /// ditto
 FileStream openFile(string path, FileMode mode = FileMode.read)
 {
 	return openFile(Path(path), mode);
 }
-
 
 /**
 	Read a whole file into a buffer.
@@ -376,7 +377,6 @@ interface FileStream : RandomAccessStream {
 	void close();
 }
 
-
 /**
 	Interface for directory watcher implementations.
 
@@ -444,4 +444,3 @@ private FileInfo makeFileInfo(DirEntry ent)
 	ret.isDirectory = ent.isDir;
 	return ret;
 }
-

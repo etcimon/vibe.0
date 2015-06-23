@@ -84,7 +84,6 @@ public:
 		try m_tls_channel.doHandshake();
 		catch(Exception e) {
 			m_ex = e;
-			writeln(e.toString());
 		}
 	}
 
@@ -113,7 +112,6 @@ public:
 		}
 		try m_tls_channel.doHandshake();
 		catch(Exception e) {
-			writeln(e.toString());
 			m_ex = e;
 		}
 	}

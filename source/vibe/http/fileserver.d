@@ -28,7 +28,6 @@ HTTPServerRequestDelegateS serveStaticFiles(Path local_path, HTTPFileServerSetti
 {
 	if (!settings) settings = new HTTPFileServerSettings;
 	if (!settings.serverPathPrefix.endsWith("/")) settings.serverPathPrefix ~= "/";
-
 	void callback(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
 		string srv_path;
@@ -183,7 +182,7 @@ enum HTTPFileServerOption {
 	/// serve index.html for directories
 	serveIndexHTML = 1 << 1,
 	/// default options are serveIndexHTML
-	defaults = serveIndexHTML,
+	defaults = serveIndexHTML
 }
 
 
