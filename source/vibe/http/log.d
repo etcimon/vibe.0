@@ -11,7 +11,7 @@ import vibe.core.file;
 import vibe.core.log;
 import vibe.core.sync : InterruptibleTaskMutex, performLocked;
 import vibe.http.server;
-import vibe.utils.array : FixedAppender;
+import vibe.utils.array : AllocAppender, manualAllocator;
 
 import std.array;
 import std.conv;
@@ -24,7 +24,7 @@ class HTTPLogger {
 		string m_format;
 		const(HTTPServerSettings) m_settings;
 		InterruptibleTaskMutex m_mutex;
-		FixedAppender!(const(char)[], 2048) m_lineAppender;
+		AllocAppender!(const(char)[]) m_lineAppender;
 	}
 
 	this(in HTTPServerSettings settings, string format)
@@ -32,14 +32,16 @@ class HTTPLogger {
 		m_format = format;
 		m_settings = settings;
 		m_mutex = new InterruptibleTaskMutex;
+		m_lineAppender = AllocAppender!(const(char)[])(manualAllocator());
+		m_lineAppender.reserve(2048);
 	}
 
-	void close() {}
+	void close() { m_lineAppender.reset(); }
 
 	final void log(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
 		m_mutex.performLocked!({
-			m_lineAppender.reset();
+			m_lineAppender.reset(AppenderResetMode.freeData);
 			formatApacheLog(m_lineAppender, m_format, req, res, m_settings);
 			writeLine(m_lineAppender.data);
 		});

@@ -1023,6 +1023,7 @@ final class HTTPServerResponse : HTTPResponse {
 	private @property bool isHTTP2() { return !m_isTest && m_conn.stack.http2 !is null; }
 
 	@property SysTime timeFinalized() { return m_timeFinalized; }
+	@property void timeFinalized(SysTime time) { m_timeFinalized = time; }
 
 	/// Determines if compression is used in this response.
 	@property bool hasCompression() { return m_compressionStream.gzip !is null; }
@@ -1443,8 +1444,6 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 		if (!topStream)
 			return;
-
-		m_timeFinalized = Clock.currTime(UTC());
 
 		logTrace("Server response finalize() called, http/2? %s", cast(HTTP2Stream)topStream ? true : false);
 		if (!isHeadResponse && bytes_written < headers.get("Content-Length", "0").to!long) {
@@ -2085,7 +2084,7 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 
 		enforce(context !is null && context.settings !is null, "Context settings failed");
-		req.m_settings = context.settings;		
+		req.m_settings = context.settings;
 		reqReader.req = req;
 		
 		// Lazily load the body reader because most requests don't need it
@@ -2224,8 +2223,10 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0) {
-				auto bodyStr = cast(string)req.bodyReader.readAll();
-				scope(exit) bodyStr.destroy();
+				auto bodyStr = cast(string)req.bodyReader.readAll(64*1024);
+
+				enforceHTTP(bodyStr.length != 64*1024, HTTPStatus.badRequest, "This resource does not accept Json documents of 64kb or more");
+
 				if (!bodyStr.empty) {
 					req.json = parseJson(bodyStr);
 					mixin(OnCapture!("HTTPServerRequest.json", "req.json.toPrettyString()"));
@@ -2318,6 +2319,9 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 	}
 	
+
+	if (res)
+		res.timeFinalized = Clock.currTime(UTC());
 	// log the request to access log
 	foreach (log; context.loggers)
 		log.log(req, res);
