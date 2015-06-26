@@ -275,7 +275,10 @@ final class LibasyncDriver : EventDriver {
 		conn.peer = addr;
 
 		auto tm = createTimer(null);
-		scope(exit) releaseTimer(tm);
+		scope(exit) {
+			stopTimer(tm);
+			releaseTimer(tm);
+		}
 		m_timers.getUserData(tm).owner = Task.getThis();
 		rearmTimer(tm, 5.seconds, false);
 
@@ -329,8 +332,9 @@ final class LibasyncDriver : EventDriver {
 	{
 		assert(m_ownerThread is Thread.getThis());
 		logTrace("Releasing timer %s", timer_id);
-		if (!--m_timers.getUserData(timer_id).refCount) 
+		if (!--m_timers.getUserData(timer_id).refCount) {
 			m_timers.destroy(timer_id);
+		}
 	}
 	
 	bool isTimerPending(size_t timer_id) nothrow { return m_timers.isPending(timer_id); }
@@ -775,6 +779,8 @@ final class LibasyncManualEvent : ManualEvent {
 		Thread m_owner;
 		core.sync.mutex.Mutex m_mutex;
 	}
+
+	size_t instanceId() { return m_instance; }
 	
 	this(LibasyncDriver driver)
 	{
@@ -919,7 +925,7 @@ final class LibasyncManualEvent : ManualEvent {
 		scope(exit) release();
 		auto ec = this.emitCount;
 		while( ec == reference_emit_count ){
-			synchronized(m_mutex) logTrace("Waiting for event with signal count: " ~ ms_signals.length.to!string);
+			//synchronized(m_mutex) logTrace("Waiting for event with signal count: " ~ ms_signals.length.to!string);
 			static if (INTERRUPTIBLE) getDriverCore().yieldForEvent();
 			else getDriverCore().yieldForEventDeferThrow();
 			ec = this.emitCount;
@@ -935,7 +941,10 @@ final class LibasyncManualEvent : ManualEvent {
 		acquire();
 		scope(exit) release();
 		auto tm = getEventDriver().createTimer(null);
-		scope (exit) getEventDriver().releaseTimer(tm);
+		scope (exit) {
+			getEventDriver().stopTimer(tm);
+			getEventDriver().releaseTimer(tm);
+		}
 		getEventDriver().m_timers.getUserData(tm).owner = Task.getThis();
 		getEventDriver().rearmTimer(tm, timeout, false);
 		
@@ -975,7 +984,6 @@ final class LibasyncManualEvent : ManualEvent {
 	{
 		logTrace("Got signal in onSignal");
 		try {
-			auto thread = Thread.getThis();
 			auto core = getDriverCore();
 
 			logTrace("Got context: %d", m_instance);
@@ -1226,6 +1234,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		auto _driver = getEventDriver();
 		auto tm = _driver.createTimer(null);
 		scope(exit) { 
+			_driver.stopTimer(tm);
 			_driver.releaseTimer(tm);
 			releaseReader();
 		}
@@ -1725,7 +1734,10 @@ final class LibasyncUDPConnection : UDPConnection {
 		acquire();
 		scope(exit) {
 			release();
-			if (tm != size_t.max) m_driver.releaseTimer(tm);
+			if (tm != size_t.max) {
+				m_driver.stopTimer(tm);
+				m_driver.releaseTimer(tm);
+			}
 		}
 		
 		assert(buf.length <= int.max);
@@ -1784,7 +1796,7 @@ final class LibasyncUDPConnection : UDPConnection {
 
 Vector!(memutils.vector.Array!(Task, Malloc), Malloc) s_eventWaiters; // Task list in the current thread per instance ID
 __gshared Vector!(size_t, Malloc) gs_availID;
-__gshared size_t gs_maxID = 1;
+__gshared size_t gs_maxID;
 __gshared core.sync.mutex.Mutex gs_mutex;
 
 private size_t generateID() {
@@ -1804,8 +1816,8 @@ private size_t generateID() {
 			idx = getIdx();
 			if (idx == 0) {
 				import std.range : iota;
-				gs_availID.insert( iota(gs_maxID, max(32, gs_maxID * 2), 1) );
-				gs_maxID = max(32, gs_maxID * 2);
+				gs_availID.insert( iota(gs_maxID + 1, max(32, gs_maxID * 2), 1) );
+				gs_maxID = gs_availID[$-1];
 				idx = getIdx();
 			}
 		}

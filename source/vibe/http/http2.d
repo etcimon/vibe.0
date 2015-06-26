@@ -340,6 +340,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				if (stream_internal !is null)
 					m_session.get().destroyStream(stream_internal);
 				if (m_tx.bufs) onClose();
+				if (m_session.get() && m_rx.bufs)
+					m_session.get().consumeConnection(m_rx.bufs.length);
 				m_rx.free();
 			}
 		}
@@ -379,7 +381,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!ConnectionClosedException(Clock.currTime() - ref_time < 2.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 2.seconds);
 			processExceptions();
 		}
 		
@@ -431,7 +433,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			//if (Clock.currTime() - ref_time >= 5.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!ConnectionClosedException(Clock.currTime() - ref_time < 2.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 2.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
@@ -516,7 +518,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
-
 		immutable string[] methods = ["GET","HEAD","PUT","POST","PATCH","DELETE","OPTIONS","TRACE","CONNECT","COPY","LOCK","MKCOL","MOVE","PROPFIND","PROPPATCH","UNLOCK"];
 
 		Vector!(char[]) cookie_arr;
@@ -712,16 +713,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		
 		while( m_rx.bufs !is null && m_rx.bufs.length == 0 )
 		{
-			SysTime ref_time = Clock.currTime();
 			if (!connected)
 				return 0;
 			m_rx.waitingData = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.wait(5.seconds, m_rx.signal.emitCount);
+			m_rx.signal.wait();
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingData = false;
-			if (Clock.currTime() - ref_time > 5.seconds)
-				return 0;
 		}
 		return (!m_rx.bufs) ? 0 : m_rx.bufs.length;
 	}
@@ -751,6 +749,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				m_rx.waitingStreamExit = false;
 			}
 		}
+
+		if (m_session.get() && m_rx.bufs)
+			m_session.get().consumeConnection(m_rx.bufs.length);
 		m_rx.free();
 		onClose();
 	}
@@ -929,7 +930,11 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	{
 		if (!connected) {
 			m_tx.halfClosed = true;
-			if (m_session && m_session.isServer) m_rx.free();
+			if (m_session && m_session.isServer) {
+				if (m_session.get() && m_rx.bufs)
+					m_session.get().consumeConnection(m_rx.bufs.length);
+				m_rx.free();
+			}
 			return;
 		}
 		mixin(Trace);
@@ -937,18 +942,27 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		scope(exit) releaseWriter();
 		halfClose();
 		if (m_session.isServer) {
-			scope(exit) 
+			scope(exit) {
+				if (m_session.get() && m_rx.bufs)
+					m_session.get().consumeConnection(m_rx.bufs.length);
 				m_rx.free();
+			}
+			SysTime ref_time = Clock.currTime();
 			while (!m_tx.finalized && connected) {
-				SysTime ref_time = Clock.currTime();
 				dirty();
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
-				m_rx.signal.wait(5.seconds, m_rx.signal.emitCount);
+				m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
-				if (Clock.currTime() - ref_time > 5.seconds)
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 2.seconds) {
+					m_tx.close = true;
+				}
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 5.seconds) {
+					m_session.stop("Finalization error");
 					return;
+				}
+				processExceptions();
 			}
 		}
 		processExceptions();
@@ -976,7 +990,11 @@ private:
 		m_rx.error = error_code;
 		m_tx.notify();
 		m_rx.notifyAll();
-		if (m_rx.error || (m_session && m_session.m_server) || m_rx.owner == Task()) m_rx.free();
+		if (m_rx.error || (m_session && m_session.m_server) || m_rx.owner == Task()) {
+			if (m_session.get() && m_rx.bufs)
+				m_session.get().consumeConnection(m_rx.bufs.length);
+			m_rx.free();
+		}
 		onClose();
 	}
 
@@ -1090,6 +1108,9 @@ private:
 
 		scope(failure) {
 			onClose();
+
+			if (m_session.get() && m_rx.bufs)
+				m_session.get().consumeConnection(m_rx.bufs.length);
 			m_rx.free();
 		}
 		if (m_session) {
@@ -1107,6 +1128,8 @@ private:
 	void processExceptions() {
 		scope(failure) {
 			onClose();
+			if (m_session.get() && m_rx.bufs)
+				m_session.get().consumeConnection(m_rx.bufs.length);
 			m_rx.free();
 		}
 
@@ -1129,14 +1152,14 @@ private:
 		//writeln(m_stream_id, " onclose");
 		m_connected = false;
 		m_rx.notifyAll();
-		if (m_session && m_session.m_tcpConn) {
+		if (m_active && m_session && m_session.m_tcpConn) {
 			if (m_session.m_closing && !m_session.m_tx.dataSignalRaised) {
 				m_session.m_tx.dataSignalRaised = true;
 				if (m_session.m_tx.signal)
 					m_session.m_tx.signal.emit();
 			}
 			streamId = -1;
-		} else m_stream_id = -1;
+		}
 		m_tx.free();
 	}
 
@@ -1164,7 +1187,7 @@ private:
 
 			if (wlen == 0) {
 				m_tx.notify();
-				if (m_tx.halfClosed) {
+				if (m_tx.halfClosed || m_tx.close) {
 					dirty();
 					m_tx.finalized = true;
 					data_flags |= DataFlags.EOF;
@@ -1186,7 +1209,7 @@ private:
 			m_tx.queued_len += wlen;
 		}
 		
-		if (m_tx.halfClosed && bufs.length == 0)
+		if (m_tx.close || (m_tx.halfClosed && bufs.length == 0))
 		{
 			dirty();
 			m_tx.finalized = true;
@@ -2224,7 +2247,6 @@ override:
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 		if ((stream && (frame.hd.flags & FrameFlags.END_HEADERS) != 0) ||
 			(stream && !stream.m_active && (frame.hd.flags & FrameFlags.END_STREAM) != 0)) {
-			//import std.stdio : writeln;
 			//writeln(frame.hd.stream_id, " eh");
 			logDebug("End Headers ID#", stream.m_stream_id);
 			//if (!m_expectHeaderFields) writeln("Did not expect header fields when we got END_HEADERS flag");

@@ -1797,6 +1797,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	}
 
 	if (!tcp_conn.waitForData(10.seconds())) {
+		tcp_conn.write("HTTP/1.1 408 Request timeout\r\nContent-Length: 66\r\n\r\n408 Request timeout\n\nNo request was received in 10 seconds. Abort.");
 		logDebug("Client didn't send the initial request in a timely manner. Closing connection.");
 		return;
 	}
@@ -1813,6 +1814,12 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		logTrace("Accept TLS connection: %s", listen_info.tlsContext.kind);
 		// TODO: reverse DNS lookup for peer_name of the incoming connection for TLS client certificate verification purposes
 		version(VibeNoTLS) {} else {
+			const(ubyte)[] check_tls = tcp_conn.peek();
+			if (check_tls.length < 6 || check_tls[0] != 0x16 || check_tls[1] != 0x03 || check_tls[5] != 0x01)
+			{
+				tcp_conn.write("HTTP/1.1 497 HTTP to HTTPS\r\nContent-Length: 91\r\n\r\n497 HTTP to HTTPS\n\nThis page requires a secured connection. Please use https:// in the URL.");
+				return;
+			}
 			tls_stream = createTLSStream(tcp_conn, listen_info.tlsContext, TLSStreamState.accepting, null, tcp_conn.remoteAddress);
 		}
 		if (has_vhosts) {
@@ -2004,8 +2011,8 @@ void handleRequest(TCPConnection tcp_conn,
 
 		if (!http2_stream) {
 			// HTTP/1.1 headers
-			parseRequestHeader(req, reqReader.reader, request_allocator, context.settings.maxRequestHeaderSize);
-
+			try parseRequestHeader(req, reqReader.reader, request_allocator, context.settings.maxRequestHeaderSize);
+			catch (InterruptException e) { throw new HTTPStatusException(HTTPStatus.requestTimeout); }
 			// find/verify context
 			string authority = req.headers.get("Host", null);
 			enforceBadRequest(authority, "No Host header was defined");
@@ -2042,7 +2049,8 @@ void handleRequest(TCPConnection tcp_conn,
 		{ 
 			// HTTP/2 headers
 			enforce(http2_handler.started, "HTTP/2 session is invalid");
-			parseHTTP2RequestHeader(req, http2_stream, request_allocator);
+			try parseHTTP2RequestHeader(req, http2_stream, request_allocator);
+			catch (TimeoutException e) { throw new HTTPStatusException(HTTPStatus.requestTimeout); }
 
 			// find/verify context
 			string authority = req.headers.get("Host", null);
@@ -2344,7 +2352,13 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 {
 	mixin(Trace);
 	auto stream = FreeListRef!LimitedHTTPInputStream(http_stream, max_header_size);
-
+	auto task_id = Task.getThis();
+	auto timer_id = getEventDriver().createTimer({ task_id.interrupt(); });
+	getEventDriver().rearmTimer(timer_id, 2.seconds, false);
+	scope(exit)	{
+		getEventDriver().stopTimer(timer_id);
+		getEventDriver().releaseTimer(timer_id);
+	}
 	logTrace("HTTP server reading status line");
 	auto reqln = cast(string)stream.readLine(MaxHTTPHeaderLineLength, "\r\n", alloc);
 

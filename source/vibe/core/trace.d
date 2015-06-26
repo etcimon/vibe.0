@@ -382,7 +382,9 @@ void pushTraceImpl(string info) {
 void popTraceImpl(bool in_failure = false) {
 	if (Task.getThis() == Task()) return;
 	if (auto ptr = Task.getThis().fiber in s_taskMap) {
-		if (in_failure) ptr.failures++;
+		if (in_failure) { 
+			ptr.callStack[ptr.callStack.length - ++ptr.failures] ~= " (E)";
+		}
 		else ptr.callStack.removeBack();
 	}
 }
