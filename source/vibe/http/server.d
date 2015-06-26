@@ -2223,9 +2223,7 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0) {
-				auto bodyStr = cast(string)req.bodyReader.readAll(64*1024);
-
-				enforceHTTP(bodyStr.length != 64*1024, HTTPStatus.badRequest, "This resource does not accept Json documents of 64kb or more");
+				auto bodyStr = cast(string)req.bodyReader.readAll();
 
 				if (!bodyStr.empty) {
 					req.json = parseJson(bodyStr);

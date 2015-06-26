@@ -10,7 +10,7 @@ module vibe.core.file;
 public import vibe.core.stream;
 public import vibe.inet.url;
 
-version(Posix) import vibe.core.drivers.threadedfile; // temporarily needed tp get mkstemps to work
+import vibe.core.drivers.threadedfile; // temporarily needed tp get mkstemps to work
 import vibe.core.driver;
 import vibe.utils.string : globMatch;
 
