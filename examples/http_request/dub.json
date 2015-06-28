@@ -5,5 +5,5 @@
 	"dependencies": {
 		"vibe-d": {"path": "../../"}
 	},
-	"versions": ["VibeCustomMain"]
+	"versions": ["VibeDefaultMain"]
 }
