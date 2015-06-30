@@ -922,7 +922,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		scope(exit) releaseWriter();
 		// enforce dirty?
 		dirty(); // will flush the buffers on the next run of the event loop
-		
+		yield();
 	}
 
 	/// Calling finalize on a stream that has never yielded will half-close it and allow a full atomic request or response

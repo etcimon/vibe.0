@@ -1023,7 +1023,6 @@ final class HTTPServerResponse : HTTPResponse {
 	private @property bool isHTTP2() { return !m_isTest && m_conn.stack.http2 !is null; }
 
 	@property SysTime timeFinalized() { return m_timeFinalized; }
-	@property void timeFinalized(SysTime time) { m_timeFinalized = time; }
 
 	/// Determines if compression is used in this response.
 	@property bool hasCompression() { return m_compressionStream.gzip !is null; }
@@ -2316,10 +2315,7 @@ void handleRequest(TCPConnection tcp_conn,
 			logDebug("Deleted upload tempfile %s", v.tempPath.toString());
 		}
 	}
-	
 
-	if (res)
-		res.timeFinalized = Clock.currTime(UTC());
 	// log the request to access log
 	foreach (log; context.loggers)
 		log.log(req, res);

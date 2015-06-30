@@ -123,7 +123,7 @@ final class LibasyncDriver : EventDriver {
 			getDriverCore().notifyIdle();
 		}
 		m_break = false;
-		logInfo("Event loop exit %s", m_break);
+		logInfo("Event loop exit");
 		return 0;
 	}
 	

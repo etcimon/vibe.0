@@ -176,7 +176,7 @@ public:
 
 	void* getUserData() const
 	{ 
-		processException();
+		(cast()this).processException();
 		assert(m_ctx.m_kind != TLSContextKind.client, "Only SNI servers may hold user data");
 		if (!m_userData && !m_tls_channel.isClosed)
 			(cast()this).m_userData = (cast(TLSServer)m_tls_channel.underlyingChannel()).getUserData();	
@@ -254,10 +254,12 @@ public:
 		m_handshake_complete = hs_cb;
 	}
 
-	void processException() const {
+	void processException() {
 		mixin(STrace);
-		if (m_ex)
-			throw m_ex;
+		if (auto ex = m_ex) {
+			m_ex = null;
+			throw ex;
+		}
 	}
 
 private:

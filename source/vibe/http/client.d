@@ -365,6 +365,10 @@ final class HTTPClient {
 			
 			if (!m_settings.tlsContext) {
 				m_conn.tlsContext = createTLSContext(TLSContextKind.client);
+				
+				// this will be changed to trustedCert once a proper root CA store is available by default
+				m_conn.tlsContext.peerValidationMode = TLSPeerValidationMode.none;
+
 				if (ms_tlsSetup) 
 					ms_tlsSetup(m_conn.tlsContext);
 			}
@@ -389,19 +393,13 @@ final class HTTPClient {
 			disconnect(false, "Cleaning up");
 		}
 		if (m_settings.proxyURL.schema !is null){
-			
-			bool use_dns;
-			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host, 0, use_dns);
+			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
 			proxyAddr.port = m_settings.proxyURL.port;
 
 			// we connect to the proxy directly
 			m_conn.tcp = connectTCP(proxyAddr);
-			if (m_settings.proxyURL.schema == "https") {
-				if (use_dns)
-					m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, proxyAddr);
-				else
-					m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, null, proxyAddr);
-			}
+			if (m_settings.proxyURL.schema == "https")
+				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, proxyAddr);
 		}
 		else // connect to the requested server/port
 		{
@@ -636,17 +634,18 @@ private:
 		assert(!m_state.responding, "Interleaved HTTP client request/response detected!");
 
 		m_state.requesting = true;
-		if (isHTTP2Started) m_state.http2Stream = m_http2Context.session.startRequest();
 		scope(exit) m_state.requesting = false;
+		if (isHTTP2Started) m_state.http2Stream = m_http2Context.session.startRequest();
 		string user_agent = m_settings.userAgent ? m_settings.userAgent : ms_userAgent;
 		Duration latency = Duration.zero;
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
 											m_http2Context ? m_http2Context.latency : latency, keepalive, m_state.location, m_settings.cookieJar);
 				
+		requester(req);
+
+		// after requester, to make sure it doesn't get corrupted
 		if (canUpgradeHTTP2)
 			startHTTP2Upgrade(req.headers);
-
-		requester(req);
 		req.finalize();
 		logTrace("Sent HTTP request");
 		req_method = req.method;
@@ -786,9 +785,7 @@ private:
 			timed_out = true;
 		}
 		// stopped here
-		if (m_http2Context.session)
-			m_http2Context.session = null;
-
+		m_http2Context.session = null;
 		m_http2Context.worker = Task();
 		if (m_http2Context.pinger !is Timer.init && m_http2Context.pinger.pending)
 			m_http2Context.pinger.stop();
@@ -909,8 +906,10 @@ final class HTTPClientRequest : HTTPRequest {
 		if (proxy.host !is null){
 			headers["Proxy-Connection"] = "keep-alive";
 
-			import std.base64;			
-			headers["Proxy-Authorization"] = "Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", proxy.username, proxy.password));
+			if (proxy.username.length && proxy.password.length) {
+				import std.base64;
+				headers["Proxy-Authorization"] = "Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", proxy.username, proxy.password));
+			}
 
 		}
 		else if (!http2Stream && !is_http2_upgrading && httpVersion == HTTPVersion.HTTP_1_1) {

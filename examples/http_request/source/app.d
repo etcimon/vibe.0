@@ -11,8 +11,7 @@ shared static this()
 	HTTPClientSettings settings = new HTTPClientSettings;
 	settings.http2.disable = true;
 	//setLogFile("test.txt", LogLevel.trace);
-	setTimer(1.seconds, {
-			foreach (int i; 0 .. 100) {
+		foreach (int i; 0 .. 100) {
 
 						requestHTTP("http://globecsys.com/",
 							(scope req) {
@@ -25,5 +24,4 @@ shared static this()
 						writeln(i);
 					
 			}
-		});
 }

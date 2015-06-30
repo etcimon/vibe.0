@@ -121,12 +121,6 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 				char[1024*16] buf = void;
 				sink.buf = buf[];
 				auto n = formattedWrite(&sink, fmt, args);
-				version (all)
-				{
-					// In the future, this check will be removed to increase consistency
-					// with formattedWrite
-					assert(n == args.length, "Orphan specifyer");
-				}
 				
 				rawLog(/*mod, func,*/ file, line, level, cast(string)buf[0 .. sink.i]);
 
