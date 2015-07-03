@@ -234,7 +234,7 @@ int icmp2(string a, string b)
 	return 0;
 }
 
-bool globMatch(string pattern, string str)
+bool globMatch(string pattern, string str) pure
 {
 	immutable(char)* a_pos = pattern.ptr;
 	immutable(char)* b_pos = str.ptr;

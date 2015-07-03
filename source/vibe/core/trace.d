@@ -89,12 +89,13 @@ nothrow static:
 		scope(failure) assert(false, "Memory allocation failed");
 		if (isCapturing) {
 			foreach (settings; s_captureSettings[]) {
+				import std.algorithm : canFind;
 				if (settings.canCapture(tdi)) {
 					// we will publish events to that setting
 					settings.attachTask(tdi);
 				}
 				else {
-					// make sure won't publish events to that setting
+					// make sure we won't publish events to that setting
 					settings.detachTask(tdi);
 					removeFromArray(tdi.captures, settings);
 				}
@@ -194,6 +195,17 @@ nothrow static:
 		} catch (Exception e) { try writeln(e.toString()); catch {} }
 		// removes the filter, detaches all attached tasks
 	}
+
+	void stopCapturing() {
+		scope(failure) assert(false, "Memory allocation failed");
+		if (auto ptr = Task.getThis().fiber in s_taskMap) {
+			foreach (settings; (*ptr).captures) {
+				settings.detachTask(*ptr);
+			}
+			ptr.captures.clear();
+		}
+
+	}
 }
 
 class CaptureSettings {
@@ -219,11 +231,12 @@ private:
 
 	bool canCapture(TaskDebugInfo t) {
 		import std.algorithm : countUntil;
-		if (tasks.countUntil(t) == -1 && remainingTasks == 0) return false;
+		if (tasks.countUntil(t) == -1 && remainingTasks == 0) { return false; }
 		import std.algorithm : canFind;
 		// name must be an exact match
-		if (!globMatch(filters.name, t.name)) 
+		if (!globMatch(filters.name, t.name)) {
 			return false;
+		}
 		// all of the filter breadcrumbs must be contained
 		if (filters.breadcrumbs != ["*"] ) {
 			if (t.breadcrumbs.length == 0) return false;
@@ -233,7 +246,7 @@ private:
 					if (globMatch(glob, breadcrumb))
 						is_match = true;
 				}
-				if (!is_match) return false;
+				if (!is_match) { return false; }
 			}
 		}
 		return true;
@@ -249,6 +262,7 @@ private:
 	}
 
 	void detachTask(TaskDebugInfo t) {
+		if (!tasks.canFind(t)) return;
 		removeFromArray(tasks, t);
 		checkFinished();
 	}

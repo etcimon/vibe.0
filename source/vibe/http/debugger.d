@@ -136,6 +136,7 @@ HTTPServerRequestDelegateS serveCapture() {
 
 		bool task_info_printed;
 
+		import std.stdio : writeln;
 		settings.sink = (string keyword, lazy string str) nothrow {
 			try {
 				if (!task_info_printed) {
@@ -159,8 +160,6 @@ HTTPServerRequestDelegateS serveCapture() {
 		TaskDebugger.startCapturing(settings);
 		import std.datetime : seconds;
 		res.headers.remove("Content-Encoding");
-		res.bodyWriter.write("Loading...");
-		res.bodyWriter.flush();
 		ev.wait(30.seconds, ev.emitCount);
 	}
 

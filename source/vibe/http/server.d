@@ -1399,6 +1399,8 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		mixin(Trace);
 		ulong bytes_written = bytesWritten();
+		import vibe.core.trace : TaskDebugger;
+		version(VibeNoDebug) { } else { TaskDebugger.stopCapturing(); }
 		scope(exit) logDebug("Finalized to: %d", bytes_written);
 
 		if (!m_headerWritten) {
