@@ -293,7 +293,7 @@ final class MultiPart {
 
 /// The client multipart requires the full size to be known beforehand in the Content-Length header.
 /// For this reason, we require the underlying data to be of type RandomAccessStream
-class MultiPartPart {
+abstract class MultiPartPart {
 	import vibe.stream.memory : MemoryStream;
 	private MultiPartPart m_sibling;
 	private	string m_boundary;
@@ -303,7 +303,14 @@ class MultiPartPart {
 		RandomAccessStream m_data;
 	}
 
-	@property void sibling(MultiPartPart part) { m_sibling = part; }
+	@property MultiPartPart addSibling(MultiPartPart part) 
+	{ 
+		MultiPartPart sib;
+		for (sib = m_sibling; sib && sib.m_sibling; sib = m_sibling.m_sibling)
+			continue;
+		sib.m_sibling = part;
+		return this;
+	}
 
 	this(ref InetHeaderMap headers, string boundary) {
 		headers.resolveBoundary(boundary);
@@ -312,11 +319,31 @@ class MultiPartPart {
 
 	final @property ulong size() { return m_headers.size + m_data.size + (m_sibling ? m_sibling.size : (m_boundary.length + "\r\n----".length)); }
 
-	final void read(OutputStream sink) { 
+	final string peek(bool first = true)
+	{
+		Appender!string app;
+		if (!first)
+			app ~= "\r\n";
+		app ~= cast(string)m_headers.peek();
+		app ~= cast(string)m_data.peek();
+		if (m_sibling)
+			app ~= m_sibling.peek(false);
+		else { // we're done
+			app ~= "\r\n--";
+			app ~= m_boundary;
+			app ~= "--";
+		}
+		return app.data;
+	}
+
+	final void read(OutputStream sink, bool first = true) { 
+		if (!first)
+			sink.write("\r\n");
 		sink.write(m_headers);
 		sink.write(m_data);
+		finalize();
 		if (m_sibling)
-			m_sibling.read(sink);
+			m_sibling.read(sink, false);
 		else { // we're done
 			sink.write("\r\n--");
 			sink.write(m_boundary);
@@ -324,16 +351,18 @@ class MultiPartPart {
 		}
 	}
 
+	void finalize();
+
 }
 
 final class FileMultiPart : MultiPartPart
 {
-	import vibe.core.file : openFile;
+	import vibe.core.file : openFile, FileStream;
 	import vibe.inet.mimetypes : getMimeTypeForFile;
 
 	this(ref InetHeaderMap headers, string field_name, string file_path, string boundary = null, string content_type = null) {
 		super(headers, boundary);
-
+		import std.path : baseName;
 		Appender!string app;
 		m_data = openFile(file_path);
 		if (!content_type) {
@@ -342,7 +371,6 @@ final class FileMultiPart : MultiPartPart
 				content_type ~= "; charset=UTF-8";
 		}
 		// we generate the headers here because we need the payload size to be available at all times.
-		app ~= "\r\n";
 		app ~= "--";
 		app ~= m_boundary;
 		app ~= "\r\n";
@@ -351,11 +379,18 @@ final class FileMultiPart : MultiPartPart
 		app ~= "\r\n";
 		app ~= "Content-Disposition: form-data; name=\"";
 		app ~= field_name;
+		app ~= "\"; filename=\"";
+		app ~= baseName(file_path);
 		app ~= "\"\r\n";
 		app ~= "Content-Transfer-Encoding: binary\r\n\r\n";
 
 		m_headers = new MemoryStream(cast(ubyte[])app.data, false);
 	}
+
+	override void finalize() {
+		(cast(FileStream)m_data).close();
+	}
+
 
 }
 
@@ -386,6 +421,9 @@ final class MemoryMultiPart : MultiPartPart
 			m_data = new MemoryStream(form_data, false);
 		}
 
+	}
+
+	override void finalize() {
 	}
 }
 

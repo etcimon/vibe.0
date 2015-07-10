@@ -987,6 +987,8 @@ final class HTTPClientRequest : HTTPRequest {
 	void writeBody(MultiPartPart linked_parts) 
 	{
 		headers["Content-Length"] = linked_parts.size.to!string;
+		method = HTTPMethod.POST;
+		mixin(OnCapture!("HTTPClient.multiPart", "linked_parts.peek()"));
 		linked_parts.read(bodyWriter);
 		finalize();
 	}
