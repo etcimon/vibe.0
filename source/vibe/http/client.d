@@ -983,6 +983,14 @@ final class HTTPClientRequest : HTTPRequest {
 		finalize();
 	}
 
+	/// ditto
+	void writeBody(MultiPartPart linked_parts) 
+	{
+		headers["Content-Length"] = linked_parts.size.to!string;
+		linked_parts.read(bodyWriter);
+		finalize();
+	}
+
 	/**
 		Writes the response body as JSON data.
 	*/
@@ -1009,6 +1017,7 @@ final class HTTPClientRequest : HTTPRequest {
 		finalize();
 	}
 
+	deprecated("Use writeBody(MultiPartPart)")
 	void writePart(MultiPart part)
 	{
 		assert(false, "TODO");
@@ -1061,7 +1070,7 @@ final class HTTPClientRequest : HTTPRequest {
 			}
 			
 		}
-		if (m_cookieJar !is null)
+		if (m_cookieJar !is null && "Cookie" !in headers)
 			m_cookieJar.get(headers["Host"], requestURL, tlsStream !is null, &cookieSinkConcatenate);
 		output.put("\r\n");
 		logTrace("Done with cookies");

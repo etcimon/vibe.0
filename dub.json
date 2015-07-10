@@ -23,7 +23,7 @@
 		{
 			"name": "libasync_botan",
 			"dependencies": {
-				"botan": {"version": "~>1.11.14" },
+				"botan": {"version": "~>1.12.0" },
 				"libasync": {"version": "~>0.7.5" }
 			},
 			"versions": ["Botan", "VibeUseNativeDriverType", "VibeLibasyncDriver"]
@@ -38,7 +38,7 @@
 		{
 			"name": "libasync_botan_win32",
 			"dependencies": { 
-				"botan": {"version": "~>1.11.14" },
+				"botan": {"version": "~>1.12.0" },
 				"libasync": {"version": "~>0.7.5" }
 			},
 			"dflags-windows-x86": ["-m32mscoff"],

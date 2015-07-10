@@ -2378,7 +2378,6 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 	enforceBadRequest(pos >= 0, "invalid request path");
 
 	req.requestURL = reqln[0 .. pos];
-	mixin(OnCapture!("HTTP Server Request Headers", "req.requestURL"));
 	reqln = reqln[pos+1 .. $];
 
 	req.httpVersion = parseHTTPVersion(reqln);

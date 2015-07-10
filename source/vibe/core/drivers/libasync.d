@@ -232,7 +232,7 @@ final class LibasyncDriver : EventDriver {
 				getDriverCore.yieldForEvent();
 			if (dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
-			assert(ret != NetworkAddress.init);
+			enforce(ret != NetworkAddress.init, "Failed to resolve host");
 			assert(ret.family != 0);
 			logTrace("Async resolved address %s", ret.toString());
 			FreeListObjectAlloc!DNSCallback.free(cb);
@@ -459,9 +459,20 @@ final class LibasyncFileStream : FileStream {
 
 	this(Path path, FileMode mode)
 	{
-		import std.file : getSize;
+		import std.file : getSize,exists;
 		if (mode != FileMode.createTrunc)
 			m_size = getSize(path.toNativeString());
+		else {
+			auto path_str = path.toNativeString();
+			if (!exists(path_str))
+			{ // touch
+				import std.c.stdio;
+				import std.string : toStringz;
+				FILE * f = fopen(path_str.toStringz, "w\0".ptr);
+				fclose(f);
+				m_truncated = true;
+			}
+		} 
 		m_ev = new LibasyncManualEvent(getEventDriver());
 		m_path = path;
 		m_mode = mode;

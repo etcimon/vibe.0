@@ -137,8 +137,10 @@ public:
 		m_filePath = path;
 		if (!existsFile(m_filePath))
 		{ // touch
-			import std.stdio;
-			auto file = File(m_filePath.toNativeString(), "w+");
+			import std.c.stdio;
+			import std.string : toStringz;
+			FILE * f = fopen(m_filePath.toNativeString().toStringz, "w\0".ptr);
+			fclose(f);
 		}
 		logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
 	}
@@ -174,6 +176,7 @@ public:
 
 		{
 			FileStream stream = openFile(m_filePath, FileMode.append);
+			scope(exit) stream.close();
 			auto range = StreamOutputRange(stream);
 			cookie.writeString(&range, name, false);
 			range.put('\n');
@@ -341,6 +344,7 @@ public:
 		}
 		new_file.write(cast(ubyte[]) new_file_data.data);
 		new_file.finalize();
+		new_file.close();
 		removeFile(m_filePath);
 		moveFile(new_file.path, m_filePath);
 	}
