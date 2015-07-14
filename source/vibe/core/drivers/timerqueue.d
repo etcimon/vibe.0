@@ -11,7 +11,7 @@ import vibe.utils.hashmap;
 
 import std.datetime;
 
-
+import vibe.core.log;
 struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 	static struct TimerInfo {
 		long timeout; // standard time
@@ -56,7 +56,7 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 		pt.timeout = timeout;
 		pt.repeatDuration = periodic ? timeout_duration.total!"hnsecs" : 0;
 		pt.pending = true;
-		//logDebugV("rearming timer %s in %s s", timer_id, dur.total!"usecs" * 1e-6);
+		logDebug("rearming timer %s in %s ms", timer_id, timeout_duration.total!"msecs");
 		scheduleTimer(timeout, timer_id);
 	}
 
@@ -75,8 +75,15 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 
 	SysTime getFirstTimeout()
 	{
-		if (m_timeoutHeap.empty) return SysTime.max;
-		else return SysTime(m_timeoutHeap.front.timeout, UTC());
+		logDebug("Have %s in timeout heap", m_timeoutHeap.length);
+		if (m_timeoutHeap.empty) {
+			logDebug("timeout heap empty, returning max");
+			return SysTime.max;
+		}
+		else {
+			logDebug("timeout heap front: %d", m_timeoutHeap.front.timeout);
+			return SysTime(m_timeoutHeap.front.timeout, UTC());
+		}
 	}
 
 	void consumeTimeouts(SysTime now, scope void delegate(size_t timer, bool periodic, ref DATA data) del)
@@ -96,14 +103,14 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 				auto nskipped = (now.stdTime - pt.timeout) / pt.repeatDuration;
 				if (nskipped > 0) {
 						import vibe.core.log;
-						logDebugV("Skipped %s iterations of repeating timer %s (%s ms).",
+						logDebug("Skipped %s iterations of repeating timer %s (%s ms).",
 								nskipped, tm.id, pt.repeatDuration / 10_000);
 					}
 				pt.timeout += (1 + nskipped) * pt.repeatDuration;
 				scheduleTimer(pt.timeout, tm.id);
 			} else pt.pending = false;
 
-			//logTrace("Timer %s fired (%s/%s)", tm.id, owner != Task.init, callback !is null);
+			logDebug("Timer %s fired", tm.id);
 
 			del(tm.id, pt.repeatDuration > 0, pt.data);
 		}
@@ -114,11 +121,15 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 		//logTrace("Schedule timer %s", id);
 		auto entry = TimeoutEntry(timeout, id);
 		static if (__VERSION__ >= 2065) {
+			logDebug("Schedule in DList");
 			m_timeoutHeap.insert(entry);
 		} else {
 			auto existing = m_timeoutHeap[];
-			while (!existing.empty && existing.front.timeout < entry.timeout)
+			while (!existing.empty && existing.front.timeout < entry.timeout) {
+				logDebug("front timeout %d is less than %d", existing.front.timeout, entry.timeout);
 				existing.popFront();
+			}
+			logDebug("Insert before %s", existing.front.timeout);
 			m_timeoutHeap.insertBefore(existing, entry);
 		}
 		//logDebugV("first timer %s in %s s", id, (timeout - now) * 1e-7);

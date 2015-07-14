@@ -325,7 +325,7 @@ final class LibasyncDriver : EventDriver {
 
 	// The following timer implementation was adapted from the equivalent in libevent2.d
 
-	size_t createTimer(void delegate() callback) { return m_timers.create(TimerInfo(callback)); }
+	size_t createTimer(void delegate() callback) { auto tmid = m_timers.create(TimerInfo(callback)); logTrace("Timer created: %d", tmid); return tmid; }
 	
 	void acquireTimer(size_t timer_id) { m_timers.getUserData(timer_id).refCount++; }
 	void releaseTimer(size_t timer_id)
@@ -389,7 +389,7 @@ final class LibasyncDriver : EventDriver {
 			Task owner = data.owner;
 			auto callback = data.callback;
 			
-			logTrace("Timer %s fired (%s/%s)", timer, owner != Task.init, callback !is null);
+			logDebug("Timer %s fired (%s/%s)", timer, owner != Task.init, callback !is null);
 			
 			if (!periodic) releaseTimer(timer);
 			
@@ -402,26 +402,35 @@ final class LibasyncDriver : EventDriver {
 
 	private void rescheduleTimerEvent(SysTime now)
 	{
-		// logTrace("Rescheduling timer event %s", Task.getThis());
+		logDebug("Rescheduling timer event %s", Task.getThis());
 
 		bool first;
 		auto next = m_timers.getFirstTimeout();
+		Duration dur;
 		if (next == SysTime.max) return;
-		if (m_nextSched == next)
+		dur = next - now;
+		if (dur == Duration.zero || dur.isNegative) {
+			processTimers();
+			next = m_timers.getFirstTimeout();
+			dur = next - now;
+		}
+
+		if (m_nextSched == next) {
+			logDebug("No upcoming timeouts beyond in: %s ms", (next-now).total!"msecs".to!string);
 			return;
+		}
 		else
 			m_nextSched = next;
-		Duration dur = next - now;
-		if (dur == Duration.zero || dur.isNegative) return;
+
 		assert(dur.total!"seconds"() <= int.max);
 		if (!m_timerEvent) {
-			//logTrace("creating new async timer");
+			logDebug("creating new async timer");
 			m_timerEvent = new AsyncTimer(getEventLoop());
 			bool success = m_timerEvent.duration(dur).run(&onTimerTimeout);
 			assert(success, "Failed to run timer");
 		}
 		else {
-			//logTrace("rearming the same timer instance");
+			logDebug("rearming the same timer instance");
 			bool success = m_timerEvent.rearm(dur);
 			assert(success, "Failed to rearm timer");
 		}
