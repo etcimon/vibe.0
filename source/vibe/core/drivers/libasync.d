@@ -137,6 +137,7 @@ final class LibasyncDriver : EventDriver {
 	
 	bool processEvents()
 	{
+		processTimers();
 		getEventLoop().loop(0.seconds);
 		if (m_break) {
 			m_break = false;
@@ -393,7 +394,10 @@ final class LibasyncDriver : EventDriver {
 			
 			if (!periodic) releaseTimer(timer);
 			
-			if (owner && owner.running) getDriverCore().resumeTask(owner);
+			if (owner && owner.running) {
+				if (Task.getThis == Task.init) getDriverCore().resumeTask(owner);
+				else getDriverCore().yieldAndResumeTask(owner);
+			}
 			if (callback) runTask(callback);
 		});
 		
@@ -414,7 +418,6 @@ final class LibasyncDriver : EventDriver {
 			next = m_timers.getFirstTimeout();
 			dur = next - now;
 		}
-
 		if (m_nextSched == next) {
 			logDebug("No upcoming timeouts beyond in: %s ms", (next-now).total!"msecs".to!string);
 			return;
