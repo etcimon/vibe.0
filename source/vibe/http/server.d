@@ -1173,7 +1173,7 @@ final class HTTPServerResponse : HTTPResponse {
 	@property OutputStream bodyWriter()
 	{
 		if (outputStream) {
-			logDebug("Returning existing outputstream: %s", cast(void*) outputStream);
+			logTrace("Returning existing outputstream: %s", cast(void*) outputStream);
 			return outputStream;
 		}
 		logDebug("Calculating bodyWriter");

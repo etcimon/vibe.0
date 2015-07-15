@@ -143,15 +143,18 @@ class LocalTaskSemaphore
 
 	bool tryLock()
 	{
-		return m_waiters.empty && available > 0;
+		if (available > 0) 
+		{
+			m_locks++; 
+			return true;
+		}
+		return false;
 	}
 
 	void lock()
 	{ 
-		if (tryLock()) {
-			m_locks++;
+		if (tryLock())
 			return;
-		}
 
 		Waiter w;
 		w.signal = getEventDriver().createManualEvent();
@@ -161,10 +164,9 @@ class LocalTaskSemaphore
 			rewindSeq();
 
 		m_waiters.insert(w);
-		w.signal.waitLocal();
+		do w.signal.wait(); while (!tryLock());
 		// on resume:
 		destroy(w.signal);
-		assert(available > 0, "An available slot was taken from us!");
 	}
 
 	void unlock() 
@@ -172,7 +174,7 @@ class LocalTaskSemaphore
 		m_locks--;
 		if (m_waiters.length > 0 && available > 0) {
 			Waiter w = m_waiters.front();
-			w.signal.emitLocal(); // resume one
+			w.signal.emit(); // resume one
 			m_waiters.removeFront();
 		}
 	}

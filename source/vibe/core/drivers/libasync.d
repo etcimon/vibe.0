@@ -390,7 +390,7 @@ final class LibasyncDriver : EventDriver {
 			Task owner = data.owner;
 			auto callback = data.callback;
 			
-			logDebug("Timer %s fired (%s/%s)", timer, owner != Task.init, callback !is null);
+			logTrace("Timer %s fired (%s/%s)", timer, owner != Task.init, callback !is null);
 			
 			if (!periodic) releaseTimer(timer);
 			
@@ -406,7 +406,7 @@ final class LibasyncDriver : EventDriver {
 
 	private void rescheduleTimerEvent(SysTime now)
 	{
-		logDebug("Rescheduling timer event %s", Task.getThis());
+		logTrace("Rescheduling timer event %s", Task.getThis());
 
 		bool first;
 		auto next = m_timers.getFirstTimeout();
@@ -419,7 +419,7 @@ final class LibasyncDriver : EventDriver {
 			dur = next - now;
 		}
 		if (m_nextSched == next) {
-			logDebug("No upcoming timeouts beyond in: %s ms", (next-now).total!"msecs".to!string);
+			//logTrace("No upcoming timeouts beyond in: %s ms", (next-now).total!"msecs".to!string);
 			return;
 		}
 		else
@@ -427,17 +427,17 @@ final class LibasyncDriver : EventDriver {
 
 		assert(dur.total!"seconds"() <= int.max);
 		if (!m_timerEvent) {
-			logDebug("creating new async timer");
+			//logTrace("creating new async timer");
 			m_timerEvent = new AsyncTimer(getEventLoop());
 			bool success = m_timerEvent.duration(dur).run(&onTimerTimeout);
 			assert(success, "Failed to run timer");
 		}
 		else {
-			logDebug("rearming the same timer instance");
+			//logTrace("rearming the same timer instance");
 			bool success = m_timerEvent.rearm(dur);
 			assert(success, "Failed to rearm timer");
 		}
-		logTrace("Rescheduled timer event for %s seconds in thread '%s' :: task '%s'", dur.total!"usecs" * 1e-6, Thread.getThis().name, Task.getThis());
+		//logTrace("Rescheduled timer event for %s seconds in thread '%s' :: task '%s'", dur.total!"usecs" * 1e-6, Thread.getThis().name, Task.getThis());
 	}
 	
 	private void onTimerTimeout()
