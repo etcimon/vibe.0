@@ -394,7 +394,7 @@ final class LibasyncDriver : EventDriver {
 			
 			if (!periodic) releaseTimer(timer);
 			
-			if (owner && owner.running) {
+			if (owner && owner.running && owner != Task.getThis()) {
 				if (Task.getThis == Task.init) getDriverCore().resumeTask(owner);
 				else getDriverCore().yieldAndResumeTask(owner);
 			}
@@ -1259,7 +1259,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			releaseReader();
 		}
 		_driver.m_timers.getUserData(tm).owner = Task.getThis();
-		_driver.rearmTimer(tm, timeout, false);
+
+		if (timeout != 0.seconds) _driver.rearmTimer(tm, timeout, false);
+
 		logTrace("waitForData TCP");
 		while (readEmpty) {
 			if (!connected) return false;
@@ -1273,7 +1275,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_settings.reader.noExcept = false;
 				logTrace("Unyielded");
 			}
-			if (!_driver.isTimerPending(tm)) {
+			if (timeout != 0.seconds && !_driver.isTimerPending(tm)) {
 				logTrace("WaitForData TCP: timer signal");
 				return false;
 			}
