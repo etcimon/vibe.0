@@ -74,6 +74,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		{
 			mixin(Trace);
 			creq.method = req.method;
+			creq.headers = settings.defaultHeaders;
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
 			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];
@@ -177,5 +178,6 @@ final class HTTPReverseProxySettings {
 	/// Avoids compressed transfers between proxy and destination hosts
 	bool avoidCompressedRequests;
 	bool secure;
+	InetHeaderMap defaultHeaders;
 	HTTPClientSettings clientSettings;
 }

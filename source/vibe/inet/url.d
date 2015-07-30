@@ -63,6 +63,8 @@ struct URL {
 			bool requires_host = false;
 
 			switch(m_schema){
+				case "postgres":
+				case "postgresql":
 				case "http":
 				case "https":
 				case "ftp":

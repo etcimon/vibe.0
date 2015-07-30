@@ -102,7 +102,9 @@ public:
 		}
 		else if (state == TLSStreamState.connecting) {
 			assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
+			assert(peer_address != NetworkAddress.init, "You must specify a peer address");
 			// todo: add service name?
+
 			TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		}
@@ -903,6 +905,71 @@ CustomTLSCredentials createCreds()
 	return new CustomTLSCredentials(server_cert, ca_cert, server_key.release());
 }
 
+/// Fastest but less secure ciphers. Good example of how to customize the policy. 
+/// Be wary that this configuration has a level of security comparable to obfuscation
+final class LightTLSPolicy : TLSPolicy
+{
+public:
+	override Vector!string allowedCiphers() const
+	{
+		return Vector!string([
+				"SEED"
+				"3DES",
+				"RC4"
+			]);
+	}
+	
+	override Vector!string allowedSignatureHashes() const
+	{
+		return Vector!string([
+				"SHA-1",
+				"MD5"
+			]);
+	}
+	
+	override Vector!string allowedMacs() const
+	{
+		return Vector!string([
+				"SHA-1",
+				"MD5"
+			]);
+	}
+	
+	override Vector!string allowedKeyExchangeMethods() const
+	{
+		return Vector!string([
+				"RSA"
+			]);
+	}
+	
+	override Vector!string allowedSignatureMethods() const
+	{
+		return Vector!string([
+				"RSA"
+			]);
+	}
+	
+	override Vector!string allowedEccCurves() const
+	{
+		return Vector!string([
+				"brainpool512r1",
+				"brainpool384r1",
+				"brainpool256r1",
+				"secp521r1",
+				"secp384r1",
+				"secp256r1",
+				"secp256k1",
+				"secp224r1",
+				"secp224k1",
+				"secp192r1",
+				"secp192k1",
+				"secp160r2",
+				"secp160r1",
+				"secp160k1",
+			]);
+	}
+	
+}
 private:
 static ~this() {
 	if (Thread.getThis() == gs_ctor)

@@ -547,7 +547,7 @@ final class HTTPClient {
 	{
 		mixin(Trace);
 
-		if (m_conn.nextTimeout == Duration.zero) {
+		if (m_conn.nextTimeout == Duration.zero && m_settings.defaultKeepAliveTimeout != 0.seconds) {
 			logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
 			m_conn.keepAlive = setTimer(m_settings.defaultKeepAliveTimeout, &onKeepAlive, false);
 			m_conn.nextTimeout = m_settings.defaultKeepAliveTimeout;
@@ -742,11 +742,11 @@ private:
 			if (redirecting && m_settings.maxRedirects != 0 )
 			{
 				redirects++;
-				if (m_conn.server != location.host || m_conn.port != location.port) {
+				if (m_conn.server != location.host || m_conn.port != location.port || m_conn.forceTLS != (location.port == 443)) {
 					m_conn.server = location.host;
 					m_conn.port = (location.port == 0) ? 80 : location.port;
-					if (m_settings.proxyURL !is URL.init)
-						reconnect("Server redirect");
+					m_conn.forceTLS = m_conn.port == 443;
+					reconnect("Server redirect");
 				}
 			}
 	}
@@ -898,8 +898,8 @@ final class HTTPClientRequest : HTTPRequest {
 		else
 			httpVersion = HTTPVersion.HTTP_2;
 
-		if (m_conn.port != 0 && m_conn.port != 80)
-			headers["Host"] = format("%s:%d", m_conn.server, m_conn.port);
+		if (m_conn.port != 80 && m_conn.port != 443)
+			headers["Host"] = format("%s", m_conn.server, m_conn.port);
 		else headers["Host"] = m_conn.server;
 		headers["User-Agent"] = user_agent;
 
@@ -983,7 +983,9 @@ final class HTTPClientRequest : HTTPRequest {
 		finalize();
 	}
 
-	/// ditto
+	/// Writes a multipart upload as a body to the request. This must be written in its entirety because the Content-Length
+	/// must be known beforehand.
+	/// Usage: req.writeBody(new FileMultiPart(req.headers, "Photo", "images/picture.jpg"));
 	void writeBody(MultiPartPart linked_parts) 
 	{
 		headers["Content-Length"] = linked_parts.size.to!string;
@@ -1074,7 +1076,7 @@ final class HTTPClientRequest : HTTPRequest {
 		}
 		if (m_cookieJar !is null && "Cookie" !in headers)
 			m_cookieJar.get(headers["Host"], requestURL, tlsStream !is null, &cookieSinkConcatenate);
-		output.put("\r\n");
+		output.put("\r\n\r\n");
 		logTrace("Done with cookies");
 		logTrace("--------------------");
 	}
@@ -1126,16 +1128,20 @@ final class HTTPClientRequest : HTTPRequest {
 		// test if already finalized
 		if (m_headerWritten && !m_bodyWriter) {
 			logTrace("Already finalized...");
+			topStream.flush();
 			return;
 		}
 		// force the request to be sent
-		if (!m_headerWritten) writeHeader();
+		if (!m_headerWritten) {
+			writeHeader();
+			topStream.flush();
+		}
 		else {
 			bodyWriter.flush();
 			if (m_bodyWriter !is cast(OutputStream)topStream) {
 				m_bodyWriter.finalize();
-				topStream.flush();
 			}
+			topStream.flush();
 			m_bodyWriter = null;
 		}
 		if (isHTTP2) 

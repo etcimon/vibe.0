@@ -2322,7 +2322,7 @@ void handleRequest(TCPConnection tcp_conn,
 	foreach (log; context.loggers)
 		log.log(req, res);
 	
-	logTrace("return keep-alive %s (used pool memory: %s/%s)", keep_alive, request_allocator.allocatedSize, request_allocator.totalSize);
+	//logTrace("return keep-alive %s (used pool memory: %s/%s)", keep_alive, request_allocator.allocatedSize, request_allocator.totalSize);
 
 }
 

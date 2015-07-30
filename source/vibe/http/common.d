@@ -306,7 +306,7 @@ abstract class MultiPartPart {
 	@property MultiPartPart addSibling(MultiPartPart part) 
 	{ 
 		MultiPartPart sib;
-		for (sib = m_sibling; sib && sib.m_sibling; sib = m_sibling.m_sibling)
+		for (sib = this; sib && sib.m_sibling; sib = sib.m_sibling)
 			continue;
 		sib.m_sibling = part;
 		return this;
@@ -324,8 +324,10 @@ abstract class MultiPartPart {
 		Appender!string app;
 		if (!first)
 			app ~= "\r\n";
-		app ~= cast(string)m_headers.peek();
-		app ~= cast(string)m_data.peek();
+		app ~= cast(string)m_headers.readAll();
+		m_headers.seek(0);
+		app ~= cast(string)m_data.readAll();
+		m_data.seek(0);
 		if (m_sibling)
 			app ~= m_sibling.peek(false);
 		else { // we're done

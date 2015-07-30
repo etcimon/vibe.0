@@ -159,7 +159,7 @@ HTTPServerRequestDelegateS serveCapture() {
 
 		TaskDebugger.startCapturing(settings);
 		import std.datetime : seconds;
-		res.headers.remove("Content-Encoding");
+		if ("content-encoding" in res.headers) res.headers.remove("Content-Encoding");
 		ev.wait(30.seconds, ev.emitCount);
 	}
 
