@@ -113,13 +113,12 @@ private final class TaskPipeImpl {
 	
 	/** Blocks until at least one byte of data has been written to the pipe.
 	*/
-	void waitForData(Duration timeout = 0.seconds)
+	void waitForData(Duration timeout = Duration.max)
 	{
 		synchronized (m_mutex) {
 			while (m_buffer.empty && !m_closed) {
 				if (timeout > 0.seconds)
 					m_condition.wait(timeout);
-				else m_condition.wait();
 			}
 		}
 	}

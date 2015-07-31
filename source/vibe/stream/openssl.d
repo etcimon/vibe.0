@@ -184,7 +184,7 @@ final class OpenSSLStream : TLSStream
 		if (m_ssl) SSL_free(m_ssl);
 	}
 
-	bool waitForData(Duration timeout = 0.seconds)
+	bool waitForData(Duration timeout = Duration.max)
 	{
 		if (this.dataAvailableForRead) return true;
 		return m_tcpConn.waitForData(timeout);

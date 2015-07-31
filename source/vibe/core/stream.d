@@ -181,7 +181,7 @@ interface ConnectionStream : Stream {
 	void notifyClose();
 
 	/// Sets a timeout until data has to be availabe for read. Returns false on timeout.
-	bool waitForData(Duration timeout = 0.seconds);
+	bool waitForData(Duration timeout = Duration.max);
 
 }
 

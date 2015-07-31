@@ -120,6 +120,7 @@ final class LibasyncDriver : EventDriver {
 	int runEventLoop()
 	{
 		while(!m_break && getEventLoop().loop()){
+			processTimers();
 			getDriverCore().notifyIdle();
 		}
 		m_break = false;
@@ -130,6 +131,7 @@ final class LibasyncDriver : EventDriver {
 	int runEventLoopOnce()
 	{
 		getEventLoop().loop(0.seconds);
+		processTimers();
 		getDriverCore().notifyIdle();
 		//logTrace("runEventLoopOnce exit");
 		return 0;
@@ -137,8 +139,8 @@ final class LibasyncDriver : EventDriver {
 	
 	bool processEvents()
 	{
-		processTimers();
 		getEventLoop().loop(0.seconds);
+		processTimers();
 		if (m_break) {
 			m_break = false;
 			return false;
@@ -408,24 +410,19 @@ final class LibasyncDriver : EventDriver {
 	{
 		logTrace("Rescheduling timer event %s", Task.getThis());
 
+		// don't bother scheduling, the timers will be processed before leaving for the event loop
+		if (m_nextSched <= Clock.currTime())
+			return;
+
 		bool first;
 		auto next = m_timers.getFirstTimeout();
 		Duration dur;
 		if (next == SysTime.max) return;
 		dur = next - now;
-		if (dur == Duration.zero || dur.isNegative) {
-			processTimers();
-			next = m_timers.getFirstTimeout();
-			dur = next - now;
-		}
-		if (m_nextSched == next) {
-			//logTrace("No upcoming timeouts beyond in: %s ms", (next-now).total!"msecs".to!string);
-			return;
-		}
-		else
+		if (m_nextSched != next)
 			m_nextSched = next;
-
-		assert(dur.total!"seconds"() <= int.max);
+		if (dur.total!"seconds"() >= int.max)
+			return; // will never trigger, don't bother
 		if (!m_timerEvent) {
 			//logTrace("creating new async timer");
 			m_timerEvent = new AsyncTimer(getEventLoop());
@@ -1246,7 +1243,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		onClose(null, false);
 	}
 
-	bool waitForData(Duration timeout = 0.seconds) 
+	bool waitForData(Duration timeout = Duration.max) 
 	{
 		mixin(Trace);
 		//logTrace("WaitForData enter, timeout %s :: Ptr %s",  timeout.toString(), (cast(void*)this).to!string);
@@ -1260,7 +1257,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		}
 		_driver.m_timers.getUserData(tm).owner = Task.getThis();
 
-		if (timeout != 0.seconds) _driver.rearmTimer(tm, timeout, false);
+		if (timeout != Duration.max) _driver.rearmTimer(tm, timeout, false);
 
 		logTrace("waitForData TCP");
 		while (readEmpty) {
@@ -1275,7 +1272,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_settings.reader.noExcept = false;
 				logTrace("Unyielded");
 			}
-			if (timeout != 0.seconds && !_driver.isTimerPending(tm)) {
+			if (timeout != Duration.max && !_driver.isTimerPending(tm)) {
 				logTrace("WaitForData TCP: timer signal");
 				return false;
 			}

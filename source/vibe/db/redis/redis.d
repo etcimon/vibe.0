@@ -918,7 +918,7 @@ final class RedisSubscriberImpl {
 	}
 
 	// Same as listen, but blocking
-	void blisten(void delegate(string, string) onMessage, Duration timeout = 0.seconds)
+	void blisten(void delegate(string, string) onMessage, Duration timeout = Duration.max)
 	{
 		init();
 
@@ -1073,9 +1073,6 @@ final class RedisSubscriberImpl {
 		logTrace("Redis listener now listening");
 		if (m_waiter != Task())
 			m_waiter.send(Action.STARTED);
-
-		if (timeout == 0.seconds)
-			timeout = 365.days; // make sure 0.seconds is considered as big.
 
 		scope(exit) {
 			logTrace("Redis Listener exit.");
