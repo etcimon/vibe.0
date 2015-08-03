@@ -477,7 +477,7 @@ final class LibasyncFileStream : FileStream {
 			{ // touch
 				import std.c.stdio;
 				import std.string : toStringz;
-				FILE * f = fopen(path_str.toStringz, "w\0".ptr);
+				FILE * f = fopen(path_str.toStringz, "w");
 				fclose(f);
 				m_truncated = true;
 			}
@@ -1191,7 +1191,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
 	}
 	
-	@property string peerAddress() const { return m_tcpImpl.conn.peer.toString(); }
+	@property string peerAddress() const { enforceEx!ConnectionClosedException(m_tcpImpl.conn); return m_tcpImpl.conn.peer.toString(); }
 
 	@property NetworkAddress localAddress() const { return m_tcpImpl.localAddr; }
 	@property NetworkAddress remoteAddress() const { return m_tcpImpl.conn.peer; }
@@ -1245,6 +1245,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	bool waitForData(Duration timeout = Duration.max) 
 	{
+		if (timeout == Duration.zero)
+			timeout = Duration.max;
 		mixin(Trace);
 		//logTrace("WaitForData enter, timeout %s :: Ptr %s",  timeout.toString(), (cast(void*)this).to!string);
 		acquireReader();

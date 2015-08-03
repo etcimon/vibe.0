@@ -120,8 +120,11 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 				Sink sink;
 				char[1024*16] buf = void;
 				sink.buf = buf[];
-				auto n = formattedWrite(&sink, fmt, args);
-				
+				uint n;
+				try n = formattedWrite(&sink, fmt, args);
+				catch (Exception e) {
+				writeln(e);
+			}
 				rawLog(/*mod, func,*/ file, line, level, cast(string)buf[0 .. sink.i]);
 
 				break;

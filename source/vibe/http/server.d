@@ -2284,7 +2284,7 @@ void handleRequest(TCPConnection tcp_conn,
 			dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
 		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg.data, err);
 		else logDiagnostic("HTTPStatusException while writing the response: %s", err.msg);
-		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL);
+		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, err.msg);
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
 	} catch (ConnectionClosedException e) {
