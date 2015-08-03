@@ -107,7 +107,7 @@ class ConnectionProxyStream : ProxyStream, ConnectionStream {
 		m_connection.notifyClose();
 	}
 
-	bool waitForData(Duration timeout = Duration.max)
+	bool waitForData(Duration timeout = 0.seconds)
 	{
 		if (this.dataAvailableForRead) return true;
 

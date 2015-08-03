@@ -1457,6 +1457,7 @@ final class HTTPServerResponse : HTTPResponse {
 			topStream.finalize();
 			topStream.close();
 		}
+		else topStream.flush();
 		m_conn.stack = ConnectionStack.init;
 		m_settings = null;
 		if (m_session) m_session.destroy();
@@ -2290,7 +2291,7 @@ void handleRequest(TCPConnection tcp_conn,
 	} catch (ConnectionClosedException e) {
 		// ok
 	} catch (UncaughtException e) {
-		logDebug("Exception while handling request: %s %s", req.method, req.requestURL);
+		logDebug("Exception while handling request: %s %s: %s", req.method, req.requestURL, e.toString());
 		auto status = parsed ? HTTPStatus.internalServerError : HTTPStatus.badRequest;
 		Appender!string dbg_msg;
 		dbg_msg ~= e.msg;
@@ -2371,7 +2372,7 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 
 	//Method
 	auto pos = reqln.indexOf(' ');
-	enforceBadRequest(pos >= 0, "invalid request method");
+	enforceBadRequest(pos >= 0, "invalid request method: " ~ reqln);
 
 	req.method = httpMethodFromString(reqln[0 .. pos]);
 	reqln = reqln[pos+1 .. $];

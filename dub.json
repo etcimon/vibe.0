@@ -121,6 +121,6 @@
 			
 		}
 	],
-	"versions": ["Have_vibe_d"],
+	"versions": ["Have_vibe_d", "EnableDebugger"],
 	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."]
 }

@@ -761,7 +761,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		close(FrameError.NO_ERROR);
 	}
 	
-	bool waitForData(Duration timeout = Duration.max) 
+	bool waitForData(Duration timeout = 0.seconds) 
 	{
 		mixin(Trace);
 		logDebug("HTTP2: wait for data");

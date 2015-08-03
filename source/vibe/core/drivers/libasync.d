@@ -1243,7 +1243,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		onClose(null, false);
 	}
 
-	bool waitForData(Duration timeout = Duration.max) 
+	bool waitForData(Duration timeout = 0.seconds) 
 	{
 		if (timeout == Duration.zero)
 			timeout = Duration.max;

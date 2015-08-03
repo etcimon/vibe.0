@@ -86,7 +86,9 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			if (auto pfp = "X-Forwarded-Proto" !in creq.headers) creq.headers["X-Forwarded-Proto"] = req.tls ? "https" : "http";
 			if (auto pff = "X-Forwarded-For" in req.headers) creq.headers["X-Forwarded-For"] = *pff ~ ", " ~ req.peer;
 			else creq.headers["X-Forwarded-For"] = req.peer;
-			creq.bodyWriter.write(req.bodyReader);
+
+			if (!req.bodyReader.empty) creq.bodyWriter.write(req.bodyReader);
+
 		}
 
 		void handleClientResponse(scope HTTPClientResponse cres)

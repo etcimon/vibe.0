@@ -899,7 +899,7 @@ final class HTTPClientRequest : HTTPRequest {
 			httpVersion = HTTPVersion.HTTP_2;
 
 		if (m_conn.port != 80 && m_conn.port != 443)
-			headers["Host"] = format("%s", m_conn.server, m_conn.port);
+			headers["Host"] = format("%s:%d", m_conn.server, m_conn.port);
 		else headers["Host"] = m_conn.server;
 		headers["User-Agent"] = user_agent;
 
@@ -1076,7 +1076,7 @@ final class HTTPClientRequest : HTTPRequest {
 		}
 		if (m_cookieJar !is null && "Cookie" !in headers)
 			m_cookieJar.get(headers["Host"], requestURL, tlsStream !is null, &cookieSinkConcatenate);
-		output.put("\r\n\r\n");
+		output.put("\r\n");
 		logTrace("Done with cookies");
 		logTrace("--------------------");
 	}

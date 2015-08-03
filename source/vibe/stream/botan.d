@@ -161,7 +161,7 @@ public:
 
 	void write(InputStream stream, ulong nbytes) { processException(); writeDefault(stream, nbytes); }
 
-	bool waitForData(Duration timeout = Duration.max)
+	bool waitForData(Duration timeout = 0.seconds)
 	{
 		mixin(STrace);
 		if (m_tls_channel.pending() == 0) {
