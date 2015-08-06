@@ -119,7 +119,8 @@ final class LibasyncDriver : EventDriver {
 	
 	int runEventLoop()
 	{
-		while(!m_break && getEventLoop().loop()){
+		while(!m_break && getEventLoop().loop(10.seconds)){
+			logTrace("Regular loop");
 			processTimers();
 			getDriverCore().notifyIdle();
 		}
@@ -131,6 +132,7 @@ final class LibasyncDriver : EventDriver {
 	int runEventLoopOnce()
 	{
 		getEventLoop().loop(0.seconds);
+		logTrace("runEventLoopOnce");
 		processTimers();
 		getDriverCore().notifyIdle();
 		//logTrace("runEventLoopOnce exit");
@@ -140,6 +142,7 @@ final class LibasyncDriver : EventDriver {
 	bool processEvents()
 	{
 		getEventLoop().loop(0.seconds);
+		logTrace("processEvents");
 		processTimers();
 		if (m_break) {
 			m_break = false;
@@ -413,7 +416,6 @@ final class LibasyncDriver : EventDriver {
 		// don't bother scheduling, the timers will be processed before leaving for the event loop
 		if (m_nextSched <= Clock.currTime())
 			return;
-
 		bool first;
 		auto next = m_timers.getFirstTimeout();
 		Duration dur;
@@ -424,13 +426,13 @@ final class LibasyncDriver : EventDriver {
 		if (dur.total!"seconds"() >= int.max)
 			return; // will never trigger, don't bother
 		if (!m_timerEvent) {
-			//logTrace("creating new async timer");
+			logTrace("creating new async timer for %d ms", dur.total!"msecs");
 			m_timerEvent = new AsyncTimer(getEventLoop());
 			bool success = m_timerEvent.duration(dur).run(&onTimerTimeout);
 			assert(success, "Failed to run timer");
 		}
 		else {
-			//logTrace("rearming the same timer instance");
+			logTrace("rearming the same timer instance for %d ms", dur.total!"msecs");
 			bool success = m_timerEvent.rearm(dur);
 			assert(success, "Failed to rearm timer");
 		}
@@ -1567,11 +1569,11 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				throw e;
 			}
 			catch ( Exception e) {
-				logError(e.toString);
+				logError("%s", e.toString);
 				throw e;
 			}
 			catch ( Throwable e) {
-				logError(e.toString);
+				logError("%s", e.toString);
 				throw e;
 			}
 			if (inbound) onClose();

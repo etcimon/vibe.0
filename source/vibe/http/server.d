@@ -2285,7 +2285,7 @@ void handleRequest(TCPConnection tcp_conn,
 			dbg_msg ~= format("\n\nD Stack trace: %s", err.toString().sanitize);
 		if (res && topStream.connected) errorOut(req, res, err.status, err.msg, dbg_msg.data, err);
 		else logDiagnostic("HTTPStatusException while writing the response: %s", err.msg);
-		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, err.msg);
+		logDebug("Exception while handling request %s %s: %s", req.method, req.requestURL, err.toString());
 		if (!parsed || (res && res.headerWritten) || justifiesConnectionClose(err.status))
 			keep_alive = false;
 	} catch (ConnectionClosedException e) {
@@ -2398,7 +2398,7 @@ void parseCookies(string str, ref CookieValueMap cookies)
 	mixin(Trace);
 	while(str.length > 0) {
 		auto idx = str.indexOf('=');
-		enforceBadRequest(idx > 0, "Expected name=value.");
+		enforceBadRequest(idx > 0, "Expected name=value, got: " ~ str);
 		string name = str[0 .. idx].strip();
 		str = str[idx+1 .. $];
 

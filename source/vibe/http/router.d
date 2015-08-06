@@ -16,12 +16,12 @@ import vibe.core.trace;
 import vibe.core.log;
 
 import std.functional;
-
+/*
 version (VibeOldRouterImpl) {
 	pragma(msg, "-version=VibeOldRouter is deprecated and will be removed in the next release.");
 }
 else version = VibeRouterTreeMatch;
-
+*/
 
 /**
 	An interface for HTTP request routers.

@@ -717,6 +717,7 @@ package void initializeLogModule()
 {
 	version (Windows) {
 		version (VibeWinrtDriver) enum disable_stdout = true;
+		else version (VibeNoStdout) enum disable_stdout = true;
 		else {
 			enum disable_stdout = false;
 			if (!GetStdHandle(STD_OUTPUT_HANDLE) || !GetStdHandle(STD_ERROR_HANDLE)) return;

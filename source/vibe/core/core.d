@@ -29,7 +29,7 @@ import core.sync.condition;
 import core.sync.mutex;
 import core.stdc.stdlib;
 import core.thread;
-shared bool VibeWindow;
+
 alias TaskEventCb = void function(TaskEvent, Task) nothrow;
 
 version(Posix)
@@ -1404,8 +1404,6 @@ private bool getExitFlag()
 // per process setup
 shared static this()
 {
-	version(VibeNoConsole)
-		VibeWindow = true;
 	version(Windows){
 		version(VibeLibeventDriver) enum need_wsa = true;
 		else version(VibeWin32Driver) enum need_wsa = true;
@@ -1423,10 +1421,8 @@ shared static this()
 	// COMPILER BUG: Must be some kind of module constructor order issue:
 	//    without this, the stdout/stderr handles are not initialized before
 	//    the log module is set up.
-	if (!VibeWindow) {
-		import std.stdio; 
-		write("");
-	}
+	import std.stdio; File f; f.close();
+
 	initializeLogModule();
 
 	logTrace("create driver core");
@@ -1611,10 +1607,6 @@ nothrow {
 		import std.stdio;
 		scope(failure) assert(false);
 		asm { int 3; }
-		if (!VibeWindow) {
-			writeln("Error message: ", e.msg);
-			writeln("Full error: ", e.toString().sanitize());
-		}
 		exit(-1);
 	} catch (Throwable th) {
 		logFatal("Worker thread terminated due to uncaught error: %s", th.msg);

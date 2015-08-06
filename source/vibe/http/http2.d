@@ -41,8 +41,6 @@ import std.conv : to;
 import std.exception;
 import std.format;
 
-string[] logs;
-
 alias B64 = Base64Impl!('-', '_', Base64.NoPadding);
 
 alias HTTP2RequestHandler = void delegate(HTTP2Stream stream);
@@ -1119,7 +1117,6 @@ private:
 			}
 			enforceEx!StreamExitException(!m_session.m_rx.error, "This stream has ended with GoAway error: " ~ m_session.m_rx.error.to!string);
 		}
-
 		enforceEx!StreamExitException(connected && !m_rx.close, "The remote endpoint has closed this HTTP/2 stream.");
 		enforceEx!StreamExitException(!m_tx.halfClosed, "Cannot write on a finalized stream");
 
@@ -1225,8 +1222,8 @@ private:
 		int remote_window_size = m_session.get().getRemoteSettings(Setting.INITIAL_WINDOW_SIZE);
 		int local_window_size = m_session.m_defaultStreamWindowSize;
 		m_maxFrameSize = min(chunk_size, remote_chunk_size);
-		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
-		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+1, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+2, 1, 0, m_session.m_tlsStream?true:false, false);
+		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+2, 1, 0, m_session.m_tlsStream?true:false, false);
 		s_totalStreams++;
 		// once read is called, the buffers will adjust to the user's desired memory safety level.
 		m_safety_level_changed = m_session.m_tlsStream?true:false;
@@ -1275,7 +1272,6 @@ struct HTTP2Settings {
 		scope(exit) Mem.free(enc_buf);
 		return B64.encode(buf, enc_buf).idup;
 	}
-
 }
 
 final class HTTP2Session
