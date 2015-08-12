@@ -536,7 +536,6 @@ public:
 		} 
 		else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
 	}
-
 private:
 	SNIContextSwitchInfo sniHandler(string hostname) 
 	{
@@ -717,6 +716,15 @@ public:
 		m_validationMode = TLSPeerValidationMode.none;
 	}
 
+	void addTrustedCertificate(ubyte[] cert)
+	{
+		auto store = new CertificateStoreInMemory;
+		Vector!ubyte cert_vec = Vector!ubyte(cert);
+		store.addCertificate(X509Certificate(cert_vec));
+		m_stores.pushBack(store);
+		return;
+	}
+
 	override Vector!CertificateStore trustedCertificateAuthorities(in string, in string)
 	{
 		// todo: Check machine stores for client mode
@@ -765,7 +773,7 @@ public:
 			if (!result.successfulValidation())
 				throw new Exception("Certificate validation failure: " ~ result.resultString());
 			
-			if (!certInSomeStore(trusted_CAs, result.trustRoot()))
+			if (trusted_CAs.length == 0 || !certInSomeStore(trusted_CAs, result.trustRoot()))
 				throw new Exception("Certificate chain roots in unknown/untrusted CA");
 			
 			if (purported_hostname != "" && !cert_chain[0].matchesDnsName(purported_hostname))
@@ -783,8 +791,7 @@ public:
 			PathValidationResult result;
 			try result = x509PathValidate(cert_chain, restrictions, trusted_CAs);
 			catch (Exception e) { }
-
-			if (!certInSomeStore(trusted_CAs, result.trustRoot()))
+			if (trusted_CAs.length == 0 || !certInSomeStore(trusted_CAs, result.trustRoot()))
 				throw new Exception("Certificate chain roots in unknown/untrusted CA");
 		}
 

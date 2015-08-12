@@ -132,7 +132,7 @@ final class LibasyncDriver : EventDriver {
 	int runEventLoopOnce()
 	{
 		getEventLoop().loop(0.seconds);
-		logTrace("runEventLoopOnce");
+		//logTrace("runEventLoopOnce");
 		processTimers();
 		getDriverCore().notifyIdle();
 		//logTrace("runEventLoopOnce exit");
@@ -387,7 +387,6 @@ final class LibasyncDriver : EventDriver {
 	{
 		if (!m_timers.anyPending) return;
 
-		logTrace("Processing due timers");
 		// process all timers that have expired up to now
 		auto now = Clock.currTime(UTC());
 
@@ -411,7 +410,7 @@ final class LibasyncDriver : EventDriver {
 
 	private void rescheduleTimerEvent(SysTime now)
 	{
-		logTrace("Rescheduling timer event %s", Task.getThis());
+		//logTrace("Rescheduling timer event %s", Task.getThis());
 
 		// don't bother scheduling, the timers will be processed before leaving for the event loop
 		if (m_nextSched <= Clock.currTime())

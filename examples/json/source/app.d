@@ -2,8 +2,21 @@
 
 import std.stdio;
 
+void makeFromArgs(ARGS...)(string fmt, ARGS args)
+{
+	Json json = Json.emptyObject;
+	json["fmt"] = fmt;
+	json["args"] = Json.emptyArray;
+	//foreach (i, arg; args) {
+	//	json["args"] ~= arg;
+	//}
+	//json["args"] = Json[](args;
+	writeln(json.toPrettyString());
+}
+
 void main()
 {
+	makeFromArgs("What's up %s %s %d", "you", "hello there", 5);
 	Json a = 1;
 	Json b = 2;
 	writefln("%s %s", a.type, b.type);

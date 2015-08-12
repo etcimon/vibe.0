@@ -30,7 +30,7 @@ Allocator defaultAllocator() nothrow
 			alloc = new GCAllocator;
 			//alloc = new AutoFreeListAllocator(alloc);
 			//alloc = new DebugAllocator(alloc);
-			alloc = new LockAllocator(alloc);
+			//alloc = new LockAllocator(alloc);
 		}
 		return alloc;
 	}
@@ -41,8 +41,8 @@ Allocator manualAllocator() nothrow
 	static __gshared Allocator alloc;
 	if( !alloc ){
 		alloc = new MallocAllocator;
-		//alloc = new AutoFreeListAllocator(alloc);
-		alloc = new DebugAllocator(alloc);
+		alloc = new AutoFreeListAllocator(alloc);
+		//alloc = new DebugAllocator(alloc);
 		alloc = new LockAllocator(alloc);
 	}
 	return alloc;

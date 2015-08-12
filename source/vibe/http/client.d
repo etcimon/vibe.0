@@ -365,16 +365,10 @@ final class HTTPClient {
 			
 			if (!m_settings.tlsContext) {
 				m_conn.tlsContext = createTLSContext(TLSContextKind.client);
-				
-				// this will be changed to trustedCert once a proper root CA store is available by default
-				m_conn.tlsContext.peerValidationMode = TLSPeerValidationMode.none;
 
 				if (ms_tlsSetup) 
 					ms_tlsSetup(m_conn.tlsContext);
 			}
-			
-			// this will be changed to trustedCert once a proper root CA store is available by default
-			m_conn.tlsContext.peerValidationMode = TLSPeerValidationMode.none;
 			
 			if (m_settings.http2.disable)
 				m_conn.tlsContext.setClientALPN(["http/1.1"]);
@@ -772,7 +766,7 @@ private:
 	{
 		mixin(Trace);
 		logTrace("Running HTTP/2 worker");
-
+		enforce(m_http2Context && m_http2Context.session);
 		m_http2Context.session.setReadTimeout(m_settings.http2.maxInactivity);
 		m_http2Context.session.setWriteTimeout(m_settings.http2.maxInactivity);
 		m_http2Context.session.setPauseTimeout(m_settings.http2.maxInactivity);
@@ -1464,7 +1458,7 @@ final class HTTPClientResponse : HTTPResponse {
 	*/
 	Json readJson(){
 		enforceEx!ConnectionClosedException(bodyReader !is null);
-		auto bdy = bodyReader.readAllUTF8();
+		auto bdy = bodyReader.readAllUTF8(true);
 		auto json = parseJson(bdy);
 
 		mixin(OnCapture!("HTTPClientResponse.json", "json.toPrettyString()"));

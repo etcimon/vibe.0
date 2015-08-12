@@ -2227,7 +2227,8 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0) {
-				auto bodyStr = cast(string)req.bodyReader.readAll();
+				logTrace("Reading all");
+				auto bodyStr = cast(string)req.bodyReader.readAllUTF8(true);
 
 				if (!bodyStr.empty) {
 					req.json = parseJson(bodyStr);

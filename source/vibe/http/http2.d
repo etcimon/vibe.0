@@ -2120,7 +2120,10 @@ private:
 									m_tx.pending.put(stream);
 									continue; // try again later
 								}
-								int rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers, cast(void*)stream);
+								int rv;
+								if (!isServer)
+									rv = submitRequest(m_session, stream.m_tx.priSpec, headers, (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
+								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers, cast(void*)stream);
 								if (rv < 0)
 									stream.m_rx.ex = new Exception("Error submitting headers: " ~ libhttp2.types.toString(cast(ErrorCode)rv));
 								logDebug("HTTP/2: Submit headers request id ", rv);
@@ -2139,7 +2142,7 @@ private:
 
 				// Send the data if it wasn't done earlier
 				if ((!data_processed && !finalized && halfClosed && stream.m_connected && stream.m_stream_id > 0) || 
-					(!data_processed && stream.m_stream_id > 0 && ((isServer && stream.m_active) || !isServer)))
+					(!data_processed && stream.m_stream_id > 0 && stream.m_active))
 				{
 					data_processed = true;
 					if (halfClosed)
@@ -2161,7 +2164,7 @@ private:
 						rv = m_session.resumeData(stream.m_stream_id);
 					}
 					else if (rv != ErrorCode.OK) {
-						stream.m_rx.ex = new Exception("Could not send Data: " ~ rv.to!string);
+						stream.m_rx.ex = new Exception("Could not send Data: " ~ rv.to!string ~ " stream: " ~ stream.streamId.to!string);
 					}
 				}
 
@@ -2169,7 +2172,6 @@ private:
 				if (close && !close_processed) 
 				{
 					bufs.reset();
-					logDebug("HTTP/2: Submit rst stream id ", stream.m_stream_id);
 					ErrorCode rv = submitRstStream(m_session, stream.m_stream_id, FrameError.NO_ERROR);
 					if (rv != ErrorCode.OK)
 						stream.m_rx.ex = new Exception("Could not send RstStream: " ~ rv.to!string);
@@ -2228,7 +2230,6 @@ override:
 	bool onStreamExit(int stream_id, FrameError error_code)
 	{
 		HTTP2Stream stream = getStream(stream_id);
-		logDebug("HTTP/2: onStreamExit");
 		logDebug("Stream ID#", stream_id);
 		if (stream !is null) {
 			//logDebug(stream.toString());
@@ -2352,10 +2353,13 @@ override:
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 		assert(stream, "Could not find stream");
 		HeaderField hf_copy;
-		hf_copy.name = cast(string)Mem.copy(hf.name);
-		hf_copy.value = cast(string)Mem.copy(hf.value);
-		//if (hf_copy.name == ":path") writeln(m_stream_id, " ", hf_copy.value);
-		stream.m_rx.headers ~= hf_copy;
+
+		if (hf.value.length > 0) {
+			hf_copy.name = cast(string)Mem.copy(hf.name);
+			hf_copy.value = cast(string)Mem.copy(hf.value);
+			//if (hf_copy.name == ":path") writeln(m_stream_id, " ", hf_copy.value);
+			stream.m_rx.headers ~= hf_copy;
+		} else logDebug("Empty header found: ", hf.name);
 		logDebug("Got response header: ", hf_copy); 
 		return true;
 	}
@@ -2385,7 +2389,8 @@ override:
 	
 	bool onInvalidFrame(in Frame frame, FrameError error_code)
 	{
-		logDebug("HTTP/2 onInvalidFrame: ", error_code.to!string);
+		import vibe.core.log : logError;
+		logError("HTTP/2 onInvalidFrame: %s", error_code.to!string);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 		stream.notifyClose(error_code);
 		return true;
@@ -2393,6 +2398,8 @@ override:
 	
 	bool onFrameFailure(in Frame frame, ErrorCode error_code)
 	{
+		import vibe.core.log : logError;
+		logError("HTTP/2 frame failure: %s", error_code.to!string);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 		auto exception = new Exception("Frame Failure detected. ErrorCode: " ~ error_code.to!string);
 		stream.m_rx.ex = exception;
