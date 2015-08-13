@@ -182,12 +182,13 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		fp.filename = PathEntry(filename);
 
 		auto file = createTempFile("tmp");
+		scope(failure) file.close();
 		fp.tempPath = file.path;
 		if (auto plen = "Content-Length" in headers) {
 			import std.conv : to;
-			long len = (*plen).to!long;
+			size_t len = (*plen).to!size_t;
 			ubyte[1024] buf = void;
-			long to_read;
+			size_t to_read;
 			do {
 				to_read = min(len, buf.length);
 				stream.read(buf[0 .. to_read]);

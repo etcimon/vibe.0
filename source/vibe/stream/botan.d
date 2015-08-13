@@ -330,7 +330,6 @@ private:
 	bool m_cert_checked;
 
 	~this() {
-		// fixme: This needs to defer destruction instead
 		if (m_owner != Thread.getThis()) return;
 		m_credentials.destroy();
 		if (m_policy !is gs_default_policy) m_policy.destroy();

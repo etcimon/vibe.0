@@ -75,6 +75,11 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 			}
 		);
 		if (done) return;
+		else {
+			import vibe.core.core : sleep;
+			import std.datetime : seconds;
+			sleep(5.seconds);
+		}
 	}
 	enforce(false, "Too many redirects!");
 	assert(false);

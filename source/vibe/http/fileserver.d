@@ -45,6 +45,7 @@ HTTPServerRequestDelegateS serveStaticFiles(Path local_path, HTTPFileServerSetti
 		logTrace("Processing '%s'", srv_path);
 
 		rpath.normalize();
+
 		logDebug("Path '%s' -> '%s'", rel_path, rpath.toNativeString());
 		if (rpath.absolute) {
 			logDebug("Path is absolute, not responding");
@@ -189,6 +190,8 @@ enum HTTPFileServerOption {
 private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, Path path, HTTPFileServerSettings settings)
 {
 	auto pathstr = path.toNativeString();
+	import std.stdio : writeln;
+	writeln(pathstr);
 	// return if the file does not exist
 	if (!existsFile(pathstr)){
 		if (settings.options & HTTPFileServerOption.failIfNotFound)
