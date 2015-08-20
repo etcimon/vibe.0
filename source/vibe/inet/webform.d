@@ -16,6 +16,7 @@ import vibe.utils.string;
 import vibe.utils.dictionarylist;
 import std.range : isOutputRange;
 import std.traits : ValueType, KeyType;
+import vibe.core.core;
 
 import std.array;
 import std.exception;
@@ -94,6 +95,24 @@ void parseURLEncodedForm(string str, ref FormFields params)
 			}
 		}
 	}
+
+	import std.format : formattedWrite;
+	version(VibeNoDebug) {} else {
+		auto form_to_string = {
+			Appender!string app;
+			if (!params.empty)
+				app ~= "Form Data:\r\n";
+			foreach (k, v; params) {
+				app ~= k;
+				app ~= "=";
+				app ~= v;
+				app ~= "\r\n";
+			}
+			return app.data;
+		};
+	}
+	
+	mixin(OnCapture!("HTTPServerRequest.parseURLEncodedForm", "form_to_string()"));
 }
 
 /**
@@ -136,6 +155,45 @@ void parseMultiPartForm(ref FormFields fields, ref FilePartFormFields files,
 	enforce(firstBoundary == "--" ~ boundary, "Invalid multipart form data!");
 
 	while (parseMultipartFormPart(body_reader, fields, files, "\r\n--" ~ boundary, max_line_length)) {}
+
+	import std.format : formattedWrite;
+	version(VibeNoDebug) {} else {
+		auto form_to_string = {
+			Appender!string app;
+			if (!fields.empty)
+				app ~= "MultiPart Data:\r\n";
+			foreach (k, v; fields) {
+				app ~= k;
+				app ~= "=";
+				app ~= v;
+				app ~= "\r\n";
+			}
+			app ~= "\r\n";
+			if (!files.empty)
+				app ~= "Files:\r\n";
+			foreach (name, fp; files) {
+				app ~= "\tName: ";
+				app ~= name;
+				app ~= "\r\n";
+				foreach (k, v; fp.headers) {
+					app ~= "\t";
+					app ~= k;
+					app ~= ": ";
+					app ~= v;
+					app ~= "\r\n";
+				}
+				app ~= "\t(Remote File): ";
+				app ~= fp.filename.toString();
+				app ~= "\r\n";
+				app ~= "\t(Local File): ";
+				app ~= fp.tempPath.toString();
+				app ~= "\r\n";
+			}
+			app ~= "\r\n";
+			return app.data;
+		};
+	}
+	mixin(OnCapture!("HTTPServerRequest.parseMultiPartForm", "form_to_string()"));
 }
 
 alias FormFields = DictionaryList!(string, true, 16);

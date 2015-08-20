@@ -231,7 +231,7 @@ private:
 
 	bool canCapture(TaskDebugInfo t) {
 		import std.algorithm : countUntil;
-		if (tasks.countUntil(t) == -1 && remainingTasks == 0) { return false; }
+		if (tasks.countUntil!`a is b`(t) == -1 && remainingTasks == 0) { return false; }
 		import std.algorithm : canFind;
 		// name must be an exact match
 		if (!globMatch(filters.name, t.name)) {
@@ -262,7 +262,7 @@ private:
 	}
 
 	void detachTask(TaskDebugInfo t) {
-		if (!tasks.canFind(t)) return;
+		if (!tasks.canFind!`a is b`(t)) return;
 		removeFromArray(tasks, t);
 		checkFinished();
 	}
@@ -345,8 +345,9 @@ void taskEventCallback(TaskEvent ev, Task t) nothrow {
 				ptr.lastResumed = Clock.currTime();
 			}
 		}
-	} catch (Throwable e) {
-		try writeln(e.toString()); catch {}
+	} catch (Exception e) {
+		import vibe.core.log : logError;
+		vibe.core.log.logError("Trace error: %s", e.msg);
 	}
 }
 

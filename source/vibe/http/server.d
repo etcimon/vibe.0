@@ -1460,7 +1460,6 @@ final class HTTPServerResponse : HTTPResponse {
 		else topStream.flush();
 		m_conn.stack = ConnectionStack.init;
 		m_settings = null;
-		if (m_session) m_session.destroy();
 	}
 
 	private void writeHeader(OutputStream ostream) {
@@ -1967,11 +1966,10 @@ void handleRequest(TCPConnection tcp_conn,
 		catch (Exception ex) 
 		{ // do something...?
 			logError("errorOut Exception: %s", ex.msg);
+			return;
 		}
-		finally {
-			res.bodyWriter.flush();
-			res.finalize();
-		}
+		res.bodyWriter.flush();
+		res.finalize();
 	}
 	import memutils.utils : ThreadMem;
 	// some instances that live only while the request is running
@@ -2185,43 +2183,6 @@ void handleRequest(TCPConnection tcp_conn,
 			auto ptype = "Content-Type" in req.headers;
 			if (ptype) {
 				parseFormData(req.form, req.files, *ptype, req.bodyReader, MaxHTTPHeaderLineLength);
-				import std.format : formattedWrite;
-				auto form_to_string = {
-					Appender!string app;
-					if (!req.form.empty)
-						app ~= "Encoded Data:\r\n";
-					foreach (k, v; req.form) {
-						app ~= k;
-						app ~= "=";
-						app ~= v;
-						app ~= "\r\n";
-					}
-					app ~= "\r\n";
-					if (!req.files.empty)
-						app ~= "Files:\r\n";
-					foreach (name, fp; req.files) {
-						app ~= "\tName: ";
-						app ~= name;
-						app ~= "\r\n";
-						foreach (k, v; fp.headers) {
-							app ~= "\t";
-							app ~= k;
-							app ~= ": ";
-							app ~= v;
-							app ~= "\r\n";
-						}
-						app ~= "\t(Remote File): ";
-						app ~= fp.filename.toString();
-						app ~= "\r\n";
-						app ~= "\t(Local File): ";
-						app ~= fp.tempPath.toString();
-						app ~= "\r\n";
-					}
-					app ~= "\r\n";
-					return app.data;
-				};
-
-				mixin(OnCapture!("HTTPServerRequest.form", "form_to_string()"));
 			}
 		}
 		

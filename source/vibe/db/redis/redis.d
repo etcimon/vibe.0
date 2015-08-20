@@ -769,7 +769,7 @@ final class RedisSubscriberImpl {
 					logTrace("Subscriptions: " ~ m_subscriptions.keys.to!string);
 					enforce(subscribed, "Could not complete subscription(s).");
 				});
-			} catch (Throwable e) {
+			} catch (Exception e) {
 				logTrace(e.toString());
 			}
 		}
@@ -881,7 +881,7 @@ final class RedisSubscriberImpl {
 			Task task = runTask({
 				logDebug("inTask" ~ Task.getThis().to!string);
 				try impl();
-				catch (Throwable e) {
+				catch (Exception e) {
 					ex = e;
 				}
 				done = true;
@@ -1126,7 +1126,7 @@ final class RedisSubscriberImpl {
 			Throwable ex;
 			m_listener = runTask({
 				try blisten(callback, timeout);
-				catch(Throwable e) {
+				catch(Exception e) {
 					ex = e;
 					if (m_waiter != Task() && !m_listening) {
 						m_waiter.send(Action.STARTED);

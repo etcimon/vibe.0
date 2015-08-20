@@ -345,10 +345,11 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				m_rx.free();
 			}
 		}
-		catch (Throwable th) {
+		catch (Exception th) {
 			//import vibe.core.log : logError;
 			//import std.stdio : writeln;
-			//writeln("HTTP2Stream ~this: ", th.msg);
+			import vibe.core.log : logError;
+			vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
 		} 
 	}
 
@@ -1471,9 +1472,10 @@ final class HTTP2Session
 		// fixme: This needs to defer destruction instead
 		if (m_owner == Thread.getThis() && m_tcpConn !is null) { 
 			try onClose(); 
-			catch (Throwable th) {
+			catch (Exception th) {
 				//import std.stdio : writeln;
-				//writeln("HTTP2Stream ~this: ", th.msg);
+				import vibe.core.log : logError;
+				vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
 			} 
 		}
 	}

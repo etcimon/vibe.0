@@ -1,17 +1,29 @@
-import vibe.appmain;
+import vibe.http.fileserver;
+import vibe.http.router : URLRouter;
 import vibe.http.server;
+import vibe.core.log;
 
-void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
-{
-	if (req.path == "/")
-		res.writeBody("Hello, World!", "text/plain");
+__gshared ubyte[] globalBuffer;
+
+void getIndex(scope HTTPServerRequest request, scope HTTPServerResponse response) {
+  response.render!("index.dt", request);
 }
 
-shared static this()
-{
-	auto settings = new HTTPServerSettings;
-	settings.port = 8080;
-	settings.bindAddresses = ["::1", "127.0.0.1"];
+void getImage(scope HTTPServerRequest request, scope HTTPServerResponse response) {
+  response.contentType = "image/jpeg";
+  response.writeBody(globalBuffer);
+  
+}
 
-	listenHTTP(settings, &handleRequest);
+shared static this() {
+  globalBuffer = cast(ubyte[])std.file.read("test.jpg");
+
+  auto router = new URLRouter;
+  router.get("/", &getIndex);
+  router.get("/image", &getImage);
+  router.get("*", serveStaticFiles("./public/"));
+
+  auto settings = new HTTPServerSettings;
+  settings.port = 8080;
+  listenHTTP(settings, router);
 }

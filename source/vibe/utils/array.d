@@ -63,7 +63,7 @@ struct AllocAppender(ArrayType : E[], E) {
 	void reset(AppenderResetMode reset_mode = AppenderResetMode.keepData)
 	{
 		if (reset_mode == AppenderResetMode.keepData) m_data = null;
-		else if (reset_mode == AppenderResetMode.freeData) { if (m_allocatedBuffer) m_alloc.free(m_data); m_data = null; }
+		else if (reset_mode == AppenderResetMode.freeData) { if (m_allocatedBuffer && m_data.length > 0) m_alloc.free(m_data); m_data = null; }
 		m_remaining = m_data;
 	}
 

@@ -618,7 +618,7 @@ template FreeListObjectAlloc(T, bool USE_GC = true, bool INIT = true)
 				auto objc = obj;
 				static if (is(TR == T*)) .destroy(*objc);//typeid(T).destroy(cast(void*)obj);
 				else .destroy(objc);
-			} catch (Throwable e) {
+			} catch (Exception e) {
 				logError("%s", e.toString());
 			}
 		}

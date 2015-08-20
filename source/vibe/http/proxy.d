@@ -86,9 +86,23 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			if (auto pfp = "X-Forwarded-Proto" !in creq.headers) creq.headers["X-Forwarded-Proto"] = req.tls ? "https" : "http";
 			if (auto pff = "X-Forwarded-For" in req.headers) creq.headers["X-Forwarded-For"] = *pff ~ ", " ~ req.peer;
 			else creq.headers["X-Forwarded-For"] = req.peer;
-
-			if (!req.bodyReader.empty) creq.bodyWriter.write(req.bodyReader);
-
+			import vibe.data.json;
+			if (!req.bodyReader.empty) {
+				creq.bodyWriter.write(req.bodyReader);
+			}
+			else if (req.json.type != Json.Type.undefined) {
+				auto json_payload = req.json.toString();
+				creq.headers["Content-Length"] = json_payload.length.to!string;
+				creq.writeBody(cast(ubyte[])json_payload);
+			}
+			else if (req.form.length > 0) {
+				import vibe.inet.webform : formEncode;
+				string req_form_string = formEncode(req.form);
+				creq.headers["Content-Length"] = req_form_string.length.to!string;
+				creq.headers["Content-Type"] = "application/x-www-form-urlencoded";
+				creq.writeBody(cast(ubyte[])req_form_string);
+			}
+			enforce(!req.files.length, "File upload through proxy is not supported");
 		}
 
 		void handleClientResponse(scope HTTPClientResponse cres)
@@ -124,7 +138,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				auto content = cres.bodyReader.readAll(1024*1024);
 				res.headers["Content-Length"] = to!string(content.length);
 				if (res.isHeadResponse) res.writeVoidBody();
-				else res.bodyWriter.write(content);
+				else res.writeBody(content);
 				return;
 			}
 
@@ -146,16 +160,28 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			// fall back to a generic re-encoding of the response
 			// copy all headers that may pass from upstream to client
 			foreach (n, v; cres.headers) {
-				if (n !in non_forward_headers_map)
+				if (n !in non_forward_headers_map) {
+					if (settings.secure && settings.originSecure != settings.secure && icmp2("set-cookie", n) == 0) {
+						v = v.replace("Secure; ", "");
+					}
 					res.headers[n] = v;
+				}
 			}
-			if (!cres.bodyReader.empty) 
+			if (!cres.bodyReader.empty)
 				res.bodyWriter.write(cres.bodyReader);
 			else
 				res.writeVoidBody();
 		}
 		logTrace("Proxy requestHTTP");
-		requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
+		bool failed;
+		do {
+			try requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
+			catch (Exception e) {
+				if (failed) break;
+				failed = true;
+			}
+
+		} while(failed);
 	}
 
 	return &handleRequest;
@@ -180,6 +206,7 @@ final class HTTPReverseProxySettings {
 	/// Avoids compressed transfers between proxy and destination hosts
 	bool avoidCompressedRequests;
 	bool secure;
+	bool originSecure;
 	InetHeaderMap defaultHeaders;
 	HTTPClientSettings clientSettings;
 }

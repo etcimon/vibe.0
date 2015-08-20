@@ -266,7 +266,7 @@ struct Json {
 	*/
 	const(Json) opIndex(string key)
 	const {
-		checkType!(Json[string])();
+		checkType!(Json[string])("opIndex", key);
 		if( auto pv = key in m_object ) return *pv;
 		Json ret = Json.undefined;
 		ret.m_string = key;
@@ -276,7 +276,7 @@ struct Json {
 	/// ditto
 	ref Json opIndex(string key)
 	{
-		checkType!(Json[string])();
+		checkType!(Json[string])("opIndex", key);
 		if( auto pv = key in m_object )
 			return *pv;
 		if (m_object is null) {
@@ -421,7 +421,7 @@ struct Json {
 	/// ditto
 	@property inout(T) get(T)()
 	inout {
-		checkType!T();
+		checkType!T("get");
 		static if (is(T == bool)) return m_bool;
 		else static if (is(T == double)) return m_float;
 		else static if (is(T == float)) return cast(T)m_float;
@@ -843,7 +843,7 @@ struct Json {
 		return ret.data;
 	}
 
-	private void checkType(TYPES...)(string op = null)
+	private void checkType(TYPES...)(string op = null, string key = null)
 	const {
 		bool matched = false;
 		foreach (T; TYPES) if (m_type == typeId!T) matched = true;
@@ -861,6 +861,7 @@ struct Json {
 			foreach (T; TYPES) {
 				if (expected.length > 0) expected ~= ", ";
 				expected ~= typeId!T.to!string;
+				if (key) expected ~= " (" ~ key ~ ")";
 			}
 		}
 

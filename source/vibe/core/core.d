@@ -254,8 +254,9 @@ version(VibeNoDebug) {} else
 {
 	void pushCaptured(string kw, lazy string info) nothrow {
 		try if (s_isCapturing) s_pushCaptured(kw, info);
-		catch (Throwable e) {
-			import std.stdio; try writeln(e.toString()); catch {}
+		catch (Exception e) {
+			import vibe.core.log : logError;
+			vibe.core.log.logError("pushCapture exception: %s", e.msg);
 		}
 	}
 
@@ -268,8 +269,9 @@ version(VibeNoDebug) {} else
 	void popTrace(bool in_failure) nothrow {
 		try if (s_popTrace)
 			s_popTrace(in_failure);
-		catch (Throwable e) {
-			import std.stdio; try writeln(e.toString()); catch {}
+		catch (Exception e) {
+			import vibe.core.log : logError;
+			vibe.core.log.logError("popTrace exception: %s", e.msg);
 		}
 	}
 
@@ -1208,7 +1210,10 @@ private class VibeDriverCore : DriverCore {
 
 	void resumeTask(Task task, Exception event_exception, bool initial_resume)
 	{
-		assert(initial_resume || task.running, "Resuming terminated task.");
+		if (!initial_resume && !task.running) {
+			logError("Resuming terminated task.");
+			return;
+		}
 		resumeCoreTask(cast(CoreTask)task.fiber, event_exception);
 	}
 
@@ -1685,7 +1690,11 @@ static if (__VERSION__ <= 2065) @property bool nogc() { return false; }
 private extern(C) void onSignal(int signal)
 nothrow {
 	atomicStore(st_term, true);
-	try st_threadsSignal.emit(); catch (Throwable) {}
+	try st_threadsSignal.emit(); 
+	catch (Throwable e) {
+		import vibe.core.log : logError;
+		vibe.core.log.logError("onSignal assertion failure: %s", e.msg);
+	}
 
 	logInfo("Received signal %d. Shutting down.", signal);
 }

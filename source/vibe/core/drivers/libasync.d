@@ -119,7 +119,7 @@ final class LibasyncDriver : EventDriver {
 	
 	int runEventLoop()
 	{
-		while(!m_break && getEventLoop().loop(10.seconds)){
+		while(!m_break && getEventLoop().loop(1.seconds)){
 			logTrace("Regular loop");
 			processTimers();
 			getDriverCore().notifyIdle();
@@ -187,8 +187,8 @@ final class LibasyncDriver : EventDriver {
 		import std.regex : regex, Captures, Regex, matchFirst, ctRegex;
 		import std.traits : ReturnType;
 
-		auto IPv4Regex = ctRegex!(`^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}$`, ``);
-		auto IPv6Regex = ctRegex!(`^([0-9A-Fa-f]{0,4}:){2,7}([0-9A-Fa-f]{1,4}$|((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4})$`, ``);
+		auto IPv4Regex = regex(`^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}$`, ``);
+		auto IPv6Regex = regex(`^([0-9A-Fa-f]{0,4}:){2,7}([0-9A-Fa-f]{1,4}$|((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4})$`, ``);
 		auto ipv4 = matchFirst(host, IPv4Regex);
 		auto ipv6 = matchFirst(host, IPv6Regex);
 		if (!ipv4.empty)
@@ -272,6 +272,7 @@ final class LibasyncDriver : EventDriver {
 			if (tcp_connection) {
 				if (tcp_connection.connected)
 					tcp_connection.close();
+				tcp_connection.m_settings.writer.task = Task();
 			}
 		}
 		if (Task.getThis() != Task()) 
@@ -289,9 +290,10 @@ final class LibasyncDriver : EventDriver {
 		rearmTimer(tm, 30.seconds, false);
 
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
-		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) getDriverCore().yieldForEvent();
+		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) 
+			getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
-		enforceEx!TimeoutException(tcp_connection.connected, "Could not connect within 30 seconds");
+		enforceEx!TimeoutException(tcp_connection.connected || isTimerPending(tm), "Could not connect within 30 seconds");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1572,7 +1574,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				throw e;
 			}
 			catch ( Throwable e) {
-				logError("%s", e.toString);
+				logError("Fatal error: %s", e.toString);
 				throw e;
 			}
 			if (inbound) onClose();
