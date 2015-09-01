@@ -1506,7 +1506,7 @@ private RedisReply!T _request_reply(T = ubyte[], ARGS...)(RedisConnection conn, 
 	return RedisReply!T(conn);
 }
 
-private T _request(T, ARGS...)(LockedConnection!RedisConnection conn, string command, scope ARGS args)
+private T _request(T, ARGS...)(ref LockedConnection!RedisConnection conn, string command, scope ARGS args)
 {
 	import std.typecons;
 	static if (isInstanceOf!(RedisReply, T)) {

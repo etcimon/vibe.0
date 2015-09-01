@@ -1154,14 +1154,16 @@ final class HTTPServerResponse : HTTPResponse {
 			assert("Content-Length" !in headers);
 			assert("Transfer-Encoding" !in headers);
 		}
-		assert(!headerWritten);
-		logTrace("WriteHeader");
-		headers["Content-Length"] = "0";
-		if ("Transfer-Encoding" in headers)
-			headers.remove("Transfer-Encoding");
-		if ("Content-Encoding" in headers)
-			headers.remove("Content-Encoding");
-		writeHeader();
+		if (!headerWritten) {
+			headers["Content-Length"] = "0";
+			if ("Transfer-Encoding" in headers)
+				headers.remove("Transfer-Encoding");
+			if ("Content-Encoding" in headers)
+				headers.remove("Content-Encoding");
+			
+			writeHeader();
+		}
+
 		finalize();
 	}
 

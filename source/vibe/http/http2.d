@@ -916,7 +916,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	void flush()
 	{
-		if (!m_tx.bufs || m_tx.bufs.length == 0) return;
+		if (!m_tx.bufs || m_tx.bufs.length == 0 || (!m_session.isServer && m_tx.halfClosed)) return;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		// enforce dirty?
@@ -926,7 +926,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	/// Calling finalize on a stream that has never yielded will half-close it and allow a full atomic request or response
 	void finalize()
-	{
+	{ 
 		if (!connected) {
 			m_tx.halfClosed = true;
 			if (m_session && m_session.isServer) {
@@ -1046,6 +1046,7 @@ private:
 	/// optimization used when the request or response data are completely buffered
 	/// stream will be marked half-closed (Shutdown.WR or Shutdown.RD)
 	void halfClose() {
+
 		m_tx.halfClosed = true;
 		dirty();
 	}
@@ -2123,8 +2124,11 @@ private:
 									continue; // try again later
 								}
 								int rv;
-								if (!isServer)
+								if (!isServer) {
 									rv = submitRequest(m_session, stream.m_tx.priSpec, headers, (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
+								
+									data_processed = true;
+								}
 								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers, cast(void*)stream);
 								if (rv < 0)
 									stream.m_rx.ex = new Exception("Error submitting headers: " ~ libhttp2.types.toString(cast(ErrorCode)rv));
@@ -2143,7 +2147,7 @@ private:
 				}
 
 				// Send the data if it wasn't done earlier
-				if ((!data_processed && !finalized && halfClosed && stream.m_connected && stream.m_stream_id > 0) || 
+				if ((!data_processed && !finalized && (!isServer || halfClosed) && stream.m_connected && stream.m_stream_id > 0) || 
 					(!data_processed && stream.m_stream_id > 0 && stream.m_active))
 				{
 					data_processed = true;

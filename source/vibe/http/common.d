@@ -376,6 +376,9 @@ final class FileMultiPart : MultiPartPart
 		app ~= "--";
 		app ~= m_boundary;
 		app ~= "\r\n";
+		app ~= "Content-Length: ";
+		app ~= m_data.size().to!string;
+		app ~= "\r\n";
 		app ~= "Content-Type: ";
 		app ~= content_type;
 		app ~= "\r\n";

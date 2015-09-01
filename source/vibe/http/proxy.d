@@ -74,11 +74,13 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		{
 			mixin(Trace);
 			creq.method = req.method;
-			creq.headers = settings.defaultHeaders;
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
 			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];
 			creq.headers = req.headers.dup;
+			foreach (k, v; settings.defaultHeaders) {
+				creq.headers[k] = v;
+			}
 			creq.headers["Host"] = settings.destinationHost;
 			if (settings.avoidCompressedRequests && "Accept-Encoding" in creq.headers)
 				creq.headers.remove("Accept-Encoding");
@@ -121,6 +123,8 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 						break;
 					}
 				}
+				if ("Content-Length" in res.headers)
+					res.headers.remove("Content-Length");
 				res.writeVoidBody();
 				return;
 			}
@@ -173,15 +177,17 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				res.writeVoidBody();
 		}
 		logTrace("Proxy requestHTTP");
-		bool failed;
+		int failed;
 		do {
-			try requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
+			try {
+				requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
+				failed = 0;
+			}
 			catch (Exception e) {
-				if (failed) break;
-				failed = true;
+				failed++;
 			}
 
-		} while(failed);
+		} while(failed > 0 && failed < 2);
 	}
 
 	return &handleRequest;

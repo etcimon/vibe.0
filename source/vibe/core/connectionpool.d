@@ -13,6 +13,8 @@ import vibe.core.driver;
 import core.thread;
 import vibe.core.sync;
 import vibe.utils.memory;
+import std.exception;
+// todo: Fix error in corruption exception
 
 /**
 	Generic connection pool class.
@@ -26,7 +28,9 @@ class ConnectionPool(Connection)
 {
 	private {
 		Connection delegate() m_connectionFactory;
+		size_t space_1;
 		Connection[] m_connections;
+		size_t space_2;
 		int[const(Connection)] m_lockCount;
 		FreeListRef!LocalTaskSemaphore m_sem;
 	}
@@ -60,7 +64,11 @@ class ConnectionPool(Connection)
 		Connection conn;
 		if( cidx != size_t.max ){
 			logTrace("returning %s connection %d of %d", Connection.stringof, cidx, m_connections.length);
-			conn = m_connections[cidx];
+			try conn = m_connections[cidx];
+			catch (CorruptionException) {
+				cidx = size_t.max;
+				conn = m_connectionFactory();
+			}
 		} else {
 			logDebug("creating new %s connection, all %d are in use", Connection.stringof, m_connections.length);
 			conn = m_connectionFactory(); // NOTE: may block
@@ -81,7 +89,8 @@ struct LockedConnection(Connection) {
 		ConnectionPool!Connection m_pool;
 		Task m_task;
 		Connection m_conn;
-		debug uint m_magic = 0xB1345AC2;
+		size_t spacing;
+		uint m_magic = 0xB1345AC2;
 	}
 	
 	private this(ConnectionPool!Connection pool, Connection conn)
@@ -94,7 +103,7 @@ struct LockedConnection(Connection) {
 
 	this(this)
 	{
-		debug assert(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
+		enforceEx!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
 		if( m_conn ){
 			auto fthis = Task.getThis();
 			assert(fthis is m_task);
@@ -105,7 +114,7 @@ struct LockedConnection(Connection) {
 
 	~this()
 	{
-		debug assert(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
+		enforceEx!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
 		if( m_conn ){
 			auto fthis = Task.getThis();
 			assert(fthis is m_task, "Locked connection destroyed in foreign task.");
@@ -126,4 +135,15 @@ struct LockedConnection(Connection) {
 	@property inout(Connection) __conn() inout { return m_conn; }
 
 	alias __conn this;
+}
+
+/**
+	Thrown if the connection was corrupt for some reason
+*/
+class CorruptionException : Exception
+{
+	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe pure nothrow
+	{
+		super("The connection was corrupt: " ~ msg, file, line, next);
+	}
 }

@@ -29,7 +29,7 @@ Allocator defaultAllocator() nothrow
 		if( !alloc ){
 			alloc = new GCAllocator;
 			//alloc = new AutoFreeListAllocator(alloc);
-			//alloc = new DebugAllocator(alloc);
+			alloc = new DebugAllocator(alloc);
 			//alloc = new LockAllocator(alloc);
 		}
 		return alloc;
@@ -42,8 +42,8 @@ Allocator manualAllocator() nothrow
 	if( !alloc ){
 		alloc = new MallocAllocator;
 		alloc = new AutoFreeListAllocator(alloc);
-		//alloc = new DebugAllocator(alloc);
 		alloc = new LockAllocator(alloc);
+		alloc = new DebugAllocator(alloc);
 	}
 	return alloc;
 }
@@ -488,37 +488,34 @@ final class PoolAllocator : Allocator {
 
 	void freeAll()
 	{
-		version(VibeManualMemoryManagement){
-			// destroy all initialized objects
-			for (auto d = m_destructors; d; d = d.next)
-				d.destructor(cast(void*)d.object);
-			m_destructors = null;
+		// destroy all initialized objects
+		for (auto d = m_destructors; d; d = d.next)
+			d.destructor(cast(void*)d.object);
+		m_destructors = null;
 
-			// put all full Pools into the free pools list
-			for (Pool* p = cast(Pool*)m_fullPools, pnext; p; p = pnext) {
-				pnext = p.next;
-				p.next = cast(Pool*)m_freePools;
-				m_freePools = cast(Pool*)p;
-			}
-
-			// free up all pools
-			for (Pool* p = cast(Pool*)m_freePools; p; p = p.next)
-				p.remaining = p.data;
+		// put all full Pools into the free pools list
+		for (Pool* p = cast(Pool*)m_fullPools, pnext; p; p = pnext) {
+			pnext = p.next;
+			p.next = cast(Pool*)m_freePools;
+			m_freePools = cast(Pool*)p;
 		}
+
+		// free up all pools
+		for (Pool* p = cast(Pool*)m_freePools; p; p = p.next)
+			p.remaining = p.data;
+
 	}
 
 	void reset()
 	{
-		version(VibeManualMemoryManagement){
-			freeAll();
-			Pool* pnext;
-			for (auto p = cast(Pool*)m_freePools; p; p = pnext) {
-				pnext = p.next;
-				m_baseAllocator.free(p.data);
-				m_baseAllocator.free((cast(void*)p)[0 .. AllocSize!Pool]);
-			}
-			m_freePools = null;
+		freeAll();
+		Pool* pnext;
+		for (auto p = cast(Pool*)m_freePools; p; p = pnext) {
+			pnext = p.next;
+			m_baseAllocator.free(p.data);
+			m_baseAllocator.free((cast(void*)p)[0 .. AllocSize!Pool]);
 		}
+		m_freePools = null;
 	}
 
 	private static destroy(T)(void* ptr)

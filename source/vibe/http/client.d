@@ -971,7 +971,7 @@ final class HTTPClientRequest : HTTPRequest {
 	/// ditto
 	void writeBody(ubyte[] data, string content_type = null)
 	{
-		if( content_type != "" ) headers["Content-Type"] = content_type;
+		if( content_type.length > 0 ) headers["Content-Type"] = content_type;
 		headers["Content-Length"] = clengthString(data.length);
 		bodyWriter.write(data);
 		finalize();
@@ -1037,7 +1037,6 @@ final class HTTPClientRequest : HTTPRequest {
 		{
 			headers["Transfer-Encoding"] = "chunked";
 		}
-
 		writeHeader();
 		m_bodyWriter = topStream();
 

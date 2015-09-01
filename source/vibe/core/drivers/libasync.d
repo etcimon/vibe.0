@@ -915,8 +915,8 @@ final class LibasyncManualEvent : ManualEvent {
 		auto vec = taskList[0 .. idx];
 		if (idx != taskList.length - 1)
 			vec ~= taskList[idx + 1 .. $];
-		s_eventWaiters[m_instance].clear();
-		s_eventWaiters[m_instance] ~= vec;
+		s_eventWaiters[m_instance].destroy();
+		s_eventWaiters[m_instance] = vec;
 		if (s_eventWaiters[m_instance].empty) {
 			removeMySignal();
 		}
@@ -985,8 +985,8 @@ final class LibasyncManualEvent : ManualEvent {
 			auto vec = ms_signals[0 .. idx];
 			if (idx != ms_signals.length-1)
 				vec ~= ms_signals[idx + 1 .. $];
-			ms_signals.clear();
-			ms_signals ~= vec;
+			ms_signals.destroy();
+			ms_signals = vec;
 		}
 	}
 
@@ -1146,7 +1146,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			try onClose(null, false);
 			catch (Exception e)
 			{
-				//writeln("Failure in TCPConnection dtor: %s", e.msg);
+				logError("Failure in TCPConnection dtor: %s", e.msg);
 			}
 		}
 	}

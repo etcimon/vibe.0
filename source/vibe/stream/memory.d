@@ -30,6 +30,8 @@ final class MemoryOutputStream : OutputStream {
 		m_destination = AllocAppender!(ubyte[])(alloc);
 	}
 
+	~this() { m_destination.reset(AppenderResetMode.freeData); }
+
 	/// An array with all data written to the stream so far.
 	@property ubyte[] data() { return m_destination.data(); }
 

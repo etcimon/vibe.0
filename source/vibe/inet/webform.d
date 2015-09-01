@@ -234,6 +234,7 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		filename = cd[0 .. pos];
 	}
 
+	import std.stdio : writeln;
 	if (filename.length > 0) {
 		FilePart fp;
 		fp.headers = headers;
@@ -244,15 +245,8 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		fp.tempPath = file.path;
 		if (auto plen = "Content-Length" in headers) {
 			import std.conv : to;
-			size_t len = (*plen).to!size_t;
-			ubyte[1024] buf = void;
-			size_t to_read;
-			do {
-				to_read = min(len, buf.length);
-				stream.read(buf[0 .. to_read]);
-				file.write(buf[0 .. to_read]);
-				len -= to_read;
-			} while (to_read == buf.length && len > 0);
+			file.write(stream, (*plen).to!long);
+			enforce(stream.skipBytes(cast(ubyte[])boundary), "Missing multi-part end boundary marker.");
 		}
 		else stream.readUntil(file, cast(ubyte[])boundary);
 
@@ -265,7 +259,16 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		auto data = cast(string)stream.readUntil(cast(ubyte[])boundary);
 		form.addField(name, data);
 	}
-	return stream.readLine(max_line_length) != "--";
+
+	ubyte[2] ub;
+	stream.read(ub);
+	if (ub == "--")
+	{
+		nullSink().write(stream);
+		return false;
+	}
+	enforce(ub == cast(ubyte[])"\r\n");
+	return true;
 }
 
 /**

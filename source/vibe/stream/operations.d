@@ -348,3 +348,22 @@ void pipeRealtime(OutputStream destination, ConnectionStream source, ulong nbyte
 	}
 	destination.flush();
 }
+
+/**
+	Consumes `bytes.length` bytes of the stream and determines if the contents
+	match up.
+	Returns: True $(I iff) the consumed bytes equal the passed array.
+	Throws: Throws an exception if reading from the stream fails.
+*/
+bool skipBytes(InputStream stream, const(ubyte)[] bytes)
+{
+	bool matched = true;
+	ubyte[128] buf = void;
+	while (bytes.length) {
+		auto len = min(buf.length, bytes.length);
+		stream.read(buf[0 .. len]);
+		if (buf[0 .. len] != bytes[0 .. len]) matched = false;
+		bytes = bytes[len .. $];
+	}
+	return matched;
+}
