@@ -1766,14 +1766,14 @@ void writeJsonString(R, bool pretty = false)(ref R dst, in Json json, size_t lev
 //	if( isOutputRange!R && is(ElementEncodingType!R == char) )
 {
 	final switch( json.type ){
-		case Json.Type.undefined: dst.put("undefined"); break;
+		case Json.Type.undefined: dst.put("null"); break;
 		case Json.Type.null_: dst.put("null"); break;
 		case Json.Type.bool_: dst.put(cast(bool)json ? "true" : "false"); break;
 		case Json.Type.int_: formattedWrite(dst, "%d", json.get!long); break;
 		case Json.Type.float_: 
 			auto d = json.get!double;
 			if (d != d) 
-				dst.put("undefined"); // JSON has no NaN value so set null
+				dst.put("null"); // JSON has no NaN value so set null
 			else
 				formattedWrite(dst, "%.16g", json.get!double); 
 			break;

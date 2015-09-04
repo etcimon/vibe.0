@@ -29,7 +29,7 @@ Allocator defaultAllocator() nothrow
 		if( !alloc ){
 			alloc = new GCAllocator;
 			//alloc = new AutoFreeListAllocator(alloc);
-			alloc = new DebugAllocator(alloc);
+			//alloc = new DebugAllocator(alloc);
 			//alloc = new LockAllocator(alloc);
 		}
 		return alloc;
@@ -43,7 +43,7 @@ Allocator manualAllocator() nothrow
 		alloc = new MallocAllocator;
 		alloc = new AutoFreeListAllocator(alloc);
 		alloc = new LockAllocator(alloc);
-		alloc = new DebugAllocator(alloc);
+		//alloc = new DebugAllocator(alloc);
 	}
 	return alloc;
 }
@@ -285,12 +285,11 @@ final class GCAllocator : Allocator {
 	}
 	void[] realloc(void[] mem, size_t new_size)
 	{
-		auto ret = alloc(new_size);
+/*		auto ret = alloc(new_size);
 		import std.c.string;
 		memcpy(ret.ptr, mem.ptr, mem.length);
 		return ret;
-		/*
-		size_t csz = min(mem.length, new_size);
+*/		size_t csz = min(mem.length, new_size);
 
 		auto p = extractUnalignedPointer(mem.ptr);
 		size_t misalign = mem.ptr - p;
@@ -306,7 +305,7 @@ final class GCAllocator : Allocator {
 			ret[0 .. csz] = mem[0 .. csz];
 		}
 		ensureValidMemory(ret);
-		return ret;*/
+		return ret;
 	}
 	void free(void[] mem)
 	{
@@ -488,34 +487,38 @@ final class PoolAllocator : Allocator {
 
 	void freeAll()
 	{
-		// destroy all initialized objects
-		for (auto d = m_destructors; d; d = d.next)
-			d.destructor(cast(void*)d.object);
-		m_destructors = null;
+		version(VibeManualMemoryManagement) {
+			// destroy all initialized objects
+			for (auto d = m_destructors; d; d = d.next)
+				d.destructor(cast(void*)d.object);
+			m_destructors = null;
 
-		// put all full Pools into the free pools list
-		for (Pool* p = cast(Pool*)m_fullPools, pnext; p; p = pnext) {
-			pnext = p.next;
-			p.next = cast(Pool*)m_freePools;
-			m_freePools = cast(Pool*)p;
+			// put all full Pools into the free pools list
+			for (Pool* p = cast(Pool*)m_fullPools, pnext; p; p = pnext) {
+				pnext = p.next;
+				p.next = cast(Pool*)m_freePools;
+				m_freePools = cast(Pool*)p;
+			}
+
+			// free up all pools
+			for (Pool* p = cast(Pool*)m_freePools; p; p = p.next)
+				p.remaining = p.data;
 		}
-
-		// free up all pools
-		for (Pool* p = cast(Pool*)m_freePools; p; p = p.next)
-			p.remaining = p.data;
 
 	}
 
 	void reset()
 	{
-		freeAll();
-		Pool* pnext;
-		for (auto p = cast(Pool*)m_freePools; p; p = pnext) {
-			pnext = p.next;
-			m_baseAllocator.free(p.data);
-			m_baseAllocator.free((cast(void*)p)[0 .. AllocSize!Pool]);
+		version(VibeManualMemoryManagement) {
+			freeAll();
+			Pool* pnext;
+			for (auto p = cast(Pool*)m_freePools; p; p = pnext) {
+				pnext = p.next;
+				m_baseAllocator.free(p.data);
+				m_baseAllocator.free((cast(void*)p)[0 .. AllocSize!Pool]);
+			}
+			m_freePools = null;
 		}
-		m_freePools = null;
 	}
 
 	private static destroy(T)(void* ptr)
