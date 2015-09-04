@@ -1600,7 +1600,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				catch (Exception e) ex = e;
 				if (m_settings.reader.isWaiting) 
 					getDriverCore().resumeTask(m_settings.reader.task, ex);
-				break;
+				goto case TCPEvent.WRITE;
 			case TCPEvent.WRITE:
 				// The kernel is ready to have some more data written, all we need to do is wake up the writer
 				if (m_settings.writer.isWaiting) 

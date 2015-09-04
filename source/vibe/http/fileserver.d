@@ -53,6 +53,9 @@ HTTPServerRequestDelegateS serveStaticFiles(Path local_path, HTTPFileServerSetti
 		} else if (!rpath.empty && rpath[0] == "..")
 			return; // don't respond to relative paths outside of the root path
 
+		foreach (k, v; settings.defaultHeaders) {
+			res.headers[k] = v;
+		}
 		sendFile(req, res, local_path ~ rpath, settings);
 	}
 
@@ -137,6 +140,7 @@ class HTTPFileServerSettings {
 	Duration maxAge;// = hours(24);
 	HTTPFileServerOption options = HTTPFileServerOption.defaults; /// additional options
 	string[string] encodingFileExtension;
+	InetHeaderMap defaultHeaders;
 
 	/**
 		Called just before headers and data are sent.
@@ -190,8 +194,6 @@ enum HTTPFileServerOption {
 private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, Path path, HTTPFileServerSettings settings)
 {
 	auto pathstr = path.toNativeString();
-	import std.stdio : writeln;
-	writeln(pathstr);
 	// return if the file does not exist
 	if (!existsFile(pathstr)){
 		if (settings.options & HTTPFileServerOption.failIfNotFound)
