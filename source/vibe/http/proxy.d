@@ -181,13 +181,17 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		do {
 			try {
 				requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
-				failed = 0;
+				return;
 			}
 			catch (Exception e) {
-				failed++;
+				logError("Proxy error: %s", e.msg);
 			}
+			failed++;
+			import std.datetime : msecs;
+			sleep(200.msecs);
 
-		} while(failed > 0 && failed < 2);
+		} while(failed < 2);
+		throw new Exception("Proxy error");
 	}
 
 	return &handleRequest;
