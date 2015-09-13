@@ -155,7 +155,7 @@ class HTTPFileServerSettings {
 	this()
 	{
 		// need to use the contructor because the Ubuntu 13.10 GDC cannot CTFE dur()
-		maxAge = 24.hours;
+		maxAge = 0.seconds;
 	}
 
 	this(string path_prefix)
@@ -229,6 +229,9 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 		logTrace("Max-Age: %s", settings.maxAge.total!"seconds");
 		res.headers["Cache-Control"] = "max-age="~to!string(settings.maxAge.total!"seconds");
 		logTrace("Cache-Control: %s", res.headers.get("Cache-Control"));
+	} else {
+		res.headers["Cache-Control"] = "must-revalidate, private";
+		res.headers["Expires"] = "-1";
 	}
 
 	if( auto pv = "If-Modified-Since" in req.headers ) {

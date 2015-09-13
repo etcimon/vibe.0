@@ -513,6 +513,7 @@ string getMimeTypeForFile(string filename)
 		case "ttf","ttc": return "application/x-font-ttf";
 		case "pfa","pfb","pfm","afm": return "application/x-font-type1";
 		case "woff": return "application/x-font-woff";
+		case "woff2": return "application/font-woff2";
 		case "spl": return "application/x-futuresplash";
 		case "gnumeric": return "application/x-gnumeric";
 		case "gtar": return "application/x-gtar";
@@ -744,7 +745,7 @@ bool isCompressedFormat(string mimetype)
 		case "application/gzip", "application/x-compress", "application/png", "application/zip",
 				"audio/x-mpeg", "image/png", "image/jpeg",
 				"video/mpeg", "video/quicktime", "video/x-msvideo",
-				"application/font-woff", "application/x-font-woff", "font/woff":
+				"application/font-woff", "application/x-font-woff", "font/woff", "application/font-woff2":
 			return true;
 	}
 }

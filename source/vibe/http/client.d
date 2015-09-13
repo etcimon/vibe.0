@@ -968,6 +968,11 @@ final class HTTPClientRequest : HTTPRequest {
 		bodyWriter.write(data, length);
 		finalize();
 	}
+
+	void writeBody(string data, string content_type = null) {
+		writeBody(cast(ubyte[]) data, content_type);
+	}
+
 	/// ditto
 	void writeBody(ubyte[] data, string content_type = null)
 	{

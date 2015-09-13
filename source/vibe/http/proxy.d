@@ -111,6 +111,9 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		{
 			mixin(Trace);
 			import vibe.utils.string;
+			foreach (k, v; settings.defaultResponseHeaders) {
+				res.headers[k] = v;
+			}
 
 			// copy the response to the original requester
 			res.statusCode = cres.statusCode;
@@ -171,6 +174,8 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 					res.headers[n] = v;
 				}
 			}
+
+
 			if (!cres.bodyReader.empty)
 				res.bodyWriter.write(cres.bodyReader);
 			else
@@ -218,5 +223,6 @@ final class HTTPReverseProxySettings {
 	bool secure;
 	bool originSecure;
 	InetHeaderMap defaultHeaders;
+	InetHeaderMap defaultResponseHeaders;
 	HTTPClientSettings clientSettings;
 }
