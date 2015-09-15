@@ -1330,7 +1330,8 @@ final class HTTPServerResponse : HTTPResponse {
 		auto cookie = setCookie(m_settings.sessionIdCookie, m_session.id, path);
 		cookie.secure = secure;
 		cookie.httpOnly = (options & SessionOption.httpOnly) != 0;
-		cookie.maxAge = max_age.total!"seconds";
+		import vibe.inet.message : toRFC822DateTimeString;
+		cookie.expires = (Clock.currTime(UTC()) + max_age).toRFC822DateTimeString();
 		return m_session;
 	}
 
