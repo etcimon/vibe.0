@@ -1314,7 +1314,7 @@ final class HTTPServerResponse : HTTPResponse {
 		creating the server. Depending on this, the session can be persistent
 		or temporary and specific to this server instance.
 	*/
-	Session startSession(string path = "/", SessionOption options = SessionOption.httpOnly)
+	Session startSession(string path = "/", SessionOption options = SessionOption.httpOnly, Duration max_age = 0.seconds)
 	{
 		assert(m_settings.sessionStore, "no session store set");
 		assert(!m_session, "Try to start a session, but already started one.");
@@ -1330,6 +1330,7 @@ final class HTTPServerResponse : HTTPResponse {
 		auto cookie = setCookie(m_settings.sessionIdCookie, m_session.id, path);
 		cookie.secure = secure;
 		cookie.httpOnly = (options & SessionOption.httpOnly) != 0;
+		cookie.maxAge = max_age.total!"seconds";
 		return m_session;
 	}
 

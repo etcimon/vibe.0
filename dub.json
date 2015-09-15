@@ -12,7 +12,7 @@
 	],
 
 	"dependencies": {
-		"libhttp2": { "version": "~>0.2.5" },
+		"libhttp2": { "version": "~>0.2.5" }
 	},
 
 	"targetType": "library",
