@@ -178,9 +178,10 @@ interface SessionStore {
 			rand[0] = '_';
 			rand[1] = '_';
 			g_rng.read(rand[2 .. $]);
-			id = cast(immutable)Base64URLNoPadding.encode(rand);
-			id[0] = 'S';
-			id[1] = '_';
+			auto id_ = Base64URLNoPadding.encode(rand);
+			id_[0] = 'S';
+			id_[1] = '_';
+			id = cast(immutable)id_;
 		}
 		return Session(this, id);
 	}
