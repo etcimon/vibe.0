@@ -174,9 +174,13 @@ interface SessionStore {
 	protected final Session createSessionInstance(string id = null)
 	{
 		if (!id.length) {
-			ubyte[64] rand;
-			g_rng.read(rand);
+			ubyte[66] rand;
+			rand[0] = '_';
+			rand[1] = '_';
+			g_rng.read(rand[2 .. $]);
 			id = cast(immutable)Base64URLNoPadding.encode(rand);
+			id[0] = 'S';
+			id[1] = '_';
 		}
 		return Session(this, id);
 	}
