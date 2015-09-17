@@ -1314,7 +1314,7 @@ final class HTTPServerResponse : HTTPResponse {
 		creating the server. Depending on this, the session can be persistent
 		or temporary and specific to this server instance.
 	*/
-	Session startSession(string path = "/", SessionOption options = SessionOption.httpOnly, Duration max_age = 0.seconds)
+	Session startSession(string path = "/", SessionOption options = SessionOption.httpOnly, Duration max_age = Duration.zero)
 	{
 		assert(m_settings.sessionStore, "no session store set");
 		assert(!m_session, "Try to start a session, but already started one.");
@@ -1331,7 +1331,8 @@ final class HTTPServerResponse : HTTPResponse {
 		cookie.secure = secure;
 		cookie.httpOnly = (options & SessionOption.httpOnly) != 0;
 		import vibe.inet.message : toRFC822DateTimeString;
-		cookie.expires = (Clock.currTime(UTC()) + max_age).toRFC822DateTimeString();
+		if (max_age != Duration.zero)
+			cookie.expires = (Clock.currTime(UTC()) + max_age).toRFC822DateTimeString();
 		return m_session;
 	}
 
