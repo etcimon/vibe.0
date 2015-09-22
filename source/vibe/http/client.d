@@ -1461,7 +1461,7 @@ final class HTTPClientResponse : HTTPResponse {
 		Reads the whole response body and tries to parse it as JSON.
 	*/
 	Json readJson(){
-		enforceEx!ConnectionClosedException(bodyReader !is null);
+		enforceEx!ConnectionClosedException(bodyReader !is null, "Empty json data");
 		auto bdy = bodyReader.readAllUTF8(true);
 		auto json = parseJson(bdy);
 

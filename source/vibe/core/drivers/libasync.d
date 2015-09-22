@@ -26,6 +26,7 @@ import std.conv;
 import std.string;
 import std.typecons;
 import std.datetime;
+import std.c.stdio;
 
 import core.atomic;
 import core.memory;
@@ -42,6 +43,8 @@ import std.stdio : File;
 private __gshared EventLoop gs_evLoop;
 private EventLoop s_evLoop;
 private DriverCore s_driverCore;
+
+version(Windows) extern(C) FILE* _wfopen(const(wchar)* filename, in wchar* mode);
 
 EventLoop getEventLoop() nothrow
 {
@@ -478,9 +481,12 @@ final class LibasyncFileStream : FileStream {
 			auto path_str = path.toNativeString();
 			if (!exists(path_str))
 			{ // touch
-				import std.c.stdio;
 				import std.string : toStringz;
-				FILE * f = fopen(path_str.toStringz, "w");
+				version(Windows) {
+					import std.utf : toUTF16z;
+					FILE* f = _wfopen(path_str.toUTF16z(), "w");
+				}
+				else FILE * f = fopen(path_str.toStringz, "w");
 				fclose(f);
 				m_truncated = true;
 			}
@@ -515,13 +521,16 @@ final class LibasyncFileStream : FileStream {
 	
 	void close()
 	{
-		if (m_task != Task())
-			getDriverCore().resumeTask(m_task, new ConnectionClosedException("The file was closed during an operation"));
 		if (m_impl) {
 			m_impl.kill();
 			m_impl = null;
 		}
 		m_started = false;
+		if (m_task != Task() && Task.getThis() != Task())
+			getDriverCore().yieldAndResumeTask(m_task, new ConnectionClosedException("The file was closed during an operation"));
+		else if (m_task != Task() && Task.getThis() == Task())
+			getDriverCore().resumeTask(m_task, new ConnectionClosedException("The file was closed during an operation"));
+
 	}
 	
 	@property bool empty() const { assert(this.readable); return m_offset >= m_size; }
@@ -1194,7 +1203,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
 	}
 	
-	@property string peerAddress() const { enforceEx!ConnectionClosedException(m_tcpImpl.conn); return m_tcpImpl.conn.peer.toString(); }
+	@property string peerAddress() const { enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address"); return m_tcpImpl.conn.peer.toString(); }
 
 	@property NetworkAddress localAddress() const { return m_tcpImpl.localAddr; }
 	@property NetworkAddress remoteAddress() const { return m_tcpImpl.conn.peer; }

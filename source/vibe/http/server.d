@@ -1179,7 +1179,7 @@ final class HTTPServerResponse : HTTPResponse {
 			return outputStream;
 		}
 		logDebug("Calculating bodyWriter");
-		assert(!m_headerWritten, "A void body was already written!");
+		enforce(!m_headerWritten, "A void body was already written!");
 
 		m_outputStream = true;
 
