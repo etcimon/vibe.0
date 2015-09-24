@@ -25,12 +25,15 @@ version(Posix){
 	import core.sys.posix.unistd;
 }
 version(Windows){
+	import std.utf : toUTF16z;
 	import std.c.windows.stat;
 
 	private {
 		extern(C){
 			alias off_t = long;
 			int open(in char* name, int mode, ...);
+			int _wopen(in wchar* name, int mode, ...);
+			int _wchmod(in wchar*, int);
 			int chmod(in char* name, int mode);
 			int close(int fd);
 			int read(int fd, void *buffer, uint count);
@@ -77,16 +80,28 @@ final class ThreadedFileStream : FileStream {
 		auto pathstr = path.toNativeString();
 		final switch(mode){
 			case FileMode.read:
-				m_fileDescriptor = open(pathstr.toStringz(), O_RDONLY|O_BINARY);
+				version(Windows) {
+					m_fileDescriptor = _wopen(pathstr.toUTF16z(), O_RDONLY|O_BINARY);
+				} else
+					m_fileDescriptor = open(pathstr.toStringz(), O_RDONLY|O_BINARY);
 				break;
 			case FileMode.readWrite:
-				m_fileDescriptor = open(pathstr.toStringz(), O_RDWR|O_BINARY);
+				version(Windows) {
+					m_fileDescriptor = _wopen(pathstr.toUTF16z(), O_RDWR|O_BINARY);
+				} else
+					m_fileDescriptor = open(pathstr.toStringz(), O_RDWR|O_BINARY);
 				break;
 			case FileMode.createTrunc:
-				m_fileDescriptor = open(pathstr.toStringz(), O_RDWR|O_CREAT|O_TRUNC|O_BINARY, octal!644);
+				version(Windows) {
+					m_fileDescriptor = _wopen(pathstr.toUTF16z(), O_RDWR|O_CREAT|O_TRUNC|O_BINARY, octal!644);
+				} else
+					m_fileDescriptor = open(pathstr.toStringz(), O_RDWR|O_CREAT|O_TRUNC|O_BINARY, octal!644);
 				break;
 			case FileMode.append:
-				m_fileDescriptor = open(pathstr.toStringz(), O_WRONLY|O_CREAT|O_APPEND|O_BINARY, octal!644);
+				version(Windows) {
+					m_fileDescriptor = _wopen(pathstr.toUTF16z(), O_WRONLY|O_CREAT|O_APPEND|O_BINARY, octal!644);
+				} else
+					m_fileDescriptor = open(pathstr.toStringz(), O_WRONLY|O_CREAT|O_APPEND|O_BINARY, octal!644);
 				break;
 		}
 		if( m_fileDescriptor < 0 )
@@ -113,8 +128,10 @@ final class ThreadedFileStream : FileStream {
 			
 			// (at least) on windows, the created file is write protected
 			version(Windows){
-				if( mode == FileMode.createTrunc )
-					chmod(path.toNativeString().toStringz(), S_IREAD|S_IWRITE);
+				if( mode == FileMode.createTrunc ) 
+				{
+					_wchmod(path.toNativeString().toUTF16z(), S_IREAD|S_IWRITE);
+				}
 			}
 		}
 		lseek(m_fileDescriptor, 0, SEEK_SET);

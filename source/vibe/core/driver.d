@@ -32,7 +32,7 @@ class TimeoutException : Exception
 {
 	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null) @safe pure nothrow
 	{
-		super("The Connection Went Away: " ~ msg, file, line, next);
+		super("The Connection Timed Out: " ~ msg, file, line, next);
 	}
 }
 
