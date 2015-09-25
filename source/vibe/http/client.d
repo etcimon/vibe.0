@@ -25,6 +25,7 @@ import vibe.utils.array;
 import vibe.utils.memory;
 import vibe.utils.string : icmp2;
 import vibe.http.http2;
+import memutils.circularbuffer;
 
 import core.exception : AssertError;
 import core.thread;
@@ -165,7 +166,7 @@ auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientS
 {
 	if (!settings) settings = defaultSettings();
 	static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
-	static FixedRingBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) s_connections;
+	static CircularBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) s_connections;
 
 	if( port == 0 ) port = use_tls ? 443 : 80;
 	auto ckey = ConnInfo(host, port, settings);
@@ -1246,7 +1247,7 @@ final class HTTPClientResponse : HTTPResponse {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
 			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
-			catch (ConnectionClosedException cc) { m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); return; }
+			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); return; }
 			this.statusPhrase = httpStatusText(this.statusCode);
 		}
 

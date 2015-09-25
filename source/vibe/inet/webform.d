@@ -253,8 +253,6 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		file.close();
 
 		files.addField(name, fp);
-
-		// TODO: temp files must be deleted after the request has been processed!
 	} else {
 		auto data = cast(string)stream.readUntil(cast(ubyte[])boundary);
 		form.addField(name, data);

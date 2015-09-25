@@ -10,6 +10,7 @@ module vibe.stream.zlib;
 import vibe.core.stream;
 import vibe.utils.array;
 import vibe.utils.memory;
+import memutils.circularbuffer;
 
 import std.algorithm;
 import std.exception;
@@ -168,7 +169,7 @@ class ZlibInputStream : InputStream {
 	private {
 		InputStream m_in;
 		z_stream m_zstream;
-		FixedRingBuffer!(ubyte, 4096) m_outbuffer;
+		CircularBuffer!(ubyte, 4096) m_outbuffer;
 		ubyte[] m_inbuffer;
 		bool m_finished = false;
 		ulong m_ninflated, n_read;

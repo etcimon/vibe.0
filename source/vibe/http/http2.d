@@ -379,10 +379,10 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
+			m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 2.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 10.seconds);
 			processExceptions();
 		}
 		
@@ -429,12 +429,12 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.waitingHeaders = true;
 			logDebug("Waiting for response headers");
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
+			m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
 			// fixme: workaround for issue with server not sending data completely or client not waking up for it (window updates?)
-			//if (Clock.currTime() - ref_time >= 5.seconds) logDebug("FAILURE");
+			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 2.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 10.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
@@ -951,13 +951,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				dirty();
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
-				m_rx.signal.wait(2.seconds, m_rx.signal.emitCount);
+				m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 2.seconds) {
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 10.seconds) {
 					m_tx.close = true;
 				}
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 5.seconds) {
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 10.seconds) {
 					m_session.stop("Finalization error");
 					return;
 				}

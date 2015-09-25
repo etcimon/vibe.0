@@ -34,6 +34,7 @@ import core.thread;
 import core.sync.mutex;
 import memutils.utils;
 import memutils.vector;
+import memutils.circularbuffer;
 
 import vibe.core.drivers.timerqueue;
 import libasync.internals.memory;
@@ -159,11 +160,21 @@ final class LibasyncDriver : EventDriver {
 		logInfo("Exiting (%s)", m_break);
 		m_break = true;
 	}
-	
-	ThreadedFileStream openFile(Path path, FileMode mode)
+
+	version(Windows)
 	{
-		return new ThreadedFileStream(path, mode);
+		LibasyncFileStream openFile(Path path, FileMode mode)
+		{
+			return new LibasyncFileStream(path, mode);
+		}
+	} else {
+		ThreadedFileStream openFile(Path path, FileMode mode)
+		{
+			return new ThreadedFileStream(path, mode);
+		}
 	}
+
+
 	
 	DirectoryWatcher watchDirectory(Path path, bool recursive)
 	{
@@ -562,7 +573,7 @@ final class LibasyncFileStream : FileStream {
 		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to read data from disk: " ~ m_impl.error);
 
 		if (!m_finished)
-			m_ev.wait(2.seconds, m_ev.emitCount());
+			m_ev.wait(4.seconds, m_ev.emitCount());
 		m_finished = false;
 		m_offset += dst.length;
 		assert(m_impl.offset == m_offset, "Incoherent offset returned from file reader: " ~ m_offset.to!string ~ "B assumed but the implementation is at: " ~ m_impl.offset.to!string ~ "B");
@@ -591,7 +602,7 @@ final class LibasyncFileStream : FileStream {
 		else
 			enforce(m_impl.write(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
 		if (!m_finished)
-			m_ev.wait(2.seconds, m_ev.emitCount());
+			m_ev.wait(4.seconds, m_ev.emitCount());
 		m_finished = false;
 
 		if (m_mode == FileMode.append) {
@@ -1085,7 +1096,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
 		Thread m_owner;
-		FixedRingBuffer!ubyte m_readBuffer;
+		CircularBuffer!ubyte m_readBuffer;
 		ubyte[] m_buffer;
 		ubyte[] m_slice;
 		TCPConnectionImpl m_tcpImpl;
@@ -1146,8 +1157,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		s_totalConnections++;
 		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
-		m_readBuffer.freeOnDestruct = true;
-		m_readBuffer.capacity = 64*1024;
+		m_readBuffer.capacity = 32*1024;
 	}
 
 	~this() {
@@ -1452,7 +1462,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			if (ret == buf.length) {
 				logTrace("Overflow detected, revert to ring buffer");
 				m_slice = null;
-				m_readBuffer.freeOnDestruct = true;
 				m_readBuffer.capacity = 64*1024;
 				m_readBuffer.put(buf);
 				m_buffer = null;

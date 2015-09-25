@@ -29,6 +29,7 @@ import core.sync.condition;
 import core.sync.mutex;
 import core.stdc.stdlib;
 import core.thread;
+import memutils.circularbuffer;
 
 alias TaskEventCb = void function(TaskEvent, Task) nothrow;
 
@@ -1395,7 +1396,7 @@ private {
 	bool delegate() s_idleHandler;
 	CoreTaskQueue s_yieldedTasks;
 	Variant[string] s_taskLocalStorageGlobal; // for use outside of a task
-	FixedRingBuffer!CoreTask s_availableFibers;
+	CircularBuffer!CoreTask s_availableFibers;
 
 	string s_privilegeLoweringUserName;
 	string s_privilegeLoweringGroupName;

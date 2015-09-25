@@ -16,6 +16,7 @@ import std.exception;
 import std.traits;
 import std.typecons;
 import std.variant;
+import memutils.circularbuffer;
 
 
 /** Represents a single task as started using vibe.core.runTask.
@@ -177,8 +178,8 @@ class MessageQueue {
 	private {
 		InterruptibleTaskMutex m_mutex;
 		InterruptibleTaskCondition m_condition;
-		FixedRingBuffer!Variant m_queue;
-		FixedRingBuffer!Variant m_priorityQueue;
+		CircularBuffer!Variant m_queue;
+		CircularBuffer!Variant m_priorityQueue;
 		size_t m_maxMailboxSize = 0;
 		bool function(Task) m_onCrowding;
 	}
@@ -287,7 +288,7 @@ class MessageQueue {
 		return true;
 	}
 
-	private static bool receiveQueue(OPS...)(ref FixedRingBuffer!Variant queue, ref Variant dst, scope bool delegate(Variant) filter)
+	private static bool receiveQueue(OPS...)(ref CircularBuffer!Variant queue, ref Variant dst, scope bool delegate(Variant) filter)
 	{
 		auto r = queue[];
 		while (!r.empty) {

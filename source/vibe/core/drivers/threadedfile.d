@@ -191,7 +191,6 @@ final class ThreadedFileStream : FileStream {
 			enforce(.read(m_fileDescriptor, dst.ptr, cast(int)sz) == sz, "Failed to read data from disk.");
 			dst = dst[sz .. $];
 			m_ptr += sz;
-			yield();
 		}
 	}
 
@@ -206,7 +205,6 @@ final class ThreadedFileStream : FileStream {
 			enforce(ret == sz, "Failed to write data to disk."~to!string(sz)~" "~to!string(errno)~" "~to!string(ret)~" "~to!string(m_fileDescriptor));
 			bytes = bytes[sz .. $];
 			m_ptr += sz;
-			yield();
 		}
 	}
 

@@ -193,7 +193,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			}
 			failed++;
 			import std.datetime : msecs;
-			sleep(200.msecs);
+			sleep(500.msecs);
 
 		} while(failed < 3);
 		throw new Exception("Proxy error");
