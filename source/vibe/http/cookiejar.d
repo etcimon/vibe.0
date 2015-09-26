@@ -178,6 +178,7 @@ public:
 			FileStream stream = openFile(m_filePath, FileMode.append);
 			scope(exit) stream.close();
 			auto range = StreamOutputRange(stream);
+			logTrace("writing cookie: %s", name);
 			cookie.writeString(&range, name, false);
 			range.put('\n');
 		}
@@ -365,6 +366,7 @@ struct StrictCookieSearch
 	private string expires_parsed_at;
 
 	bool match(CookiePair cookie) {
+
 		if (expires != "" && expires && expires !is expires_parsed_at) {
 			expires_parsed = parseCookieDate(expires);
 			expires_parsed_at = expires;
@@ -377,7 +379,8 @@ struct StrictCookieSearch
 			}
 		}
 		if (domain != "*") {
-			enforce(cookie.value.domain.length > 0, "Empty domain found in cookies file while searching through it");
+			if (cookie.value.domain.length <= 0) return false;
+
 			if (!cookie.value.domain.isCNameOf(domain))
 			{
 				logTrace("Domain predicate failed: %s != %s", domain, cookie.value.domain);
@@ -483,6 +486,7 @@ void parseSetCookieString(string set_cookie_str, ref Cookie cookie, void delegat
 			auto pair = parseNameValue(part, idx);
 			name = pair[0];
 			cookie.value = pair[1];
+			logTrace("name: %s => Value: %s", name, cookie.value);
 			continue;
 		}
 		

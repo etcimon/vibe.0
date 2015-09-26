@@ -114,11 +114,14 @@ final class Win32FileStream : FileStream {
 			errorcode = GetLastError();
 			enforce(ret, "Failed to call SetFileEndPos for path "~path.toNativeString()~", Error: " ~ to!string(errorcode));
 		}
-		
 		long size;
 		auto succeeded = GetFileSizeEx(m_handle, &size);
 		enforce(succeeded);
 		m_size = size;
+		if(mode == FileMode.append) {
+			SetFilePointer(m_handle, 0, null, FILE_END);
+			m_ptr = size;
+		}
 	}
 	
 	~this()
@@ -217,6 +220,7 @@ final class Win32FileStream : FileStream {
 	
 	void write(in ubyte[] bytes_)
 	{
+		logTrace("File write bytes offset: %d => %s", m_ptr, cast(string)bytes_);
 		assert(this.writable);
 		acquire();
 		scope(exit) release();
@@ -233,7 +237,7 @@ final class Win32FileStream : FileStream {
 			m_bytesTransferred = 0;
 			
 			auto to_write = min(bytes.length, DWORD.max);
-			
+
 			// request to write the data
 			WriteFileEx(m_handle, cast(void*)bytes, to_write, &overlapped, &onIOCompleted);
 			
