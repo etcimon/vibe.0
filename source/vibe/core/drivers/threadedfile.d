@@ -105,7 +105,7 @@ final class Win32FileStream : FileStream {
 			null);
 		
 		auto errorcode = GetLastError();
-		enforce(m_handle != INVALID_HANDLE_VALUE, "Failed to open "~path.toNativeString()~": "~to!string(errorcode));
+		enforce(m_handle != INVALID_HANDLE_VALUE, "Failed to open "~path.toNativeString()~": "~to!string(errorcode) ~ " Mode: " ~ mode.to!string);
 		if(mode == FileMode.createTrunc && errorcode == ERROR_ALREADY_EXISTS)
 		{
 			// truncate file

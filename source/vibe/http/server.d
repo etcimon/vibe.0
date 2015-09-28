@@ -2365,14 +2365,27 @@ void parseCookies(string str, ref CookieValueMap cookies)
 	mixin(Trace);
 	while(str.length > 0) {
 		auto idx = str.indexOf('=');
-		enforceBadRequest(idx > 0, "Expected name=value, got: " ~ str);
-		string name = str[0 .. idx].strip();
-		str = str[idx+1 .. $];
+		auto idx2 = str.indexOf(';');
 
-		for (idx = 0; idx < str.length && str[idx] != ';'; idx++) {}
-		string value = str[0 .. idx].strip();
-		cookies[name] = urlDecode(value);
-		str = idx < str.length ? str[idx+1 .. $] : null;
+		if (idx <= 0 && idx2 <= 0) { // has no '=' nor ';'
+			// consider no equality as name=1 for existence checks only
+			cookies[str.strip()] = "1";
+			return;
+		}
+		else if (idx <= 0) { // has no '=' but has ';'
+			string name = str[0 .. idx2].strip();
+			cookies[name] = "1";
+			str = str[idx2+1 .. $];
+		}
+		else { // has '=' and maybe ';'
+			string name = str[0 .. idx].strip();
+			str = str[idx+1 .. $];
+			if (idx2 > idx) idx = idx2;
+			else idx = str.length;
+			string value = str[0 .. idx].strip();
+			cookies[name] = urlDecode(value);
+			str = idx < str.length ? str[idx+1 .. $] : null;
+		}
 	}
 }
 

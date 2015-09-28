@@ -137,6 +137,7 @@ public:
 		m_filePath = path;
 		if (!existsFile(m_filePath))
 		{ // touch
+			logTrace("Touching file: %s", path.toNativeString());
 			import std.c.stdio;
 			import std.string : toStringz;
 			FILE * f = fopen(m_filePath.toNativeString().toStringz, "w\0".ptr);

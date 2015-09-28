@@ -163,9 +163,9 @@ final class LibasyncDriver : EventDriver {
 
 	version(Windows)
 	{
-		Win32FileStream openFile(Path path, FileMode mode)
+		LibasyncFileStream openFile(Path path, FileMode mode)
 		{
-			return new Win32FileStream(getDriverCore(), path, mode);
+			return new LibasyncFileStream(path, mode);
 		}
 	} else {
 		ThreadedFileStream openFile(Path path, FileMode mode)

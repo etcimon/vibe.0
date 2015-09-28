@@ -1222,25 +1222,34 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n", m_alloc);
-			logTrace("stln: %s", stln);
-			this.httpVersion = parseHTTPVersion(stln);
+			enforce (client.topStream.leastSize() > 4, "Response stream closed while reading HTTP status code");
+			import std.algorithm : canFind;
+			if ((cast(string)client.topStream.peek()[0..4]) != "HTTP")
+			{
+				this.httpVersion = HTTPVersion.HTTP_1_1;
+				this.statusCode = HTTPStatus.internalServerError;
+				this.statusPhrase = "Internal Server Error";
+			} else {
+				string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n", m_alloc);
+				logTrace("stln: %s", stln);
+				this.httpVersion = parseHTTPVersion(stln);
 
-			enforce(stln.startsWith(" "));
-			stln = stln[1 .. $];
-			this.statusCode = parse!int(stln);
-			if( stln.length > 0 ){
 				enforce(stln.startsWith(" "));
 				stln = stln[1 .. $];
-				this.statusPhrase = stln;
+				this.statusCode = parse!int(stln);
+				if( stln.length > 0 ){
+					enforce(stln.startsWith(" "));
+					stln = stln[1 .. $];
+					this.statusPhrase = stln;
+				}
+
+				// read headers until an empty line is hit
+				parseRFC5322Header(client.topStream, this.headers, HTTPClient.maxHeaderLineLength, m_alloc, false);
+
+				auto upgrade_hd = this.headers.get("Upgrade", "");
+				logTrace("Finalizing the upgrade process");
+				m_client.finalizeHTTP2Upgrade(upgrade_hd);
 			}
-
-			// read headers until an empty line is hit
-			parseRFC5322Header(client.topStream, this.headers, HTTPClient.maxHeaderLineLength, m_alloc, false);
-
-			auto upgrade_hd = this.headers.get("Upgrade", "");
-			logTrace("Finalizing the upgrade process");
-			m_client.finalizeHTTP2Upgrade(upgrade_hd);
 		}
 
 		if (m_client.isHTTP2Started) {
