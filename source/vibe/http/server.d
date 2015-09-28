@@ -2365,7 +2365,9 @@ void parseCookies(string str, ref CookieValueMap cookies)
 	mixin(Trace);
 	while(str.length > 0) {
 		auto idx = str.indexOf('=');
-		if (idx < 0) { cookie[str.strip()] = "1"; return; }
+		auto idx2 = str.indexOf(';');
+		if (idx2 > 0 && idx > 0 && idx2 < idx) { str = str[idx2+1 .. $]; continue; }
+		if (idx < 0) { cookies[str.strip()] = "1"; return; }
 		string name = str[0 .. idx].strip();
 		str = str[idx+1 .. $];
 
