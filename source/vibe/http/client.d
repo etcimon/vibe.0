@@ -1222,9 +1222,10 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforce (client.topStream.leastSize() > 4, "Response stream closed while reading HTTP status code");
+			enforce (client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
 			import std.algorithm : canFind;
-			if ((cast(string)client.topStream.peek()[0..4]) != "HTTP")
+			const(ubyte)[] peek_data = client.topStream.peek();
+			if (peek_data.length > 0 && peek_data[0] != 'H')
 			{
 				this.httpVersion = HTTPVersion.HTTP_1_1;
 				this.statusCode = HTTPStatus.internalServerError;
