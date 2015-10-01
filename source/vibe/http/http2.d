@@ -2340,6 +2340,7 @@ override:
 			if (frame.headers.cat == HeadersCategory.REQUEST) {
 				logDebug("Handling request stream ID#", frame.hd.stream_id);
 				assert(!getStream(frame.hd.stream_id), "Creating stream twice");
+				if (m_session.m_closing) return false;
 				m_session.handleRequest(frame.hd.stream_id);
 			}
 
@@ -2399,9 +2400,10 @@ override:
 		import vibe.core.log : logError;
 		logError("HTTP/2 onInvalidFrame: %s", error_code.to!string);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
-		stream.notifyClose(error_code);
+
 		if (error_code == FrameError.PROTOCOL_ERROR)
-			m_session.stop(error_code);
+			m_session.remoteStop(error_code);
+		else stream.notifyClose(error_code);
 		return true;
 	}
 	
