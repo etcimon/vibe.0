@@ -382,7 +382,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 10.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
 			processExceptions();
 		}
 		
@@ -434,7 +434,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 10.seconds);
+			enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
