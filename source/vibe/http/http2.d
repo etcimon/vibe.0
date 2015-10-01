@@ -1724,6 +1724,7 @@ private:
 
 	void onClose() {
 		if (!m_tcpConn) return;
+		try m_tcpConn.close(); catch {}
 		m_tcpConn = null;
 		foreach(HTTP2Stream stream; m_pushResponses) 
 			if (stream.m_connected) 
@@ -2399,6 +2400,8 @@ override:
 		logError("HTTP/2 onInvalidFrame: %s", error_code.to!string);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 		stream.notifyClose(error_code);
+		if (error_code == FrameError.PROTOCOL_ERROR)
+			m_session.stop(error_code);
 		return true;
 	}
 	
