@@ -2402,7 +2402,7 @@ override:
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 
 		if (error_code == FrameError.PROTOCOL_ERROR)
-			m_session.remoteStop(error_code);
+			m_session.remoteStop(error_code, "Remotely Closed");
 		else stream.notifyClose(error_code);
 		return true;
 	}
