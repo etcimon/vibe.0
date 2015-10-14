@@ -379,7 +379,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			enforceEx!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
+			m_rx.signal.wait(20.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
 			enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
@@ -429,7 +429,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			m_rx.waitingHeaders = true;
 			logDebug("Waiting for response headers");
 			m_rx.dataSignalRaised = false;
-			m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
+			m_rx.signal.wait(20.seconds, m_rx.signal.emitCount);
 			// fixme: workaround for issue with server not sending data completely or client not waking up for it (window updates?)
 			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
@@ -951,13 +951,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				dirty();
 				m_rx.waitingStreamExit = true;
 				m_rx.dataSignalRaised = false;
-				m_rx.signal.wait(10.seconds, m_rx.signal.emitCount);
+				m_rx.signal.wait(20.seconds, m_rx.signal.emitCount);
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 10.seconds) {
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 20.seconds) {
 					m_tx.close = true;
 				}
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 10.seconds) {
+				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 20.seconds) {
 					m_session.stop("Finalization error");
 					return;
 				}
@@ -1492,7 +1492,7 @@ final class HTTP2Session
 
 	HTTP2Stream startRequest()
 	{
-		enforce(!m_closing && m_tcpConn);
+		enforceEx!ConnectionClosedException(!m_closing && m_tcpConn);
 		return new HTTP2Stream(this, -1, m_defaultChunkSize);
 	}
 

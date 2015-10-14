@@ -45,7 +45,10 @@ private __gshared EventLoop gs_evLoop;
 private EventLoop s_evLoop;
 private DriverCore s_driverCore;
 
-version(Windows) extern(C) FILE* _wfopen(const(wchar)* filename, in wchar* mode);
+version(Windows) extern(C) {
+	FILE* _wfopen(const(wchar)* filename, in wchar* mode);
+	int _wchmod(in wchar*, int);
+}
 
 EventLoop getEventLoop() nothrow
 {
@@ -490,12 +493,15 @@ final class LibasyncFileStream : FileStream {
 			m_size = getSize(path.toNativeString());
 		else {
 			auto path_str = path.toNativeString();
-			if (!exists(path_str))
+			if (exists(path_str))
+				removeFile(path);
 			{ // touch
 				import std.string : toStringz;
 				version(Windows) {
 					import std.utf : toUTF16z;
-					FILE* f = _wfopen(path_str.toUTF16z(), "w");
+					auto path_str_utf = path_str.toUTF16z();
+					FILE* f = _wfopen(path_str_utf, "w");
+					_wchmod(path_str_utf, S_IREAD|S_IWRITE);
 				}
 				else FILE * f = fopen(path_str.toStringz, "w");
 				fclose(f);
@@ -626,6 +632,7 @@ final class LibasyncFileStream : FileStream {
 	void flush()
 	{
 		assert(this.writable, "To write to a file, it must be opened in a write-enabled mode.");
+
 	}
 	
 	void finalize()

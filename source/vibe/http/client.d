@@ -212,7 +212,7 @@ class HTTPClientSettings {
 	URL proxyURL;
 
 	/// Maximum amount of time the client should wait for the next request when there are none active (observed by HTTP/1.1 and HTTP/2)
-	Duration defaultKeepAliveTimeout = 10.seconds; 
+	Duration defaultKeepAliveTimeout = 20.seconds; 
 
 	/// If set to a value > 0, the client will auto-follow to request any URL returned in the "Location" header.
 	/// The request callback will be called once for every redirect, for up to maxRedirects times.
@@ -587,7 +587,14 @@ final class HTTPClient {
 			connect();
 		else if (++m_conn.totRequest >= m_conn.maxRequests)
 			reconnect("Max keep-alive requests exceeded");
-
+		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected) 
+		{
+			if (m_http2Context.worker != Task.init) {
+				m_http2Context.session.stop("Must reconnect now");
+				m_http2Context.worker.join();
+			}
+			reconnect("HTTP/2 disconnected");
+		}
 		bool keepalive;
 		HTTPClientResponse res;
 		do {

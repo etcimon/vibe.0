@@ -137,11 +137,8 @@ public:
 		m_filePath = path;
 		if (!existsFile(m_filePath))
 		{ // touch
-			logTrace("Touching file: %s", path.toNativeString());
-			import std.c.stdio;
-			import std.string : toStringz;
-			FILE * f = fopen(m_filePath.toNativeString().toStringz, "w\0".ptr);
-			fclose(f);
+			auto touch = openFile(path, FileMode.createTrunc);
+			touch.close();
 		}
 		logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
 	}
@@ -291,6 +288,8 @@ public:
 		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
 
 		FileStream new_file = createTempFile();
+		bool new_file_closed;
+		scope(exit) if (!new_file_closed) new_file.close();
 		AllocAppender!(ubyte[]) new_file_data = AllocAppender!(ubyte[])(manualAllocator());
 		scope(exit) new_file_data.reset(AppenderResetMode.freeData);
 
@@ -346,8 +345,9 @@ public:
 		}
 		new_file.write(cast(ubyte[]) new_file_data.data);
 		new_file.finalize();
-		new_file.close();
 		removeFile(m_filePath);
+		new_file.close();
+		new_file_closed = true;
 		moveFile(new_file.path, m_filePath);
 	}
 
