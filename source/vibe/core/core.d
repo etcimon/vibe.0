@@ -1402,7 +1402,7 @@ private {
 	string s_privilegeLoweringGroupName;
 }
 
-private bool getExitFlag()
+public bool getExitFlag()
 {
 	return s_exitEventLoop || atomicLoad(st_term);
 }

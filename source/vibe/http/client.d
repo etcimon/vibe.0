@@ -1229,7 +1229,7 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforce (client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
+			enforceEx!ConnectionClosedException(client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
 			import std.algorithm : canFind;
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')

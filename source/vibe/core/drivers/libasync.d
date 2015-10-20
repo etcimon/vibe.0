@@ -80,6 +80,12 @@ final class LibasyncDriver : EventDriver {
 		AsyncTimer m_timerEvent;
 		TimerQueue!TimerInfo m_timers;
 		SysTime m_nextSched;
+
+		@property bool exitFlag() {
+			// accomodate Windows Services
+			version(Windows) return m_break || getExitFlag;
+			else return m_break;
+		}
 	}
 		
 	this(DriverCore core) nothrow
@@ -126,7 +132,7 @@ final class LibasyncDriver : EventDriver {
 	
 	int runEventLoop()
 	{
-		while(!m_break && getEventLoop().loop(1.seconds)){
+		while(!exitFlag && getEventLoop().loop(1.seconds)){
 			logTrace("Regular loop");
 			processTimers();
 			getDriverCore().notifyIdle();
@@ -151,7 +157,7 @@ final class LibasyncDriver : EventDriver {
 		getEventLoop().loop(0.seconds);
 		logTrace("processEvents");
 		processTimers();
-		if (m_break) {
+		if (exitFlag) {
 			m_break = false;
 			return false;
 		}
@@ -160,7 +166,7 @@ final class LibasyncDriver : EventDriver {
 	
 	void exitEventLoop()
 	{
-		logInfo("Exiting (%s)", m_break);
+		logInfo("Exiting (%s)", exitFlag);
 		m_break = true;
 	}
 
@@ -251,7 +257,7 @@ final class LibasyncDriver : EventDriver {
 			bool success = dns.handler(&cb.handler).resolveHost(host, is_ipv6);
 			if (!success || dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
-			while(!done && !m_break)
+			while(!done && !exitFlag)
 				getDriverCore.yieldForEvent();
 			if (dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
@@ -1507,17 +1513,21 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			ubyte[] dst = m_readBuffer.peekDst();
 			assert(dst.length <= int.max);
 			logTrace("Try to read up to bytes: %s", dst.length);
-			uint ret = conn.recv(dst);
-			if( ret > 0 ){
-				logTrace("received bytes: %s", ret);
-				m_readBuffer.putN(ret);
-				if (ret < dst.length) { // the kernel's buffer is too empty...
-					m_mustRecv = false; // ..so we have everything!
-					break;
+			bool read_more;
+			do {
+				uint ret = conn.recv(dst);
+				if( ret > 0 ){
+					logTrace("received bytes: %s", ret);
+					m_readBuffer.putN(ret);
+				} 
+				read_more = ret == dst.length;
+				// ret == 0! let's look for some errors
+				if (read_more) {
+					if (m_readBuffer.freeSpace == 0) m_readBuffer.capacity = m_readBuffer.capacity*2;
+					dst = m_readBuffer.peekDst();
 				}
-			} 
-			// ret == 0! let's look for some errors
-			else if (conn.status.code == Status.ASYNC) {
+			} while( read_more );
+			if (conn.status.code == Status.ASYNC) {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
 			}
