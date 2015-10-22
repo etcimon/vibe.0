@@ -1612,7 +1612,6 @@ nothrow {
 	} catch (InvalidMemoryOperationError e) {
 		import std.stdio;
 		scope(failure) assert(false);
-		asm { int 3; }
 		exit(-1);
 	} catch (Throwable th) {
 		logFatal("Worker thread terminated due to uncaught error: %s", th.msg);

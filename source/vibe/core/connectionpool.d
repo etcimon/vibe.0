@@ -69,6 +69,12 @@ class ConnectionPool(Connection)
 				cidx = size_t.max;
 				conn = m_connectionFactory();
 			}
+			static if (__traits(compiles, { bool is_connected = conn.connected(); }())) {
+				if (!conn.connected) {
+					conn.destroy();
+					m_connections[cidx] = m_connectionFactory();
+				}
+			}
 		} else {
 			logDebug("creating new %s connection, all %d are in use", Connection.stringof, m_connections.length);
 			conn = m_connectionFactory(); // NOTE: may block
