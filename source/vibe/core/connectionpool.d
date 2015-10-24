@@ -71,8 +71,12 @@ class ConnectionPool(Connection)
 			}
 			static if (__traits(compiles, { bool is_connected = conn.connected(); }())) {
 				if (!conn.connected) {
-					conn.destroy();
-					m_connections[cidx] = conn = m_connectionFactory();
+					static if (__traits(compiles, { conn.reconnect(); }()))
+						conn.reconnect();
+					else {
+						conn.destroy();
+						m_connections[cidx] = conn = m_connectionFactory();
+					}
 				}
 			}
 		} else {
