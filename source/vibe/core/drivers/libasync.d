@@ -484,7 +484,7 @@ final class LibasyncFileStream : FileStream {
 		ulong m_offset = 0;
 		FileMode m_mode;
 		Task m_task;
-		LibasyncManualEvent m_ev;
+		Exception m_ex;
 		shared AsyncFile m_impl;
 
 		bool m_started;
@@ -514,7 +514,6 @@ final class LibasyncFileStream : FileStream {
 				m_truncated = true;
 			}
 		} 
-		m_ev = new LibasyncManualEvent(getEventDriver());
 		m_path = path;
 		m_mode = mode;
 
@@ -570,8 +569,6 @@ final class LibasyncFileStream : FileStream {
 		mixin(Trace);
 		scope(failure)
 			close();
-		acquire();
-		scope(exit) release();
 		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		shared ubyte[] bytes = cast(shared) dst;
 		bool truncate_if_exists;
@@ -584,9 +581,15 @@ final class LibasyncFileStream : FileStream {
 		enforce(dst.length <= leastSize);
 		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to read data from disk: " ~ m_impl.error);
 
-		if (!m_finished)
-			m_ev.wait(4.seconds, m_ev.emitCount());
+		if (!m_finished) {
+			acquire();
+			scope(exit) release();
+			getDriverCore().yieldForEvent();
+		}
 		m_finished = false;
+
+		if (m_ex) throw m_ex;
+
 		m_offset += dst.length;
 		assert(m_impl.offset == m_offset, "Incoherent offset returned from file reader: " ~ m_offset.to!string ~ "B assumed but the implementation is at: " ~ m_impl.offset.to!string ~ "B");
 	}
@@ -596,8 +599,6 @@ final class LibasyncFileStream : FileStream {
 	{
 		assert(this.writable, "To write to a file, it must be opened in a write-enabled mode.");
 		mixin(Trace);
-		acquire();
-		scope(exit) release();
 
 		shared const(ubyte)[] bytes = cast(shared const(ubyte)[]) bytes_;
 
@@ -613,9 +614,15 @@ final class LibasyncFileStream : FileStream {
 			enforce(m_impl.append(m_path.toNativeString(), cast(shared ubyte[]) bytes, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
 		else
 			enforce(m_impl.write(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
-		if (!m_finished)
-			m_ev.wait(4.seconds, m_ev.emitCount());
+
+		if (!m_finished) {
+			acquire();
+			scope(exit) release();
+			getDriverCore().yieldForEvent();
+		}
 		m_finished = false;
+
+		if (m_ex) throw m_ex;
 
 		if (m_mode == FileMode.append) {
 			m_size += bytes.length;
@@ -658,11 +665,6 @@ final class LibasyncFileStream : FileStream {
 		assert(Task.getThis() == Task() || m_task == Task(), "Acquiring FileStream that is already owned.");
 		m_task = Task.getThis();
 	}
-	
-	bool amOwner()
-	{
-		return m_task == Task.getThis();
-	}
 
 	private void handler() {
 		// This will probably be called by a remote thread, so we use a manual event
@@ -671,11 +673,9 @@ final class LibasyncFileStream : FileStream {
 		if (m_impl.status.code != Status.OK)
 			ex = new Exception(m_impl.error);
 		m_finished = true;
-		try m_ev.emit();
-		catch (Exception e) {
-			logError("Error returning from file read: %s", e.toString());
-		}
-
+		if (m_task != Task())
+			getDriverCore().resumeTask(m_task, ex);
+		else m_ex = ex;
 	}
 }
 

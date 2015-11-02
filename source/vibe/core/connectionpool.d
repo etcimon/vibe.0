@@ -74,6 +74,7 @@ class ConnectionPool(Connection)
 					static if (__traits(compiles, { conn.reconnect(); }()))
 						conn.reconnect();
 					else {
+						m_lockCount.remove(conn);
 						conn.destroy();
 						m_connections[cidx] = conn = m_connectionFactory();
 					}

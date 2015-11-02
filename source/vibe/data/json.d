@@ -1601,7 +1601,17 @@ struct JsonStringSerializer(R, bool pretty = false)
 			static if (is(T == typeof(null))) m_range.put("null");
 			else static if (is(T == bool)) m_range.put(value ? "true" : "false");
 			else static if (is(T : long)) m_range.formattedWrite("%s", value);
-			else static if (is(T : real)) m_range.formattedWrite("%.16g", value);
+			else static if (is(T : real)) {
+				if (value != value) 
+					m_range.put("null"); // JSON has no NaN value so set null
+				else {
+					string str = format("%.16g", value);
+					if (str.indexOf('.') < 0) {
+						str ~= ".0";
+					}
+					m_range.put(str);
+				}
+			}
 			else static if (is(T == string)) {
 				m_range.put('"');
 				m_range.jsonEscape(value);
@@ -1774,8 +1784,13 @@ void writeJsonString(R, bool pretty = false)(ref R dst, in Json json, size_t lev
 			auto d = json.get!double;
 			if (d != d) 
 				dst.put("null"); // JSON has no NaN value so set null
-			else
-				formattedWrite(dst, "%.16g", json.get!double); 
+			else {
+				string str = format("%.16g", json.get!double);
+				if (str.indexOf('.') < 0) {
+					str ~= ".0";
+				}
+				dst.put(str);
+			}
 			break;
 		case Json.Type.string:
 			dst.put('\"');

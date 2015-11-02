@@ -387,6 +387,8 @@ final class HTTPClient {
 		if (m_conn.tcp || m_conn.tlsStream || m_http2Context) {
 			disconnect(false, "Cleaning up");
 		}
+		m_state.requesting = false;
+		m_state.responding = false;
 		if (m_settings.proxyURL.schema !is null){
 			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
 			proxyAddr.port = m_settings.proxyURL.port;
@@ -437,7 +439,7 @@ final class HTTPClient {
 	{
 		if (m_conn.tcp || m_conn.tlsStream || m_http2Context)
 			disconnect(false, reason);
-		
+		m_state.responding = false;
 		connect();
 	}
 
@@ -542,21 +544,7 @@ final class HTTPClient {
 	{
 		mixin(Trace);
 
-		if (m_conn.nextTimeout == Duration.zero && m_settings.defaultKeepAliveTimeout != 0.seconds) {
-			logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
-			m_conn.keepAlive = setTimer(m_settings.defaultKeepAliveTimeout, &onKeepAlive, false);
-			m_conn.nextTimeout = m_settings.defaultKeepAliveTimeout;
-		}
-		if (isHTTP2Started && m_http2Context.closing)
-		{
-			m_http2Context.session.stop("Must reconnect now");
-			m_http2Context.worker.join(); // finish closing ...
-			connect();
-		}
-		else if (!m_conn.tcp || !m_conn.tcp.connected)
-			connect();
-		else if (++m_conn.totRequest >= m_conn.maxRequests)
-			reconnect("Max keep-alive requests exceeded");
+		validateConnection();
 
 		do {
 			bool keepalive;
@@ -577,24 +565,7 @@ final class HTTPClient {
 	/// ditto
 	HTTPClientResponse request(scope void delegate(HTTPClientRequest) requester)
 	{
-		if (isHTTP2Started && m_http2Context.closing)
-		{
-			m_http2Context.session.stop("Must reconnect now");
-			m_http2Context.worker.join();
-			connect();
-		}
-		else if (!m_conn.tcp || !m_conn.tcp.connected)
-			connect();
-		else if (++m_conn.totRequest >= m_conn.maxRequests)
-			reconnect("Max keep-alive requests exceeded");
-		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected) 
-		{
-			if (m_http2Context.worker != Task.init) {
-				m_http2Context.session.stop("Must reconnect now");
-				m_http2Context.worker.join();
-			}
-			reconnect("HTTP/2 disconnected");
-		}
+		validateConnection();
 		bool keepalive;
 		HTTPClientResponse res;
 		do {
@@ -613,6 +584,33 @@ final class HTTPClient {
 
 
 private:
+	void validateConnection() {
+		if (m_conn.nextTimeout == Duration.zero && m_settings.defaultKeepAliveTimeout != 0.seconds) {
+			logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
+			m_conn.keepAlive = setTimer(m_settings.defaultKeepAliveTimeout, &onKeepAlive, false);
+			m_conn.nextTimeout = m_settings.defaultKeepAliveTimeout;
+		}
+
+		if (isHTTP2Started && m_http2Context.closing)
+		{
+			m_http2Context.session.stop("Must reconnect now");
+			m_http2Context.worker.join();
+			connect();
+		}
+		else if (!m_conn.tcp || !m_conn.tcp.connected)
+			connect();
+		else if (++m_conn.totRequest >= m_conn.maxRequests)
+			reconnect("Max keep-alive requests exceeded");
+		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected) 
+		{
+			if (m_http2Context.worker != Task.init) {
+				m_http2Context.session.stop("Must reconnect now");
+				m_http2Context.worker.join();
+			}
+			reconnect("HTTP/2 disconnected");
+		}
+
+	}
 	LockedConnection!HTTPClient lockConnection()
 	{
 		if (!m_http2Context.pool)
@@ -659,6 +657,7 @@ private:
 		// fixme: Close HTTP/2 session when a response is not handled properly?
 
 		m_state.responding = true;
+		scope(exit) m_state.responding = false;
 		logTrace("Processing response");
 		if (m_settings.defaultKeepAliveTimeout != Duration.zero)
 			keepalive = true;
