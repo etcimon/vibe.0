@@ -71,7 +71,7 @@ public:
 
 		auto ret = readCookies( (CookiePair cookie) {
 				if (search.match(cookie)) {
-					logDebug("Search matched cookie: %s", cookie.name);
+					//logDebug("Search matched cookie: %s", cookie.name);
 					if (flag) {
 						app ~= "; ";
 					}
@@ -103,7 +103,7 @@ public:
 
 		auto ret = readCookies( (CookiePair cookie) {
 				if (search.match(cookie)) {
-					logDebug("Search matched cookie: %s", cookie.name);
+					//logDebug("Search matched cookie: %s", cookie.name);
 					char[] kv = allocArray!char(manualAllocator(), cookie.name.length + 1 + cookie.value.value.length);
 					kv[0 .. cookie.name.length] = cookie.name[];
 					kv[cookie.name.length] = '=';
@@ -140,7 +140,7 @@ public:
 			auto touch = openFile(path, FileMode.createTrunc);
 			touch.close();
 		}
-		logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
+		//logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
 	}
 
 	this(string path)
@@ -439,7 +439,7 @@ struct StrictCookieSearch
 				return false;
 		}
 		// else don't filter expires
-		logDebug("Cookie success for name: %s", name);
+		//logDebug("Cookie success for name: %s", name);
 		return true;
 	}
 }

@@ -334,7 +334,7 @@ private:
 		m_credentials.destroy();
 		if (m_policy !is gs_default_policy) m_policy.destroy();
 		m_offer_version.destroy();
-		m_session_manager.destroy();
+		//m_session_manager.destroy();
 	}
 
 public:

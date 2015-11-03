@@ -361,7 +361,7 @@ final class HTTPClient {
 		m_conn.forceTLS = true;
 
 		// use TLS either if the web server or the proxy has it
-		if ((m_conn.forceTLS && !m_settings.proxyURL.schema) || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https")) {
+		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https")) {
 			m_conn.tlsContext = m_settings.tlsContext;
 			
 			if (!m_settings.tlsContext) {
@@ -395,8 +395,15 @@ final class HTTPClient {
 
 			// we connect to the proxy directly
 			m_conn.tcp = connectTCP(proxyAddr);
-			if (m_settings.proxyURL.schema == "https")
+			if (m_settings.proxyURL.schema == "https" && !m_conn.forceTLS)
 				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, proxyAddr);
+			else if (m_conn.forceTLS) {
+				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ "\r\n\r\n");
+				auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
+				//logDebug("Got connect response: %s", cast(string)payload);
+				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, proxyAddr);
+				//logDebug("TLS Stream created");
+			}
 		}
 		else // connect to the requested server/port
 		{
@@ -484,6 +491,7 @@ final class HTTPClient {
 	{
 		mixin(Trace);
 		m_state.responding = false;
+		if (!m_conn) return;
 		m_conn.totRequest = 0;
 		m_conn.maxRequests = int.max;
 
@@ -597,8 +605,10 @@ private:
 			m_http2Context.worker.join();
 			connect();
 		}
-		else if (!m_conn.tcp || !m_conn.tcp.connected)
+		else if (!m_conn.tcp || !m_conn.tcp.connected) {
+			logDebug("TCP noto connected");
 			connect();
+		}
 		else if (++m_conn.totRequest >= m_conn.maxRequests)
 			reconnect("Max keep-alive requests exceeded");
 		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected) 
