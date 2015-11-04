@@ -398,7 +398,11 @@ final class HTTPClient {
 			if (m_settings.proxyURL.schema == "https" && !m_conn.forceTLS)
 				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, proxyAddr);
 			else if (m_conn.forceTLS) {
-				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ "\r\n\r\n");
+				import std.base64 : Base64;
+				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
+				if (m_settings.proxyURL.username)
+					m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
+				m_conn.tcp.write("\r\n\r\n");
 				auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
 				//logDebug("Got connect response: %s", cast(string)payload);
 				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, proxyAddr);
@@ -914,7 +918,7 @@ final class HTTPClientRequest : HTTPRequest {
 		else headers["Host"] = m_conn.server;
 		headers["User-Agent"] = user_agent;
 
-		if (proxy.host !is null){
+		if (proxy.host !is null && (proxy.schema == "https" || (proxy.schema == "http" && !conn.forceTLS))){
 			headers["Proxy-Connection"] = "keep-alive";
 
 			if (proxy.username.length && proxy.password.length) {
