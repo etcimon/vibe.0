@@ -43,7 +43,7 @@
 			},
 			"dflags-windows-x86": ["-m32mscoff"],
 			"versions": ["Botan", "VibeUseNativeDriverType", "VibeLibasyncDriver"],
-			"subConfigurations": { "libasync": "32mscoff", "botan": "32mscoff", "libhttp2": "32mscoff", "memutils": "32mscoff" }
+			"subConfigurations": { "libasync": "32mscoff", "botan": "32mscoff", "botan-math": "32mscoff", "libhttp2": "32mscoff", "memutils": "32mscoff" }
 		},
 		{
 			"name": "libevent",

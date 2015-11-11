@@ -1270,6 +1270,10 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 		// checkConnected();
 
+		destroy(m_readBuffer);
+		m_slice = null;
+		m_buffer = null;
+
 		onClose(null, false);
 	}
 
@@ -1404,8 +1408,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	
 	void finalize()
 	{
-		logTrace("%s", "finalize");
 		flush();
+
 	}
 	
 	void write(InputStream stream, ulong nbytes = 0)
@@ -1553,17 +1557,12 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	 * We're given some time to cleanup.
 	*/
 	private void onClose(in string msg = null, bool wake_ex = true) {
-		//logDebug("onClose: %s", msg);
-
 		if (msg)
 			m_error = msg;
 		if (!m_closed) {
 			s_totalConnections--;
 
 			m_closed = true;
-			destroy(m_readBuffer);
-			destroy(m_slice);
-			destroy(m_buffer);
 
 			if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {
 				m_tcpImpl.conn.kill(Task.getThis() != Task.init); // close the connection
@@ -1613,7 +1612,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				logError("Fatal error: %s", e.toString);
 				throw e;
 			}
-			if (inbound) onClose();
+			if (inbound) close();
 		}
 		logTrace("Finished callback");
 	}
@@ -1624,7 +1623,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			case TCPEvent.CONNECT:
 				m_closed = false;
 				// read & write are guaranteed to be successful on any platform at this point
-
+				assert(m_settings.onConnect !is null);
 				if (m_tcpImpl.conn.inbound)
 					runTask(&onConnect);
 				else onConnect();

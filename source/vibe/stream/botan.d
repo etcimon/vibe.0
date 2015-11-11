@@ -39,6 +39,7 @@ private:
 	OnHandshakeComplete m_handshake_complete;
 	TLSCiphersuite m_cipher;
 	TLSProtocolVersion m_ver;
+	TLSServerInformation m_server_info;
 	SysTime m_session_age;
 	X509Certificate m_peer_cert;
 	TLSCertificateInformation m_cert_compat;
@@ -51,6 +52,9 @@ public:
 
 	/// Get the session ID
 	@property const(ubyte[]) sessionId() { return m_sess_id; } 
+
+	/// Get the information about the server (local or remote)
+	@property TLSServerInformation serverInfo() { return m_server_info; }
 
 	/// Returns the remote public certificate from the chain
 	@property const(X509Certificate) x509Certificate() const { return m_peer_cert; }
@@ -79,8 +83,8 @@ public:
 
 		assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 		// todo: add service name?
-		TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
-		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+		m_server_info = TLSServerInformation(peer_name, peer_address.port);
+		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		try m_tls_channel.doHandshake();
 		catch(Exception e) {
 			m_ex = e;
@@ -97,6 +101,7 @@ public:
 		if (state == TLSStreamState.accepting)
 		{
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
+			m_server_info = TLSServerInformation(peer_name, peer_address.port);
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
 		
 		}
@@ -104,15 +109,18 @@ public:
 			assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 			assert(peer_address != NetworkAddress.init, "You must specify a peer address");
 			// todo: add service name?
-
-			TLSServerInformation server_info = TLSServerInformation(peer_name, peer_address.port);
-			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+			m_server_info = TLSServerInformation(peer_name, peer_address.port);
+			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
 		}
 		else /*if (state == TLSStreamState.connected)*/ {
 			m_tls_channel = TLSBlockingChannel.init;
 			throw new Exception("Cannot load BotanTLSSteam from a connected TLS session");
 		}
-		try m_tls_channel.doHandshake();
+		try {
+			m_ctx.onBeforeHandshake(cast(TLSStream)this);
+			m_tls_channel.doHandshake();
+			m_ctx.onAfterHandshake(cast(TLSStream)this);
+		}
 		catch(Exception e) {
 			m_ex = e;
 		}
@@ -125,7 +133,7 @@ public:
 	}
 
 	@property bool connected() const { return m_tcp_conn.connected && !m_ex; }
-	
+
 	void close()
 	{
 		if (m_tcp_conn.connected) finalize();
@@ -148,6 +156,7 @@ public:
 	}
 
 	void finalize() { 
+
 		if (m_tls_channel.isClosed())
 			return;
 
@@ -155,8 +164,12 @@ public:
 		scope(success) 
 			processException();
 
+		if (m_writer != Task())
+			m_writer.interrupt();
 		m_tls_channel.close();
 		m_tcp_conn.flush();
+		if (m_reader != Task())
+			m_reader.join();
 	}
 
 	void write(InputStream stream, ulong nbytes) { processException(); writeDefault(stream, nbytes); }
@@ -301,16 +314,22 @@ private:
 		
 		size_t len = std.algorithm.min(m_tcp_conn.leastSize(), buf.length);
 		if (len == 0) return null;
+		m_reader = Task.getThis();
+		scope(exit) m_reader = Task();
 		m_tcp_conn.read(buf[0 .. len]);
 		return buf[0 .. len];
 	}
 
 	void onWrite(in ubyte[] src) {	
 		mixin(STrace);
+		m_writer = Task.getThis();
+		scope(exit) m_writer = Task();
 		//logDebug("Write: %s", src);
 		m_tcp_conn.write(src);
 	}
 
+	Task m_reader;
+	Task m_writer;
 }
 
 class BotanTLSContext : TLSContext {
@@ -328,6 +347,8 @@ private:
 	void* m_userData;
 	bool m_is_datagram;
 	bool m_cert_checked;
+	void delegate(scope TLSStream) m_before_handshake;
+	void delegate(scope TLSStream) m_after_handshake;
 
 	~this() {
 		if (m_owner != Thread.getThis()) return;
@@ -335,6 +356,16 @@ private:
 		if (m_policy !is gs_default_policy) m_policy.destroy();
 		m_offer_version.destroy();
 		//m_session_manager.destroy();
+	}
+
+	void onBeforeHandshake(scope TLSStream tls_stream) {
+		if (m_before_handshake)
+			m_before_handshake(tls_stream);
+	}
+
+	void onAfterHandshake(scope TLSStream tls_stream) {
+		if (m_after_handshake)
+			m_after_handshake(tls_stream);
 	}
 
 public:
@@ -406,6 +437,14 @@ public:
 		m_clientOffers.clear();
 		foreach (alpn; alpn_list)
 			m_clientOffers ~= alpn.idup;
+	}
+
+	void setBeforeHandshake(void delegate(scope TLSStream) del) {
+		m_before_handshake = del;
+	}
+
+	void setAfterHandshake(void delegate(scope TLSStream) del) {
+		m_after_handshake = del;
 	}
 
 	/** Creates a new stream associated to this context.

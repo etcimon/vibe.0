@@ -42,7 +42,10 @@ class LimitedInputStream : InputStream {
 	/// The stream that is wrapped by this one
 	@property inout(InputStream) sourceStream() inout { return m_input; }
 
-	@property bool empty() { return m_silentLimit ? m_input.empty : (m_sizeLimit == 0); }
+	@property bool empty() { auto is_empty = m_silentLimit ? m_input.empty : (m_sizeLimit == 0); 
+		import vibe.core.log; import std.conv : to;
+		return is_empty;
+	}
 
 	@property ulong leastSize() { if( m_silentLimit ) return m_input.leastSize; return m_sizeLimit; }
 
@@ -204,6 +207,7 @@ class EndCallbackInputStream : InputStream {
 
 	private void checkEOF()
 	{
+		import vibe.core.log;
 		if( !m_in ) return;
 		if( m_in.empty ){
 			m_in = null;

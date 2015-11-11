@@ -493,6 +493,7 @@ final class HTTPClient {
 	*/
 	void disconnect(bool rst_stream = true, string reason = "", bool notify = false)
 	{
+
 		mixin(Trace);
 		m_state.responding = false;
 		if (!m_conn) return;
@@ -585,7 +586,7 @@ final class HTTPClient {
 			HTTPMethod req_method;
 			processRequest(requester, req_method, keepalive);
 			m_state.responding = true;
-			res = new HTTPClientResponse(this, req_method, keepalive);
+			res = new HTTPClientResponse(this, req_method, keepalive, true);
 
 			handleRedirect();
 		} while(m_state.redirecting && m_settings.maxRedirects > m_state.redirects);
@@ -669,7 +670,6 @@ private:
 	{
 		mixin(Trace);
 		// fixme: Close HTTP/2 session when a response is not handled properly?
-
 		m_state.responding = true;
 		scope(exit) m_state.responding = false;
 		logTrace("Processing response");
@@ -698,13 +698,9 @@ private:
 				}
 			} else res.dropBody();
 			if (m_state.responding) {
-				logDebug("Failed to handle the complete response of the server - disconnecting.");
+				logError("Failed to handle the complete response of the server - disconnecting.");
 				res.disconnect();
 			}
-			assert(!m_state.responding, "Still in responding state after finalizing the response!?");
-			
-			if (!isHTTP2Started && res.headers.get("Connection") == "close")
-				disconnect();
 		}
 		if (user_exception) throw user_exception;
 	}
@@ -1196,6 +1192,7 @@ final class HTTPClientResponse : HTTPResponse {
 		Allocator m_alloc;
 		bool m_keepAlive;
 		bool m_finalized;
+		bool m_is_owner;
 		int m_maxRequests = int.max;
 	}
 
@@ -1225,7 +1222,7 @@ final class HTTPClientResponse : HTTPResponse {
 	}
 
 	/// private
-	this(HTTPClient client, HTTPMethod req_method, ref bool keepalive)
+	this(HTTPClient client, HTTPMethod req_method, ref bool keepalive, bool is_owner = false)
 	{
 		version (VibeManualMemoryManagement) {
 			m_alloc = new PoolAllocator(1024, defaultAllocator());
@@ -1233,7 +1230,7 @@ final class HTTPClientResponse : HTTPResponse {
 
 		m_client = client;
 		m_keepAlive = keepalive;
-
+		m_is_owner = is_owner;
 		scope(failure) finalize(true);
 		scope(exit) if (!expectBody(req_method)) finalize();
 
@@ -1528,8 +1525,9 @@ final class HTTPClientResponse : HTTPResponse {
 	*/
 	void disconnect(string reason = "")
 	{
-		if (m_client && m_client.isHTTP2Started)
+		if (m_client && m_client.isHTTP2Started) {
 			m_client.disconnect(false, reason);
+		}
 		else finalize(false);
 	}
 
@@ -1551,10 +1549,11 @@ final class HTTPClientResponse : HTTPResponse {
 		destroy(m_gzipInputStream);
 		destroy(m_chunkedInputStream);
 		destroy(m_limitedInputStream);
-		if (!keepalive || cli.isHTTP2Started) cli.disconnect();
+		if (!keepalive || cli.isHTTP2Started || (!cli.isHTTP2Started && headers.get("Connection") == "close")) 
+			cli.disconnect();
 		if (m_endCallback.get() !is null) m_endCallback.drop();
 		//destroy(m_bodyReader); this is endCallback, could end up making an infinite loop
-		destroy(lockedConnection);
+		if (m_is_owner) destroy(lockedConnection);
 		if (auto alloc = cast(PoolAllocator) m_alloc)
 			alloc.reset();
 		m_alloc = null;
