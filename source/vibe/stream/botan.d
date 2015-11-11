@@ -101,7 +101,7 @@ public:
 		if (state == TLSStreamState.accepting)
 		{
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
-			m_server_info = TLSServerInformation(peer_name, peer_address.port);
+			m_server_info = TLSServerInformation(peer_address.toAddressString(), peer_address.port);
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
 		
 		}

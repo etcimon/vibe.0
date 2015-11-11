@@ -1827,7 +1827,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 				tcp_conn.write("HTTP/1.1 497 HTTP to HTTPS\r\nContent-Length: 91\r\n\r\n497 HTTP to HTTPS\n\nThis page requires a secured connection. Please use https:// in the URL.");
 				return;
 			}
-			tls_stream = createTLSStream(tcp_conn, listen_info.tlsContext, TLSStreamState.accepting, tcp_conn.peerAddress, tcp_conn.remoteAddress);
+			tls_stream = createTLSStream(tcp_conn, listen_info.tlsContext, TLSStreamState.accepting, tcp_conn.remoteAddress.toAddressString(), tcp_conn.remoteAddress);
 		}
 		if (has_vhosts) {
 			logDebug("got user data: %s", cast(void*)tls_stream.getUserData());
