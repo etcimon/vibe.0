@@ -369,8 +369,14 @@ final class ThreadedFileStream : FileStream {
 		m_ownFD = false;
 	}
 
+	ulong m_lastSeek;
+	int m_same_seek_count;
 	void seek(ulong offset)
 	{
+		if (m_lastSeek == offset) {
+			enforce(++m_same_seek_count < 3, "Infinite loop detected.");
+		} else m_same_seek_count = 0;
+		m_lastSeek = offset;
 		enforce(.lseek(m_fileDescriptor, offset, SEEK_SET) == offset, "Failed to seek in file.");
 		m_ptr = offset;
 	}

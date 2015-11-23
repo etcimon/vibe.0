@@ -189,6 +189,7 @@ auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientS
 		s_connections.put(tuple(ckey, pool));
 	}
 	auto conn = pool.lockConnection();
+	enforce(conn.__conn !is null, "Could not lock connection");
 	if (conn.isHTTP2Started) {
 		logTrace("Lock http/2 connection pool");
 		return conn.lockConnection();
@@ -391,22 +392,23 @@ final class HTTPClient {
 		m_state.responding = false;
 		if (m_settings.proxyURL.schema !is null){
 			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
+			NetworkAddress peerAddr = resolveHost(m_conn.server);
 			proxyAddr.port = m_settings.proxyURL.port;
-
 			// we connect to the proxy directly
 			m_conn.tcp = connectTCP(proxyAddr);
 			if (m_settings.proxyURL.schema == "https" && !m_conn.forceTLS)
-				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, proxyAddr);
+				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, peerAddr);
 			else if (m_conn.forceTLS) {
 				import std.base64 : Base64;
+				//logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
 				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
 				if (m_settings.proxyURL.username)
 					m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
 				m_conn.tcp.write("\r\n\r\n");
 				auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
-				//logDebug("Got connect response: %s", cast(string)payload);
-				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, proxyAddr);
-				//logDebug("TLS Stream created");
+				//logTrace("Got connect response: %s", cast(string)payload);
+				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
+				//logTrace("TLS Stream created");
 			}
 		}
 		else // connect to the requested server/port
@@ -1239,8 +1241,9 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforceEx!ConnectionClosedException(client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
+			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
 			import std.algorithm : canFind;
+			enforce(client.topStream !is null && client.topStream.connected);
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')
 			{

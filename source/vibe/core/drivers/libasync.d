@@ -1254,9 +1254,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			if (!connected) {
 				return 0;
 			}
-			m_settings.reader.noExcept = true;
 			getDriverCore().yieldForEvent();
-			m_settings.reader.noExcept = false;
 		}
 		return (m_slice.length > 0) ? m_slice.length : m_readBuffer.length;
 	}
@@ -1308,9 +1306,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				onRead();
 			else {
 				//logTrace("Yielding for event in waitForData, waiting? %s", m_settings.reader.isWaiting);
-				m_settings.reader.noExcept = true;
 				getDriverCore().yieldForEvent();
-				m_settings.reader.noExcept = false;
 				logTrace("Unyielded");
 			}
 			if (timeout != Duration.max && !_driver.isTimerPending(tm)) {
@@ -1356,8 +1352,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				if (m_mustRecv)
 					onRead();
 				else {
-					getDriverCore().yieldForEvent();
-					checkConnected();
+					getDriverCore().yieldForEvent(); //wait for data...
 				}
 			}
 			size_t amt = min(dst.length, m_readBuffer.length);
@@ -1586,7 +1581,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		bool hasUniqueWriter = m_settings.writer.isWaiting && reader != writer;
 
 		if (hasUniqueReader && Task.getThis() != reader && wake_ex) {
-			getDriverCore().resumeTask(reader, m_settings.reader.noExcept?null:ex);
+			getDriverCore().resumeTask(reader, null);
 		}
 		if (hasUniqueWriter && Task.getThis() != writer && wake_ex) {
 			getDriverCore().resumeTask(writer, ex);
@@ -1662,7 +1657,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	struct Waiter {
 		Task task; // we can only have one task waiting for read/write operations
 		bool isWaiting; // if a task is actively waiting
-		bool noExcept;
 	}
 	
 	struct Settings {

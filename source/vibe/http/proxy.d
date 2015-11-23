@@ -128,6 +128,8 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				}
 				if ("Content-Length" in res.headers)
 					res.headers.remove("Content-Length");
+				if ("Transfer-Encoding" in res.headers)
+					res.headers.remove("Transfer-Encoding");
 				res.writeVoidBody();
 				return;
 			}

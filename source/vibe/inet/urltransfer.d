@@ -109,7 +109,7 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 		while( !input.empty ){
 			size_t chunk = min(input.leastSize, buffer.length);
-			assert(chunk > 0, "leastSize returned zero for non-empty stream.");
+			enforce(chunk > 0, "leastSize returned zero for non-empty stream.");
 			//logTrace("read pipe chunk %d", chunk);
 			ulong bytes_start;
 			StopWatch sw;
