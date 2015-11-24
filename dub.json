@@ -38,7 +38,7 @@
 		{
 			"name": "libasync_botan_win32",
 			"dependencies": { 
-				"botan": {"version": "~>1.12.0" },
+				"botan": {"version": "~>1.12.3" },
 				"libasync": {"version": "~>0.7.7" }
 			},
 			"dflags-windows-x86": ["-m32mscoff"],

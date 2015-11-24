@@ -219,7 +219,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 			HeaderField[] headers;
 
-			
+			SysTime last_write;
+
 			string toString() {
 				import std.array;
 				Appender!string app;
@@ -946,7 +947,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 					m_session.get().consumeConnection(m_rx.bufs.length);
 				m_rx.free();
 			}
-			SysTime ref_time = Clock.currTime();
+			m_tx.last_write = Clock.currTime(UTC());
 			while (!m_tx.finalized && connected) {
 				dirty();
 				m_rx.waitingStreamExit = true;
@@ -954,10 +955,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				m_rx.signal.wait(20.seconds, m_rx.signal.emitCount);
 				m_rx.dataSignalRaised = false;
 				m_rx.waitingStreamExit = false;
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 20.seconds) {
-					m_tx.close = true;
-				}
-				if ((!m_tx.bufs || m_tx.bufs.length == 0) && Clock.currTime() - ref_time > 20.seconds) {
+				if (!m_tx.finalized && connected && Clock.currTime(UTC()) - m_tx.last_write > 20.seconds) {
 					m_session.stop("Finalization error");
 					return;
 				}
@@ -1172,6 +1170,7 @@ private:
 		// this function may be called many times for a single send operation		
 		Buffers bufs = m_tx.bufs;
 		int wlen;
+		scope(exit) { if (wlen > 0) m_tx.last_write = Clock.currTime(UTC()); }
 		if (bufs.length > 0) {
 			Buffers.Chain c;
 			int i;

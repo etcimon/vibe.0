@@ -1589,25 +1589,25 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	void onConnect() {
-		scope(failure) onClose();
-
+		bool failure;
 		if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected)
 		{
 			bool inbound = m_tcpImpl.conn.inbound;
 
 			try m_settings.onConnect(this); 
 			catch ( ConnectionClosedException e) {
-				throw e;
+				failure = true;
 			}
 			catch ( Exception e) {
 				logError("%s", e.toString);
-				throw e;
+				failure = true;
 			}
 			catch ( Throwable e) {
 				logError("Fatal error: %s", e.toString);
-				throw e;
+				failure = true;
 			}
 			if (inbound) close();
+			else if (failure) onClose();
 		}
 		logTrace("Finished callback");
 	}
