@@ -279,8 +279,10 @@ public:
 
 private:
 	void onAlert(in TLSAlert alert, in ubyte[] data) {
-		if (alert.isFatal)
-			m_ex = new Exception("Fatal TLS Alert Received: " ~ alert.typeString());
+		if (alert.isFatal) {
+			m_tcp_conn.close();
+			m_ex = new ConnectionClosedException("Fatal TLS Alert Received: " ~ alert.typeString());
+		}
 		if (m_alert_cb)
 			m_alert_cb(alert, data);
 	}

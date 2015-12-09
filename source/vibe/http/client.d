@@ -189,6 +189,7 @@ auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientS
 		s_connections.put(tuple(ckey, pool));
 	}
 	auto conn = pool.lockConnection();
+	conn.m_state.responding = false;
 	enforce(conn.__conn !is null, "Could not lock connection");
 	if (conn.isHTTP2Started) {
 		logTrace("Lock http/2 connection pool");
@@ -414,11 +415,21 @@ final class HTTPClient {
 		else // connect to the requested server/port
 		{
 			logTrace("Connect without proxy");
-			m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
-			if (m_conn.tlsContext) {
-				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, m_conn.tcp.remoteAddress);
-				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+			int i;
+			do {
+				if (i > 0) sleep(500.msecs);
+				m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
+				if (m_conn.tlsContext) {
+					try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, m_conn.tcp.remoteAddress);
+					catch (Exception e) {
+						import std.algorithm : countUntil;
+						enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
+						throw e;
+					}
+					logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+				}
 			}
+			while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 2);
 		}
 		enforce(m_conn.tcp !is null, "Connection failed");
 		if (m_settings.http2.pingInterval != Duration.zero) {
@@ -560,13 +571,11 @@ final class HTTPClient {
 		mixin(Trace);
 
 		validateConnection();
-
 		do {
 			bool keepalive;
 			HTTPMethod req_method;
 			processRequest(requester, req_method, keepalive);
 			processResponse(responder, req_method, keepalive);
-
 			handleRedirect();
 
 			if (!keepalive)

@@ -79,7 +79,8 @@ final class LibasyncDriver : EventDriver {
 		Thread m_ownerThread;
 		AsyncTimer m_timerEvent;
 		TimerQueue!TimerInfo m_timers;
-		SysTime m_nextSched;
+		SysTime m_nextSched = SysTime.max;
+		shared AsyncSignal m_exitSignal;
 
 		@property bool exitFlag() {
 			// accomodate Windows Services
@@ -113,8 +114,15 @@ final class LibasyncDriver : EventDriver {
 		m_ownerThread = Thread.getThis();
 		s_driverCore = core;
 		s_evLoop = getThreadEventLoop();
+
 		if (!gs_evLoop)
 			gs_evLoop = s_evLoop;
+
+		m_exitSignal = new shared AsyncSignal(getEventLoop());
+		m_exitSignal.run({
+				m_break = true;
+			});
+
 		logTrace("Loaded libasync backend in thread %s", Thread.getThis().name);
 
 	}
@@ -132,7 +140,7 @@ final class LibasyncDriver : EventDriver {
 	
 	int runEventLoop()
 	{
-		while(!exitFlag && getEventLoop().loop(1.seconds)){
+		while(!exitFlag && getEventLoop().loop(int.max.msecs)){
 			logTrace("Regular loop");
 			processTimers();
 			getDriverCore().notifyIdle();
@@ -144,7 +152,7 @@ final class LibasyncDriver : EventDriver {
 	
 	int runEventLoopOnce()
 	{
-		getEventLoop().loop(0.seconds);
+		getEventLoop().loop(int.max.msecs);
 		//logTrace("runEventLoopOnce");
 		processTimers();
 		getDriverCore().notifyIdle();
@@ -167,7 +175,7 @@ final class LibasyncDriver : EventDriver {
 	void exitEventLoop()
 	{
 		logInfo("Exiting (%s)", exitFlag);
-		m_break = true;
+		m_exitSignal.trigger();
 	}
 
 	version(Windows)
@@ -411,7 +419,7 @@ final class LibasyncDriver : EventDriver {
 	private void processTimers()
 	{
 		if (!m_timers.anyPending) return;
-
+		m_nextSched = SysTime.max;
 		// process all timers that have expired up to now
 		auto now = Clock.currTime(UTC());
 
@@ -438,7 +446,7 @@ final class LibasyncDriver : EventDriver {
 		//logTrace("Rescheduling timer event %s", Task.getThis());
 
 		// don't bother scheduling, the timers will be processed before leaving for the event loop
-		if (m_nextSched <= Clock.currTime())
+		if (m_nextSched <= Clock.currTime(UTC()))
 			return;
 		bool first;
 		auto next = m_timers.getFirstTimeout();
@@ -447,6 +455,7 @@ final class LibasyncDriver : EventDriver {
 		dur = next - now;
 		if (m_nextSched != next)
 			m_nextSched = next;
+		else return;
 		if (dur.total!"seconds"() >= int.max)
 			return; // will never trigger, don't bother
 		if (!m_timerEvent) {

@@ -191,7 +191,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				return;
 			}
 			catch (Exception e) {
-				logError("Proxy error: %s", e.msg);
+				logError("Proxy error: %s", e.toString());
 			}
 			failed++;
 			import std.datetime : msecs;
