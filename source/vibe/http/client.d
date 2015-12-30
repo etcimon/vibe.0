@@ -1250,9 +1250,9 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.leastSize() > 0, "Response stream closed while reading HTTP status code");
+			enforceEx!TimeoutException(client.topStream !is null && client.topStream.waitForData(10.seconds), "Response stream timed out while reading HTTP status code");
 			import std.algorithm : canFind;
-			enforce(client.topStream !is null && client.topStream.connected);
+			enforce(client.topStream !is null);
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')
 			{

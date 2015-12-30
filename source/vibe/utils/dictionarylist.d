@@ -72,8 +72,8 @@ struct DictionaryList(VALUE, bool case_sensitive = true, size_t NUM_STATIC_FIELD
 			m_fieldCount--;
 		} else {
 			idx = getIndex(m_extendedFields, key, keysum);
-			enforce(idx >= 0);
-			removeFromArrayIdx(m_extendedFields, idx);
+			if (idx >= 0)
+				removeFromArrayIdx(m_extendedFields, idx);
 		}
 	}
 

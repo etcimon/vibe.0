@@ -29,6 +29,7 @@ import libhttp2.buffers;
 import libhttp2.frame;
 import libhttp2.constants;
 import libhttp2.helpers;
+//import vibe.core.log:logDebug;
 
 import memutils.circularbuffer;
 import memutils.vector;
@@ -553,7 +554,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			else
 				cookie_jar.get(authority, path, scheme == "https", &cookieSinkIndividually);
 		}
-		logDebug("Cookie jar got ", cookie_arr.length, " concat: ", cookie_concat.length);
+		logDebug("Cookie jar got %d %s %d", cookie_arr.length, " concat: ", cookie_concat.length);
 		//int len = cast(int)( 2 /* :scheme :path */ + 1 /* :method */ + header.length + cookie_arr.length + (cookie_jar && cookie_concat?1:0) ) /* one per field for indexing */;
 		import std.array : Appender;
 		Appender!(HeaderField[]) headers;
@@ -1037,7 +1038,7 @@ private:
 		push_response.close(); // it is now the client stream
 		m_connected = true;
 		m_active = true;
-		logDebug("Destroy stream: ", push_response.streamId);
+		logDebug("Destroy stream: %d", push_response.streamId);
 		push_response.destroy();
 	}
 
@@ -1386,8 +1387,10 @@ final class HTTP2Session
 		options.setNoAutoWindowUpdate(true); // we will send them when reading the buffers, it's safer
 		options.setRecvClientPreface(true);
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
-		if (!is_server)
+		if (!is_server) {
+			enforce(topStream !is null, "Null stream");
 			topStream.write("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
+		}
 		m_session = new Session(is_server, m_connector, options);
 		scope(failure) m_session.destroy();
 		update(local_settings);
@@ -1485,7 +1488,7 @@ final class HTTP2Session
 	in { assert(isServer);}
 	body {
 		HTTP2Stream upgrade_stream = cast(HTTP2Stream) m_session.getStreamUserData(1);
-		logDebug("Get upgrade stream: ", cast(void*)upgrade_stream);
+		logDebug("Get upgrade stream: %s", (cast(void*)upgrade_stream).to!string);
 		return upgrade_stream;
 	}
 
@@ -1657,7 +1660,7 @@ private:
 	// The remote endpoint is gone
 	void remoteStop(FrameError error, string reason) {
 		if (m_tx.closed) return;
-		logDebug("HTTP/2: GoAway received: ", error, " reason: ", reason);
+		logDebug("HTTP/2: GoAway received: %s %s %s", error, " reason: ", reason);
 		m_closing = true;
 		m_forcedClose = true;
 		if (reason) 
@@ -1677,7 +1680,7 @@ private:
 	void handleRequest(int stream_id)
 	{
 		assert(!m_closing, "A new request is being handled while the session is trying to close");
-		logDebug("Handling new HTTP/2 request ID: ", stream_id);
+		logDebug("Handling new HTTP/2 request ID: %d", stream_id);
 		HTTP2Stream stream = new HTTP2Stream(this, stream_id, m_defaultChunkSize);
 		stream.m_connected = true;
 		ErrorCode ret = m_session.setStreamUserData(stream_id, cast(void*)stream);
@@ -1699,7 +1702,7 @@ private:
 	void onPushPromise(int stream_id)
 	in { assert(!isServer); }
 	body {
-		logDebug("Got push promise on stream ", stream_id); 
+		logDebug("Got push promise on stream %d", stream_id); 
 		HTTP2Stream stream;
 		foreach (HTTP2Stream el; m_pushResponses[])
 		{
@@ -1987,7 +1990,7 @@ private:
 				bool prispec_processed;
 				bool data_processed;
 
-				logDebug("Stream information: ", stream.toString()); 
+				logDebug("Stream information: %s", stream.toString()); 
 				if (!dirty) continue;
 				//if (finalized && isServer) close = true;
 				if (stream.m_rx.close)
@@ -2038,7 +2041,7 @@ private:
 							m_tx.pending.put(stream);
 							continue; // try again later
 						}
-						logDebug("HTTP/2: Submit push promise id ", stream.m_priSpec.stream_id);
+						logDebug("HTTP/2: Submit push promise id %d", stream.m_priSpec.stream_id);
 						int rv = submitPushPromise(m_session, stream.m_priSpec.stream_id, headers, cast(void*)stream);
 						if (rv < 0) {
 							HTTP2Stream parent = cast(HTTP2Stream)m_session.getStreamUserData(stream.m_priSpec.stream_id);
@@ -2052,7 +2055,7 @@ private:
 						if (isServer) {
 							// handle full server response
 							ErrorCode rv = submitResponse(m_session, stream.m_stream_id, headers, &stream.dataProvider);
-							logDebug("HTTP/2: Submit response id ", stream.m_stream_id);
+							logDebug("HTTP/2: Submit response id %d", stream.m_stream_id);
 							data_processed = true;
 							if (rv != ErrorCode.OK)
 								stream.m_rx.ex = new Exception("Error while submitting response: " ~ libhttp2.types.toString(rv));
@@ -2072,7 +2075,7 @@ private:
 								}
 								prispec_processed = true;
 								int stream_id = submitRequest(m_session, stream.m_tx.priSpec, headers, (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
-								logDebug("HTTP/2: Submit request id ", stream_id);
+								logDebug("HTTP/2: Submit request id %d", stream_id);
 								data_processed = true;
 								if (stream_id < 0) {
 									stream.m_rx.ex = new Exception("Error while submitting request: " ~ libhttp2.types.toString(cast(ErrorCode)stream_id));
@@ -2132,7 +2135,7 @@ private:
 								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers, cast(void*)stream);
 								if (rv < 0)
 									stream.m_rx.ex = new Exception("Error submitting headers: " ~ libhttp2.types.toString(cast(ErrorCode)rv));
-								logDebug("HTTP/2: Submit headers request id ", rv);
+								logDebug("HTTP/2: Submit headers request id %d", rv);
 								// clients can use the return type as a new stream ID
 								if (!isServer)
 									stream.streamId = rv; // client stream initiated!
@@ -2159,7 +2162,7 @@ private:
 						fflags = FrameFlags.END_STREAM;
 					}
 
-					logDebug("HTTP/2: Submit data id ", stream.m_stream_id);
+					logDebug("HTTP/2: Submit data id %d", stream.m_stream_id);
 					if (isServer) { // we will defer data until we're done, so we want EOF to indicate an end of stream.
 						close_processed = true;
 						fflags = FrameFlags.END_STREAM;
@@ -2192,7 +2195,7 @@ private:
 					prispec_processed = true;
 					stream.m_priSpec = priSpec;
 					priSpec = PrioritySpec.init;
-					logDebug("HTTP/2: Submit priority id ", stream.m_stream_id);
+					logDebug("HTTP/2: Submit priority id %d", stream.m_stream_id);
 					ErrorCode rv = submitPriority(m_session, stream.m_stream_id, stream.m_priSpec);
 					if (rv != ErrorCode.OK)
 						stream.m_rx.ex = new Exception("Could not send Priority Spec: " ~ rv.to!string);
@@ -2218,7 +2221,7 @@ private final class HTTP2Connector : Connector {
 	}
 
 	HTTP2Stream getStream(int stream_id) {
-		logDebug("HTTP/2: Get stream: ", stream_id);
+		logDebug("HTTP/2: Get stream: %d", stream_id);
 		if (stream_id == 0)
 			return null;
 
@@ -2236,7 +2239,7 @@ override:
 	bool onStreamExit(int stream_id, FrameError error_code)
 	{
 		HTTP2Stream stream = getStream(stream_id);
-		logDebug("Stream ID#", stream_id);
+		logDebug("Stream ID# %d", stream_id);
 		if (stream !is null) {
 			//logDebug(stream.toString());
 			stream.notifyClose(error_code);
@@ -2250,7 +2253,7 @@ override:
 		if ((stream && (frame.hd.flags & FrameFlags.END_HEADERS) != 0) ||
 			(stream && !stream.m_active && (frame.hd.flags & FrameFlags.END_STREAM) != 0)) {
 			//writeln(frame.hd.stream_id, " eh");
-			logDebug("End Headers ID#", stream.m_stream_id);
+			logDebug("End Headers ID#%d", stream.m_stream_id);
 			//if (!m_expectHeaderFields) writeln("Did not expect header fields when we got END_HEADERS flag");
 			m_expectHeaderFields = false;
 			// headers are complete
@@ -2315,7 +2318,7 @@ override:
 
 		if (hd.type == FrameType.PUSH_PROMISE)
 			m_session.onPushPromise(hd.stream_id);
-		logDebug("HTTP/2: On frame header stream: ", hd.stream_id); 
+		logDebug("HTTP/2: On frame header stream: %d", hd.stream_id); 
 		if (stream && stream.m_paused && stream.m_unpaused && !stream.m_rx.close && !stream.m_tx.close)
 		{
 			// resume stream
@@ -2337,7 +2340,7 @@ override:
 		if (frame.hd.type == FrameType.HEADERS) {
 			m_expectPushPromise = false;
 			if (frame.headers.cat == HeadersCategory.REQUEST) {
-				logDebug("Handling request stream ID#", frame.hd.stream_id);
+				logDebug("Handling request stream ID#%s", frame.hd.stream_id);
 				assert(!getStream(frame.hd.stream_id), "Creating stream twice");
 				if (m_session.m_closing) return false;
 				m_session.handleRequest(frame.hd.stream_id);
@@ -2366,8 +2369,8 @@ override:
 			hf_copy.value = cast(string)Mem.copy(hf.value);
 			//if (hf_copy.name == ":path") writeln(m_stream_id, " ", hf_copy.value);
 			stream.m_rx.headers ~= hf_copy;
-		} else logDebug("Empty header found: ", hf.name);
-		logDebug("Got response header: ", hf_copy); 
+		} else logDebug("Empty header found: %s", hf.name);
+		logDebug("Got response header: %s", hf_copy); 
 		return true;
 	}
 	
@@ -2450,7 +2453,7 @@ override:
 			if (stream) stream.destroy();
 		}
 		else if (frame.hd.type == FrameType.HEADERS) {
-			logDebug("Sending Headers ID#", frame.hd.stream_id);
+			logDebug("Sending Headers ID#%d", frame.hd.stream_id);
 		}
 		return true;
 	}

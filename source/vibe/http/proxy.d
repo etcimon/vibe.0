@@ -63,7 +63,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 	url.schema = settings.secure?"https":"http";
 	url.host = settings.destinationHost;
 	url.port = settings.destinationPort;
-
+	bool can_retry = true;
 	void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
 		mixin(Trace);
@@ -90,6 +90,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			else creq.headers["X-Forwarded-For"] = req.peer;
 			import vibe.data.json;
 			if (!req.bodyReader.empty) {
+				can_retry = false;
 				creq.bodyWriter.write(req.bodyReader);
 			}
 			else if (req.json.type != Json.Type.undefined) {
@@ -117,7 +118,8 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 
 			// copy the response to the original requester
 			res.statusCode = cres.statusCode;
-
+			if (can_retry && cres.statusCode == HTTPStatus.internalServerError && "Content-Length" in cres.headers)
+				enforce(cres.headers["Content-Length"] != "0", "Unhandled Exception");
 			// special case for empty response bodies
 			if (cres.isFinalized) {
 				foreach (key, value; cres.headers) {
@@ -146,6 +148,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				if ("Transfer-Encoding" in res.headers) res.headers.remove("Transfer-Encoding");
 				auto content = cres.bodyReader.readAll(1024*1024);
 				res.headers["Content-Length"] = to!string(content.length);
+				can_retry = false;
 				if (res.isHeadResponse) res.writeVoidBody();
 				else res.writeBody(content);
 				return;
@@ -161,6 +164,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				auto size = cres.headers["Content-Length"].to!size_t();
 				logDebug("Request was: %s", req.requestURL);
 				logDebug("Got headers: %s", cres.headers);
+				can_retry = false;
 				cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
 				if (!res.headerWritten) res.writeVoidBody();
 				return;
@@ -177,7 +181,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				}
 			}
 
-
+			can_retry = false;
 			if (!cres.bodyReader.empty)
 				res.bodyWriter.write(cres.bodyReader);
 			else
@@ -191,7 +195,9 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				return;
 			}
 			catch (Exception e) {
-				logError("Proxy error: %s", e.toString());
+				if (!can_retry) throw e;
+				else
+					logError("Proxy error: %s", e.toString());
 			}
 			failed++;
 			import std.datetime : msecs;

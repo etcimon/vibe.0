@@ -18,7 +18,7 @@ import vibe.inet.path;
 import libasync;
 import libasync.types : Status;
 
-import std.algorithm : min;
+import std.algorithm : min, max;
 import std.array;
 import std.encoding;
 import std.exception;
@@ -452,7 +452,7 @@ final class LibasyncDriver : EventDriver {
 		auto next = m_timers.getFirstTimeout();
 		Duration dur;
 		if (next == SysTime.max) return;
-		dur = next - now;
+		dur = max(1.msecs, next - now);
 		if (m_nextSched != next)
 			m_nextSched = next;
 		else return;
@@ -467,7 +467,7 @@ final class LibasyncDriver : EventDriver {
 		else {
 			logTrace("rearming the same timer instance for %d ms", dur.total!"msecs");
 			bool success = m_timerEvent.rearm(dur);
-			assert(success, "Failed to rearm timer");
+			assert(success, "Failed to rearm timer for: " ~ dur.total!"msecs".to!string ~ "ms :" ~ m_timerEvent.status.text ~ ": " ~ m_timerEvent.error);
 		}
 		//logTrace("Rescheduled timer event for %s seconds in thread '%s' :: task '%s'", dur.total!"usecs" * 1e-6, Thread.getThis().name, Task.getThis());
 	}
@@ -911,8 +911,9 @@ final class LibasyncManualEvent : ManualEvent {
 			logTrace("Looping signals. found: %d", ms_signals.length);
 			foreach (ref signal; ms_signals[]) {
 				auto evloop = getEventLoop();
+				logTrace("Got event loop: %s", cast(void*) evloop);
 				shared AsyncSignal sig = cast(shared AsyncSignal) signal;
-				if (!sig.trigger(evloop)) logError("Failed to trigger ManualEvent: %s", sig.error);
+				if (!sig.trigger(evloop)) logTrace("Failed to trigger ManualEvent: %s", sig.error);
 			}
 		}
 	}
@@ -987,7 +988,7 @@ final class LibasyncManualEvent : ManualEvent {
 		scope(exit) release();
 		auto ec = this.emitCount;
 		while( ec == reference_emit_count ){
-			//synchronized(m_mutex) logTrace("Waiting for event with signal count: " ~ ms_signals.length.to!string);
+			//synchronized(m_mutex) logTrace("Waiting for event %s with signal count: %d", (cast(void*)this).to!string, ms_signals.length);
 			static if (INTERRUPTIBLE) getDriverCore().yieldForEvent();
 			else getDriverCore().yieldForEventDeferThrow();
 			ec = this.emitCount;
@@ -1038,7 +1039,7 @@ final class LibasyncManualEvent : ManualEvent {
 		s_eventWaiters.reserve(maxID + 1);
 		logTrace("gs_maxID: %d", maxID);
 		foreach (i; s_eventWaiters.length .. s_eventWaiters.capacity) {
-			s_eventWaiters.insertBack(Vector!(Task, Malloc).init);
+			s_eventWaiters.insertBack(Vector!(Task, ThreadMem).init);
 		}
 	}
 
@@ -1856,7 +1857,7 @@ final class LibasyncUDPConnection : UDPConnection {
 
 /* The following is used for LibasyncManualEvent */
 
-Vector!(memutils.vector.Array!(Task, Malloc), Malloc) s_eventWaiters; // Task list in the current thread per instance ID
+Vector!(memutils.vector.Array!(Task, ThreadMem), ThreadMem) s_eventWaiters; // Task list in the current thread per instance ID
 __gshared Vector!(size_t, Malloc) gs_availID;
 __gshared size_t gs_maxID;
 __gshared core.sync.mutex.Mutex gs_mutex;

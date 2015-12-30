@@ -743,7 +743,7 @@ bool isCompressedFormat(string mimetype)
 	switch(mimetype){
 		default: return false;
 		case "application/gzip", "application/x-compress", "application/png", "application/zip",
-				"audio/x-mpeg", "image/png", "image/jpeg",
+				"audio/x-mpeg", "image/png", "image/jpeg", "video/mp4",
 				"video/mpeg", "video/quicktime", "video/x-msvideo",
 				"application/font-woff", "application/x-font-woff", "font/woff", "application/font-woff2":
 			return true;

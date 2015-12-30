@@ -1034,8 +1034,8 @@ private class CoreTask : TaskFiber {
 
 	private void run()
 	{
-		//alias UncaughtException = Throwable;
-		alias UncaughtException = Exception;
+		alias UncaughtException = Throwable;
+		//alias UncaughtException = Exception;
 		try {
 			while(true){
 				while (!m_taskFunc.func) {

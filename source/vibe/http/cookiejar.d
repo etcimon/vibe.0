@@ -140,6 +140,7 @@ public:
 			auto touch = openFile(path, FileMode.createTrunc);
 			touch.close();
 		}
+		cleanup();
 		//logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
 	}
 

@@ -78,41 +78,12 @@ void runTest()
 		assert(db.smembers("test1").empty);
 		assert(db.smembers("test2").empty);
 		assert(!db.smembers("test1").hasNext());
+		db.del("test11");
+		runTask({ sleep(5.seconds); db.lpush("test11", "wazzaaa"); });
+		logInfo("blpop: %s", db.blpop!(RedisReply!string)("test11",12));
+		logInfo("lpop: %s", db.lpop!string("test11") is null);
 	}
 	
-	testLocking(redis.getDatabase(0));
-	
-	RedisSubscriber sub;
-	{
-		RedisSubscriber scoped = redis.createSubscriber();
-		sub = scoped;
-	}
-	import std.datetime;
-	
-	assert(!sub.isListening);
-	sub.listen((string channel, string msg){
-		import std.conv : to;
-		logInfo("LISTEN Recv Channel: %s, Message: %s", channel.to!string, msg.to!string);
-		logInfo("LISTEN Recv Time: %s", Clock.currTime().toString());
-	});
-	assert(sub.isListening);
-	sub.subscribe("SomeChannel");
-	sub.subscribe("SomeChannel");
-	sub.subscribe("SomeChannel");
-	sleep(100.msecs);
-	
-	redis.getDatabase(0).publish("SomeChannel", "Messageeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-	
-	logInfo("PUBLISH Sent: %s", Clock.currTime().toString());
-	sleep(100.msecs);
-	
-	sub.unsubscribe("SomeChannel");
-	sub.unsubscribe("SomeChannel");
-	sub.unsubscribe("SomeChannel");
-	sub.bstop();
-	logInfo("LISTEN Stopped");
-	assert(!sub.isListening);
-	redis.getDatabase(0).publish("SomeChannel", "Messageeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 	logInfo("Redis Test Succeeded.");
 }
 
