@@ -1201,6 +1201,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	// Using this setting completely disables the internal buffers as well
 	@property void tcpNoDelay(bool enabled)
 	{
+		if (!conn) return;
 		m_settings.tcpNoDelay = enabled;
 		conn.setOption(TCPOption.NODELAY, enabled);
 	}

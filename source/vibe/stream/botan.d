@@ -85,7 +85,11 @@ public:
 		// todo: add service name?
 		m_server_info = TLSServerInformation(peer_name, peer_address.port);
 		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
-		try m_tls_channel.doHandshake();
+		try {
+			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = true;
+			m_tls_channel.doHandshake();
+			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = false;
+		}
 		catch(Exception e) {
 			m_ex = e;
 		}
@@ -118,7 +122,9 @@ public:
 		}
 		try {
 			m_ctx.onBeforeHandshake(cast(TLSStream)this);
+			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = true;
 			m_tls_channel.doHandshake();
+			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = false;
 			m_ctx.onAfterHandshake(cast(TLSStream)this);
 		}
 		catch(Exception e) {

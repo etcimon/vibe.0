@@ -1373,6 +1373,9 @@ final class HTTP2Session
 		m_owner = Thread.getThis();
 		m_server = is_server;
 		m_requestHandler = handler;
+
+		if (conn)
+			conn.tcpNoDelay = true;
 		m_tcpConn = conn;
 		m_tlsStream = tls;
 		m_defaultStreamWindowSize = local_settings.streamWindowSize;
@@ -1406,6 +1409,9 @@ final class HTTP2Session
 	{
 		m_owner = Thread.getThis();
 		m_server = true;
+
+		if (conn)
+			conn.tcpNoDelay = true;
 		m_tcpConn = conn;
 		m_requestHandler = handler;
 		m_defaultStreamWindowSize = local_settings.streamWindowSize;
@@ -1444,6 +1450,8 @@ final class HTTP2Session
 	{
 		m_owner = Thread.getThis();
 		m_server = false;
+		if (conn)
+			conn.tcpNoDelay = true;
 		m_tcpConn = conn;
 		m_defaultStreamWindowSize = local_settings.streamWindowSize;
 		m_defaultChunkSize = local_settings.chunkSize;
