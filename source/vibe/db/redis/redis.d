@@ -911,6 +911,8 @@ final class RedisSubscriberImpl {
 			catch (Exception e) {
 				throw new Exception(format("Failed to connect to Redis server at %s:%s.", m_lockedConnection.m_host, m_lockedConnection.m_port), __FILE__, __LINE__, e);
 			}
+			if (m_lockedConnection.conn)
+				m_lockedConnection.conn.tcpNoDelay = true;
 			
 			m_lockedConnection.setAuth(m_client.m_authPassword); 
 			m_lockedConnection.setDB(m_client.m_selectedDB);
@@ -1478,6 +1480,8 @@ private void _request_void(ARGS...)(RedisConnection conn, string command, scope 
 		catch (Exception e) {
 			throw new Exception(format("Failed to connect to Redis server at %s:%s.", conn.m_host, conn.m_port), __FILE__, __LINE__, e);
 		}
+		if (conn.conn)
+			conn.conn.tcpNoDelay = true;
 	}
 
 	auto nargs = conn.countArgs(args);
@@ -1495,6 +1499,8 @@ private RedisReply!T _request_reply(T = ubyte[], ARGS...)(RedisConnection conn, 
 		catch (Exception e) {
 			throw new Exception(format("Failed to connect to Redis server at %s:%s.", conn.m_host, conn.m_port), __FILE__, __LINE__, e);
 		}
+		if (conn.conn)
+			conn.conn.tcpNoDelay = true;
 	}
 
 	auto nargs = conn.countArgs(args);
