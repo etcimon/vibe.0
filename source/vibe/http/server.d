@@ -163,7 +163,10 @@ private void listenHTTPPlain(HTTPServerSettings settings)
 	{
 		try {
 			bool dist = (settings.options & HTTPServerOption.distribute) != 0;
-			listenTCP(settings.port, (TCPConnection conn){ handleHTTPConnection(conn, g_listeners[listener_idx]); }, addr, dist ? TCPListenOptions.distribute : TCPListenOptions.defaults);
+			TCPListenOptions listen_options = dist ? TCPListenOptions.distribute : TCPListenOptions.defaults;
+			if (settings.tcpNoDelay)
+				listen_options |= TCPListenOptions.tcpNoDelay;
+			listenTCP(settings.port, (TCPConnection conn){ handleHTTPConnection(conn, g_listeners[listener_idx]); }, addr, listen_options);
 			logInfo("Listening for HTTP%s requests on %s:%s", settings.tlsContext ? "S" : "", addr, settings.port);
 			return true;
 		} catch( Exception e ) {
@@ -598,6 +601,8 @@ final class HTTPServerSettings {
 		}
 		return ret;
 	}
+	/// Disables nagle's algorithm on incoming connections automatically
+	bool tcpNoDelay = false;
 
 	/// Disable support for HTTP/2 connection handling
 	bool disableHTTP2 = false;
