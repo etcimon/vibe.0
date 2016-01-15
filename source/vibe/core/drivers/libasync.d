@@ -321,10 +321,11 @@ final class LibasyncDriver : EventDriver {
 		rearmTimer(tm, 30.seconds, false);
 
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
-		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) 
+		while (!tcp_connection.connected && tcp_connection.m_tcpImpl.conn !is null 
+			&& tcp_connection.m_tcpImpl.conn.status.code == Status.ASYNC && !tcp_connection.m_error && isTimerPending(tm)) 
 			getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
-		enforceEx!TimeoutException(tcp_connection.connected || isTimerPending(tm), "Could not connect within 30 seconds");
+		enforceEx!ConnectionClosedException(tcp_connection.connected, "Could not connect");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
