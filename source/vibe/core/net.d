@@ -314,6 +314,8 @@ enum TCPListenOptions {
 	distribute = 1<<0,
 	/// Disables automatic closing of the connection when the connection callback exits
 	disableAutoClose = 1<<1,
+	/// Disables nagle's algorithm automatically on new connections
+	tcpNoDelay = 1<<2
 }
 
 private pure nothrow {

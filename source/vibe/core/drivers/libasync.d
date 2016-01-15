@@ -321,10 +321,11 @@ final class LibasyncDriver : EventDriver {
 		rearmTimer(tm, 30.seconds, false);
 
 		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
-		while (!tcp_connection.connected && !tcp_connection.m_error && isTimerPending(tm)) 
+		while (!tcp_connection.connected && tcp_connection.m_tcpImpl.conn !is null 
+			&& tcp_connection.m_tcpImpl.conn.status.code == Status.ASYNC && !tcp_connection.m_error && isTimerPending(tm)) 
 			getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
-		enforceEx!TimeoutException(tcp_connection.connected || isTimerPending(tm), "Could not connect within 30 seconds");
+		enforceEx!ConnectionClosedException(tcp_connection.connected, "Could not connect");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1076,10 +1077,12 @@ final class LibasyncTCPListener : TCPListener {
 		m_connectionCallback = connection_callback;
 		m_options = options;
 		m_local = addr;
-		void function(shared LibasyncTCPListener) init = (shared LibasyncTCPListener ctxt){
+		void function(shared LibasyncTCPListener, shared TCPListenOptions) init = (shared LibasyncTCPListener ctxt, shared TCPListenOptions _options){
 			synchronized(ctxt) {
 				LibasyncTCPListener ctxt2 = cast(LibasyncTCPListener)ctxt;
 				AsyncTCPListener listener = new AsyncTCPListener(getEventLoop(), ctxt2.socket);
+				if ((cast(TCPListenOptions)_options) & TCPListenOptions.tcpNoDelay)
+					listener.noDelay = true;
 				listener.local = ctxt2.m_local;
 
 				enforce(listener.run(&ctxt2.initConnection), "Failed to start listening to local socket: " ~ listener.error);
@@ -1087,8 +1090,8 @@ final class LibasyncTCPListener : TCPListener {
 				ctxt2.m_listeners ~= listener;
 			}
 		};
-		if (options & TCPListenOptions.distribute)	runWorkerTaskDist(init, cast(shared) this);
-		else init(cast(shared) this);
+		if (options & TCPListenOptions.distribute)	runWorkerTaskDist(init, cast(shared) this, cast(shared) options);
+		else init(cast(shared) this, cast(shared) options);
 
 	}
 	
