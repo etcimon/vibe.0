@@ -833,7 +833,6 @@ private:
 			m_conn.rearmKeepAlive();
 			return;
 		}
-
 		disconnect(false, "Keep-alive Timeout");
 	}
 
@@ -1250,9 +1249,10 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.isHTTP2Started) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforceEx!TimeoutException(client.topStream !is null && client.topStream.waitForData(10.seconds), "Response stream timed out while reading HTTP status code");
+			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
+			enforceEx!TimeoutException(client.topStream.waitForData(11.seconds), "Response stream timed out while reading HTTP status code");
 			import std.algorithm : canFind;
-			enforce(client.topStream !is null);
+			enforceEx!ConnectionClosedException(client.topStream !is null, "Response stream not active");
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')
 			{
