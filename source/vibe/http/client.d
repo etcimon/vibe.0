@@ -1246,7 +1246,7 @@ final class HTTPClientResponse : HTTPResponse {
 
 		m_client.m_conn.rearmKeepAlive();
 		bool is_upgrade = m_client.canUpgradeHTTP2;
-		if (!m_client.isHTTP2Started) {
+		if (!m_client.m_http2Context || !m_client.m_http2Context.isValidated || !m_client.m_http2Context.isSupported) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
 			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
@@ -1281,13 +1281,16 @@ final class HTTPClientResponse : HTTPResponse {
 				m_client.finalizeHTTP2Upgrade(upgrade_hd);
 			}
 		}
-
-		if (m_client.isHTTP2Started) {
+		else if (m_client.isHTTP2Started) {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
 			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
 			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); return; }
 			this.statusPhrase = httpStatusText(this.statusCode);
+		}
+		else {
+			disconnect("Invalid Connection");
+			throw new ConnectionClosedException("Could not validate HTTP/2 connection");
 		}
 
 		void saveCookie(string value) {

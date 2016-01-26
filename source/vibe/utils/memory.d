@@ -29,7 +29,7 @@ Allocator defaultAllocator() nothrow
 		if( !alloc ){
 			alloc = new GCAllocator;
 			//alloc = new AutoFreeListAllocator(alloc);
-			//alloc = new DebugAllocator(alloc);
+			//alloc = new DebugAllocator(alloc); // doesnt work
 			//alloc = new LockAllocator(alloc);
 		}
 		return alloc;
@@ -43,7 +43,7 @@ Allocator manualAllocator() nothrow
 		alloc = new MallocAllocator;
 		alloc = new AutoFreeListAllocator(alloc);
 		alloc = new LockAllocator(alloc);
-		//alloc = new DebugAllocator(alloc);
+		version(VibeNoDebug){} else alloc = new DebugAllocator(alloc);
 	}
 	return alloc;
 }
