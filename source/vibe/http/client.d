@@ -416,6 +416,7 @@ final class HTTPClient {
 		{
 			logTrace("Connect without proxy");
 			int i;
+			int j;
 			do {
 				if (i > 0) sleep(500.msecs);
 				m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
@@ -425,6 +426,10 @@ final class HTTPClient {
 						import std.algorithm : countUntil;
 						enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
 						throw e;
+					}
+					if (!m_conn.tlsStream.connected) {
+						m_conn.tcp.close();
+						m_conn.tcp = null;
 					}
 					logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 				}

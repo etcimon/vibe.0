@@ -33,7 +33,7 @@ private:
 	// todo: UDPConnection m_udp_conn;
 	TLSBlockingChannel m_tls_channel;
 	BotanTLSContext m_ctx;
-
+	bool m_in_handshake;
 	void* m_userData;
 	OnAlert m_alert_cb;
 	OnHandshakeComplete m_handshake_complete;
@@ -75,6 +75,7 @@ public:
 		 bool delegate(in TLSSession session) hs_cb,
 		 string peer_name = null, NetworkAddress peer_address = NetworkAddress.init)
 	{
+		import vibe.core.core : Trace; mixin(Trace);
 		m_ctx = ctx;
 		m_userData = ctx.m_userData;
 		m_tcp_conn = underlying;
@@ -85,19 +86,13 @@ public:
 		// todo: add service name?
 		m_server_info = TLSServerInformation(peer_name, peer_address.port);
 		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
-		try {
-			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = true;
-			m_tls_channel.doHandshake();
-			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = false;
-		}
-		catch(Exception e) {
-			m_ex = e;
-		}
+		doHandshake();
 	}
 
 	// This constructor is used by the TLS Context for both server and client streams
 	this(TCPConnection underlying, BotanTLSContext ctx, TLSStreamState state, string peer_name = null, NetworkAddress peer_address = NetworkAddress.init) {
 
+		import vibe.core.core : Trace; mixin(Trace);
 		m_ctx = ctx;
 		m_userData = ctx.m_userData;
 		m_tcp_conn = underlying;
@@ -120,6 +115,13 @@ public:
 			m_tls_channel = TLSBlockingChannel.init;
 			throw new Exception("Cannot load BotanTLSSteam from a connected TLS session");
 		}
+		doHandshake();
+	}
+
+	private void doHandshake() {
+		m_in_handshake = true;
+		scope(exit) m_in_handshake = false;
+		import vibe.core.core : Trace; mixin(Trace);
 		try {
 			m_ctx.onBeforeHandshake(cast(TLSStream)this);
 			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = true;
@@ -313,8 +315,11 @@ private:
 
 	ubyte[] onRead(ubyte[] buf) 
 	{
+		import std.datetime : seconds;
 		mixin(STrace);
 		ubyte[] ret;
+		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
+			enforceEx!TimeoutException(m_tcp_conn.waitForData(10.seconds), "Handshake could not be handled");
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
 			ret = buffered.readBuf(buf);
 			return ret;
