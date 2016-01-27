@@ -1474,6 +1474,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 	private void writeHeader(OutputStream ostream) {
 		import vibe.stream.wrapper : StreamOutputRange;
+		enforceEx!ConnectionClosedException(ostream !is null, "OutputStream went away");
 		auto dst = StreamOutputRange(ostream);
 		void writeLine(T...)(string fmt, T args)
 		{
