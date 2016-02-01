@@ -848,14 +848,13 @@ final class LibasyncManualEvent : ManualEvent {
 	this(LibasyncDriver driver)
 	{
 		m_mutex = new core.sync.mutex.Mutex;
-		m_instance = generateID();
-		assert(m_instance != 0);
+		m_instance = generateID() - 1;
 	}
 
 	~this()
 	{
 		try {
-			recycleID(m_instance);
+			recycleID(m_instance + 1);
 
 			foreach (ref signal; ms_signals[]) {
 				if (signal) {
@@ -932,9 +931,9 @@ final class LibasyncManualEvent : ManualEvent {
 
 		bool signal_exists;
 
-		if (s_eventWaiters.length <= m_instance) {
+		if (s_eventWaiters.length <= m_instance) 
 			expandWaiters();
-		}
+
 		logTrace("Acquire event ID#%d", m_instance);
 		auto taskList = s_eventWaiters[m_instance][];
 		if (taskList.length > 0)
@@ -1037,8 +1036,10 @@ final class LibasyncManualEvent : ManualEvent {
 	private void expandWaiters() {
 		size_t maxID;
 		synchronized(gs_mutex) maxID = gs_maxID;
-		s_eventWaiters.reserve(maxID + 1);
+		s_eventWaiters.reserve(maxID);
 		logTrace("gs_maxID: %d", maxID);
+		assert(maxID > s_eventWaiters.length);
+		//logError("Expanding from %d to %d for maxID: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID);
 		foreach (i; s_eventWaiters.length .. s_eventWaiters.capacity) {
 			s_eventWaiters.insertBack(Vector!(Task, ThreadMem).init);
 		}
@@ -1883,7 +1884,7 @@ private size_t generateID() {
 			idx = getIdx();
 			if (idx == 0) {
 				import std.range : iota;
-				gs_availID.insert( iota(gs_maxID + 1, max(32, gs_maxID * 2), 1) );
+				gs_availID.insert( iota(gs_maxID + 1, max(32, gs_maxID * 2 + 1), 1) );
 				gs_maxID = gs_availID[$-1];
 				idx = getIdx();
 			}
@@ -1897,7 +1898,7 @@ private size_t generateID() {
 
 void recycleID(size_t id) {
 	try {
-		synchronized(gs_mutex) gs_availID ~= id;		
+		synchronized(gs_mutex) gs_availID ~= id;
 	}
 	catch (Exception e) {
 		assert(false, "Error destroying Manual Event ID: " ~ id.to!string ~ " [" ~ e.msg ~ "]");

@@ -130,7 +130,7 @@ public:
 			m_ctx.onAfterHandshake(cast(TLSStream)this);
 		}
 		catch(Exception e) {
-			vibe.core.log.logError("Error in handshake: %s", e.toString());
+			vibe.core.log.logError("Error in handshake: %s", e.msg);
 			m_ex = e;
 		}
 	}

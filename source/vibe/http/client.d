@@ -427,41 +427,48 @@ final class HTTPClient {
 						enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
 						throw e;
 					}
-					if (!m_conn.tlsStream.connected) {
+					logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+					if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
+						if (m_conn.tcp) m_conn.tcp.close();
+						m_conn.tcp = null;
+					}
+					else try {
+						if (m_settings.http2.pingInterval != Duration.zero) {
+							m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
+						}
+						
+						// alpn http/2 connection
+						if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
+							logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+							HTTP2Settings local_settings = m_settings.http2.settings;
+							enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
+							m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
+
+							m_http2Context.worker = runTask(&runHTTP2Worker, false);
+							//yield();
+							logTrace("Worker started, continuing");
+							m_http2Context.isValidated = true;
+							m_http2Context.isSupported = true;
+						}
+						// pre-verified http/2 cleartext connection
+						else if (canUpgradeHTTP2 && m_http2Context.isSupported) {
+							logTrace("Upgrading HTTP/2");
+							HTTP2Settings local_settings = m_settings.http2.settings;
+							m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, null, local_settings, &onRemoteSettings);
+							m_http2Context.worker = runTask(&runHTTP2Worker, false);
+							m_http2Context.isValidated = true;
+							m_http2Context.isSupported = true;
+						}
+					} catch (Exception e) {
+						m_conn.tlsStream.close();
 						m_conn.tcp.close();
 						m_conn.tcp = null;
 					}
-					logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 				}
 			}
 			while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 2);
 		}
 		enforce(m_conn.tcp !is null, "Connection failed");
-		if (m_settings.http2.pingInterval != Duration.zero) {
-			m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
-		}
-
-		// alpn http/2 connection
-		if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
-			logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
-			HTTP2Settings local_settings = m_settings.http2.settings;
-			enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
-			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
-			m_http2Context.worker = runTask(&runHTTP2Worker, false);
-			//yield();
-			logTrace("Worker started, continuing");
-			m_http2Context.isValidated = true;
-			m_http2Context.isSupported = true;
-		}
-		// pre-verified http/2 cleartext connection
-		else if (canUpgradeHTTP2 && m_http2Context.isSupported) {
-			logTrace("Upgrading HTTP/2");
-			HTTP2Settings local_settings = m_settings.http2.settings;
-			m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, null, local_settings, &onRemoteSettings);
-			m_http2Context.worker = runTask(&runHTTP2Worker, false);
-			m_http2Context.isValidated = true;
-			m_http2Context.isSupported = true;
-		}
 	}
 
 	void reconnect(string reason = "")
@@ -769,11 +776,8 @@ private:
 			if (redirecting && m_settings.maxRedirects != 0 )
 			{
 				redirects++;
-				if (m_conn.server != location.host || m_conn.port != location.port || m_conn.forceTLS != (location.port == 443)) {
-					m_conn.server = location.host;
-					m_conn.port = (location.port == 0) ? 80 : location.port;
-					m_conn.forceTLS = m_conn.port == 443;
-					reconnect("Server redirect");
+				if (m_conn.server != location.host || m_conn.port != location.port) {
+					redirecting = false;
 				}
 			}
 	}
@@ -1323,25 +1327,16 @@ final class HTTPClientResponse : HTTPResponse {
 			if (auto pl = "Location" in this.headers) {
 				with(m_client.m_state) {
 					redirecting = true;
-					location = URL.parse((*pl).idup);
-					if (isHTTP2 && (location.host != m_client.m_conn.server || location.port != m_client.m_conn.port) && !http2Stream.isOpener)
-					{
-						logDebug("Cannot redirect HTTP/2 non-opener stream, stream ID was %s", http2Stream.isOpener);
+					if (location.host != m_client.m_conn.server || location.port != m_client.m_conn.port)
 						redirecting = false;
-					}
-					else if (location.schema == "https")
-						m_client.setupTLS();
-					else if (location.schema == "http") {
-						m_client.m_conn.forceTLS = false;
-						m_client.m_conn.tlsContext = null;
-					}
+					else 
+						location = URL.parse((*pl).idup);
 					// redirects++ will happen once the new request is made
 				}
 			}
 			else if (m_client.m_state.redirecting) {
 				m_client.m_state.redirecting = false;
 				m_client.m_state.redirects = 0;
-				m_client.m_state.location = URL.init;
 			}
 		}
 		{

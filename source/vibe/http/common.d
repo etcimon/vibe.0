@@ -363,6 +363,11 @@ final class FileMultiPart : MultiPartPart
 	import vibe.inet.mimetypes : getMimeTypeForFile;
 
 	this(ref InetHeaderMap headers, string field_name, string file_path, string boundary = null, string content_type = null) {
+
+		if (!boundary) {
+			import std.uuid;
+			boundary = randomUUID().toString();
+		}
 		super(headers, boundary);
 		import std.path : baseName;
 		Appender!string app;
