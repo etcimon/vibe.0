@@ -319,8 +319,8 @@ private:
 		import std.datetime : seconds;
 		mixin(STrace);
 		ubyte[] ret;
-		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
-			enforceEx!TimeoutException(m_tcp_conn.waitForData(10.seconds), "Handshake could not be handled");
+		//if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
+		//	enforceEx!TimeoutException(m_tcp_conn.waitForData(10.seconds), "Handshake could not be handled");
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
 			ret = buffered.readBuf(buf);
 			return ret;

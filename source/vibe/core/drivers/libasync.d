@@ -1038,9 +1038,11 @@ final class LibasyncManualEvent : ManualEvent {
 		synchronized(gs_mutex) maxID = gs_maxID;
 		s_eventWaiters.reserve(maxID);
 		logTrace("gs_maxID: %d", maxID);
+		size_t s_ev_len = s_eventWaiters.length;
+		size_t s_ev_cap = s_eventWaiters.capacity;
 		assert(maxID > s_eventWaiters.length);
-		//logError("Expanding from %d to %d for maxID: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID);
-		foreach (i; s_eventWaiters.length .. s_eventWaiters.capacity) {
+		logTrace("Expanding from %d to %d for maxID: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID);
+		foreach (i; s_ev_len .. s_ev_cap) {
 			s_eventWaiters.insertBack(Vector!(Task, ThreadMem).init);
 		}
 	}
@@ -1321,7 +1323,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				onRead();
 			else {
 				//logTrace("Yielding for event in waitForData, waiting? %s", m_settings.reader.isWaiting);
-				getDriverCore().yieldForEvent();
+				getDriverCore().yieldForEventDeferThrow();
 				logTrace("Unyielded");
 			}
 			if (timeout != Duration.max && !_driver.isTimerPending(tm)) {
