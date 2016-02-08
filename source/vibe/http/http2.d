@@ -2389,7 +2389,7 @@ override:
 		if (!bufs) {
 			m_session.get().consumeConnection(data.length);
 			m_session.m_tx.notify();
-			return true; // the stream errored out...
+			return !m_session.isServer; // the stream errored out...
 		}
 		if (stream.m_paused)
 			pause = true;

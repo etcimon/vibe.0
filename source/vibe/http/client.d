@@ -461,8 +461,10 @@ final class HTTPClient {
 						}
 					} catch (Exception e) {
 						m_conn.tlsStream.close();
-						m_conn.tcp.close();
-						m_conn.tcp = null;
+						if (m_conn.tcp && m_conn.tcp.connected) {
+							m_conn.tcp.close();
+							m_conn.tcp = null;
+						}
 					}
 				}
 			}

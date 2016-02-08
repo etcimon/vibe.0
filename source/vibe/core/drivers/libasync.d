@@ -836,25 +836,28 @@ final class LibasyncManualEvent : ManualEvent {
 	private {
 		shared(int) m_emitCount = 0;
 		shared(int) m_threadCount = 0;
+		long m_spacing;
 		shared(size_t) m_instance;
+		long m_spacing2;
 		Vector!(void*, Malloc) ms_signals;
 		Vector!(Task, Malloc) m_localWaiters;
 		Thread m_owner;
 		core.sync.mutex.Mutex m_mutex;
+		
+		@property size_t instanceID() { return atomicLoad(m_instance); }
+		@property void instanceID(size_t instance) { atomicStore(m_instance, instance); }
 	}
 
-	size_t instanceId() { return m_instance; }
-	
 	this(LibasyncDriver driver)
 	{
 		m_mutex = new core.sync.mutex.Mutex;
-		m_instance = generateID() - 1;
+		instanceID = generateID() - 1;
 	}
 
 	~this()
 	{
 		try {
-			recycleID(m_instance + 1);
+			recycleID(instanceID + 1);
 
 			foreach (ref signal; ms_signals[]) {
 				if (signal) {
@@ -930,12 +933,12 @@ final class LibasyncManualEvent : ManualEvent {
 		auto task = Task.getThis();
 
 		bool signal_exists;
-
-		if (s_eventWaiters.length <= m_instance) 
+		size_t instance = instanceID;
+		if (s_eventWaiters.length <= instance) 
 			expandWaiters();
 
-		logTrace("Acquire event ID#%d", m_instance);
-		auto taskList = s_eventWaiters[m_instance][];
+		logTrace("Acquire event ID#%d", instance);
+		auto taskList = s_eventWaiters[instance][];
 		if (taskList.length > 0)
 			signal_exists = true;
 
@@ -944,7 +947,7 @@ final class LibasyncManualEvent : ManualEvent {
 			sig.run(&onSignal);
 			synchronized (m_mutex) ms_signals.insertBack(cast(void*)sig);
 		}
-		s_eventWaiters[m_instance].insertBack(Task.getThis());
+		s_eventWaiters[instance].insertBack(Task.getThis());
 	}
 	
 	void release()
@@ -952,24 +955,26 @@ final class LibasyncManualEvent : ManualEvent {
 		assert(amOwner(), "Releasing non-acquired signal.");
 
 		import std.algorithm : countUntil;
-		auto taskList = s_eventWaiters[m_instance][];
+		size_t instance = instanceID;
+		auto taskList = s_eventWaiters[instance][];
 		auto idx = taskList[].countUntil!((a, b) => a == b)(Task.getThis());
-		logTrace("Release event ID#%d", m_instance);
+		logTrace("Release event ID#%d", instance);
 		auto vec = taskList[0 .. idx];
 		if (idx != taskList.length - 1)
 			vec ~= taskList[idx + 1 .. $];
-		s_eventWaiters[m_instance].destroy();
-		s_eventWaiters[m_instance] = vec;
-		if (s_eventWaiters[m_instance].empty) {
+		s_eventWaiters[instance].destroy();
+		s_eventWaiters[instance] = vec;
+		if (s_eventWaiters[instance].empty) {
 			removeMySignal();
 		}
 	}
-	
+
 	bool amOwner()
 	{
 		import std.algorithm : countUntil;
-		if (s_eventWaiters.length <= m_instance) return false;
-		auto taskList = s_eventWaiters[m_instance][];
+		size_t instance = instanceID;
+		if (s_eventWaiters.length <= instance) return false;
+		auto taskList = s_eventWaiters[instance][];
 		if (taskList.length == 0) return false;
 
 		auto idx = taskList[].countUntil!((a, b) => a == b)(Task.getThis());
@@ -1040,8 +1045,11 @@ final class LibasyncManualEvent : ManualEvent {
 		logTrace("gs_maxID: %d", maxID);
 		size_t s_ev_len = s_eventWaiters.length;
 		size_t s_ev_cap = s_eventWaiters.capacity;
-		assert(maxID > s_eventWaiters.length);
-		logTrace("Expanding from %d to %d for maxID: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID);
+		if (maxID <= s_eventWaiters.length)
+		{
+			logError("Expanding from %d to %d for maxID: %d, m_instance: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID, instanceID);
+			assert(0);
+		}
 		foreach (i; s_ev_len .. s_ev_cap) {
 			s_eventWaiters.insertBack(Vector!(Task, ThreadMem).init);
 		}
@@ -1052,9 +1060,9 @@ final class LibasyncManualEvent : ManualEvent {
 		logTrace("Got signal in onSignal");
 		try {
 			auto core = getDriverCore();
-
-			logTrace("Got context: %d", m_instance);
-			foreach (Task task; s_eventWaiters[m_instance][]) {
+			size_t instance = instanceID;
+			logTrace("Got context: %d", instance);
+			foreach (Task task; s_eventWaiters[instance][]) {
 				logTrace("Task Found");
 				core.resumeTask(task);
 			}
