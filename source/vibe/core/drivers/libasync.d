@@ -26,7 +26,7 @@ import std.conv;
 import std.string;
 import std.typecons;
 import std.datetime;
-import std.c.stdio;
+import core.stdc.stdio;
 
 import core.atomic;
 import core.memory;
@@ -1331,7 +1331,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				onRead();
 			else {
 				//logTrace("Yielding for event in waitForData, waiting? %s", m_settings.reader.isWaiting);
-				getDriverCore().yieldForEventDeferThrow();
+				getDriverCore().yieldForEvent();
 				logTrace("Unyielded");
 			}
 			if (timeout != Duration.max && !_driver.isTimerPending(tm)) {

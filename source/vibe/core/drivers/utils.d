@@ -10,8 +10,8 @@ module vibe.core.drivers.utils;
 import std.exception;
 
 version (Windows) {
-	import std.c.windows.windows;
-	import std.c.windows.winsock;
+	import core.sys.windows.windows;
+	import core.sys.windows.winsock2;
 
 	alias EWOULDBLOCK = WSAEWOULDBLOCK;
 

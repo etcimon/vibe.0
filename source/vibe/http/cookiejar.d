@@ -97,14 +97,14 @@ public:
 		scope(exit) {
 			foreach (ref string kv; app.data)
 			{
-				freeArray(manualAllocator(), kv);
+				freeArray(defaultAllocator(), kv);
 			}
 		}
 
 		auto ret = readCookies( (CookiePair cookie) {
 				if (search.match(cookie)) {
 					//logDebug("Search matched cookie: %s", cookie.name);
-					char[] kv = allocArray!char(manualAllocator(), cookie.name.length + 1 + cookie.value.value.length);
+					char[] kv = allocArray!char(defaultAllocator(), cookie.name.length + 1 + cookie.value.value.length);
 					kv[0 .. cookie.name.length] = cookie.name[];
 					kv[cookie.name.length] = '=';
 					kv[cookie.name.length + 1 .. $] = cookie.value.value[];
@@ -213,9 +213,9 @@ public:
 		Appender!(CookiePair[]) cookies;
 		ubyte[2048] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
-		auto carry_over = AllocAppender!(ubyte[])(manualAllocator());
+		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) carry_over.reset(AppenderResetMode.freeData);
-		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, manualAllocator());
+		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, defaultAllocator());
 		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
 		
 		while (contents.length == 2048)
@@ -282,16 +282,16 @@ public:
 
 		ubyte[2048] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
-		auto carry_over = AllocAppender!(ubyte[])(manualAllocator());
+		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) 
 			carry_over.reset(AppenderResetMode.freeData);
-		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, manualAllocator());
+		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, defaultAllocator());
 		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
 
 		FileStream new_file = createTempFile();
 		bool new_file_closed;
 		scope(exit) if (!new_file_closed) new_file.close();
-		AllocAppender!(ubyte[]) new_file_data = AllocAppender!(ubyte[])(manualAllocator());
+		AllocAppender!(ubyte[]) new_file_data = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) new_file_data.reset(AppenderResetMode.freeData);
 
 		while (contents.length == 2048)

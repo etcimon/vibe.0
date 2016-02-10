@@ -54,7 +54,7 @@ else
 
 version(Windows)
 {
-	import std.c.windows.winsock;
+	import core.sys.windows.winsock2;
 
 	alias EWOULDBLOCK = WSAEWOULDBLOCK;
 }

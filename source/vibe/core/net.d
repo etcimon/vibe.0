@@ -17,7 +17,7 @@ import core.time;
 import std.exception;
 import std.functional;
 import std.string;
-version(Windows) import std.c.windows.winsock;
+version(Windows) import core.sys.windows.winsock2;
 
 
 /**

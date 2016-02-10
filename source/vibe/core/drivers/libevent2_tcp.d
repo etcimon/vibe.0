@@ -38,13 +38,13 @@ import core.sys.posix.sys.socket;
 
 private {
 	version(Windows){
-		import std.c.windows.winsock;
+		import core.sys.windows.winsock2;
 		enum EWOULDBLOCK = WSAEWOULDBLOCK;
 
 		// make some neccessary parts of the socket interface public
-		alias in6_addr = std.c.windows.winsock.in6_addr;
-		alias INADDR_ANY = std.c.windows.winsock.INADDR_ANY;
-		alias IN6ADDR_ANY = std.c.windows.winsock.IN6ADDR_ANY;
+		alias in6_addr = core.sys.windows.winsock2.in6_addr;
+		alias INADDR_ANY = core.sys.windows.winsock2.INADDR_ANY;
+		alias IN6ADDR_ANY = core.sys.windows.winsock2.IN6ADDR_ANY;
 	} else {
 		alias in6_addr = core.sys.posix.netinet.in_.in6_addr;
 		alias IN6ADDR_ANY = core.sys.posix.netinet.in_.in6addr_any;

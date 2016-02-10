@@ -41,6 +41,8 @@ class ConnectionPool(Connection)
 		m_sem = FreeListRef!LocalTaskSemaphore(max_concurrent);
 	}
 
+	@property size_t length() { return m_connections.length; }
+
 	@property void maxConcurrency(uint max_concurrent) {
 		m_sem.maxLocks = max_concurrent;
 	}

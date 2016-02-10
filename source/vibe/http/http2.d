@@ -109,7 +109,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		ulong m_bytesSend;
 
 		PrioritySpec m_priSpec;
-		SafetyLevel m_safety_level;
+		SafetyLevel m_safety_level = SafetyLevel.LockMemory;
 
 		// i/o operations
 		Incoming m_rx;
@@ -1891,7 +1891,7 @@ private:
 
 			// handle data we can't seem to be able to drain until more comes in
 			if (rv > 0 && buf.length - rv > 0) {
-				import std.c.string : memmove;
+				import core.stdc.string : memmove;
 				memmove(m_rx.buffer.ptr, buf.ptr + rv, buf.length - rv);
 				offset = buf.length - rv;
 			}

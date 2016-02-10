@@ -32,7 +32,7 @@ import core.sys.posix.netinet.tcp;
 import core.thread;
 
 version(Windows){
-	import std.c.windows.winsock;
+	import core.sys.windows.winsock2;
 } else {
 	import core.sys.posix.sys.socket;
 	import core.sys.posix.sys.time;

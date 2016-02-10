@@ -286,7 +286,7 @@ final class GCAllocator : Allocator {
 	void[] realloc(void[] mem, size_t new_size)
 	{
 /*		auto ret = alloc(new_size);
-		import std.c.string;
+		import core.stdc.string;
 		memcpy(ret.ptr, mem.ptr, mem.length);
 		return ret;
 */		size_t csz = min(mem.length, new_size);

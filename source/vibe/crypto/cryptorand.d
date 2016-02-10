@@ -460,7 +460,7 @@ class CryptoException : Exception
 
 version(Windows)
 {
-	private import std.c.windows.windows;
+	private import core.sys.windows.windows;
 	
 	private extern(Windows) nothrow
 	{

@@ -26,7 +26,7 @@ version(Posix){
 }
 version(Windows){
 	import std.utf : toUTF16z;
-	import std.c.windows.stat;
+	import core.sys.windows.stat;
 
 	private {
 		extern(C){
