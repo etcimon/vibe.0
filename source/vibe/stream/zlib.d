@@ -23,9 +23,9 @@ import memutils.utils;
 	Writes any data compressed in deflate format to the specified output stream.
 */
 final class DeflateOutputStream : ZlibOutputStream {
-	this(OutputStream dst)
+	this(OutputStream dst, int level = Z_DEFAULT_COMPRESSION, bool nowrap = false)
 	{
-		super(dst, HeaderFormat.deflate);
+		super(dst, HeaderFormat.deflate, level, nowrap);
 	}
 }
 
@@ -34,9 +34,9 @@ final class DeflateOutputStream : ZlibOutputStream {
 	Writes any data compressed in gzip format to the specified output stream.
 */
 final class GzipOutputStream : ZlibOutputStream {
-	this(OutputStream dst)
+	this(OutputStream dst, int level = Z_DEFAULT_COMPRESSION, bool nowrap = false)
 	{
-		super(dst, HeaderFormat.gzip);
+		super(dst, HeaderFormat.gzip, level, nowrap);
 	}
 }
 
@@ -57,20 +57,19 @@ class ZlibOutputStream : OutputStream {
 		deflate
 	}
 
-	this(OutputStream dst, HeaderFormat type, int level = Z_DEFAULT_COMPRESSION)
+	this(OutputStream dst, HeaderFormat type, int level = Z_DEFAULT_COMPRESSION, bool nowrap = false)
 	{
 		m_outbuffer = ThreadMem.alloc!(ubyte[])(1024);
 		m_out = dst;
-		zlibEnforce(deflateInit2(&m_zstream, level, Z_DEFLATED, 15 + (type == HeaderFormat.gzip ? 16 : 0), 8, Z_DEFAULT_STRATEGY));
+		int max_wbits = 15 + (type == HeaderFormat.gzip ? 16 : 0);
+		zlibEnforce(deflateInit2(&m_zstream, level, Z_DEFLATED, nowrap ? -max_wbits : max_wbits, 8, Z_DEFAULT_STRATEGY));
 	}
 
 	~this() {
 		//import std.stdio : writeln;
 		//writeln("ZLib output");
-		if (!m_finalized) {
-			deflateEnd(&m_zstream);
-			ThreadMem.free(m_outbuffer);
-		}
+		if (!m_finalized)
+			finalize();
 	}
 
 	final void write(in ubyte[] data)
@@ -81,8 +80,7 @@ class ZlibOutputStream : OutputStream {
 		m_zstream.next_in = cast(ubyte*)data.ptr;
 		assert(data.length < uint.max);
 		m_zstream.avail_in = cast(uint)data.length;
-		if (data.length > 32_768) doFlush(Z_SYNC_FLUSH);
-		else doFlush(Z_NO_FLUSH);
+		doFlush(Z_NO_FLUSH);
 		assert(m_zstream.avail_in == 0);
 		m_zstream.next_in = null;
 	}
@@ -103,9 +101,10 @@ class ZlibOutputStream : OutputStream {
 		if (m_finalized) return;
 		scope(exit)
 			ThreadMem.free(m_outbuffer);
-		m_finalized = true;
+
 		doFlush(Z_FINISH);
 		zlibEnforce(deflateEnd(&m_zstream));
+		m_finalized = true;
 	}
 
 	private final void doFlush(int how)
@@ -142,9 +141,9 @@ class ZlibOutputStream : OutputStream {
 	uncompressed data.
 */
 class DeflateInputStream : ZlibInputStream {
-	this(InputStream dst)
+	this(InputStream dst, bool nowrap = false)
 	{
-		super(dst, HeaderFormat.deflate);
+		super(dst, HeaderFormat.deflate, nowrap);
 	}
 }
 
@@ -154,9 +153,9 @@ class DeflateInputStream : ZlibInputStream {
 	uncompressed data.
 */
 class GzipInputStream : ZlibInputStream {
-	this(InputStream dst)
+	this(InputStream dst, bool nowrap = false)
 	{
-		super(dst, HeaderFormat.gzip);
+		super(dst, HeaderFormat.gzip, nowrap);
 	}
 }
 
@@ -181,7 +180,7 @@ class ZlibInputStream : InputStream {
 		automatic
 	}
 
-	this(InputStream src, HeaderFormat type)
+	this(InputStream src, HeaderFormat type, bool nowrap = false)
 	{
 		m_inbuffer = ThreadMem.alloc!(ubyte[])(1024);
 		m_in = src;
@@ -191,6 +190,7 @@ class ZlibInputStream : InputStream {
 			int wndbits = 15;
 			if(type == HeaderFormat.gzip) wndbits += 16;
 			else if(type == HeaderFormat.automatic) wndbits += 32;
+			if (nowrap) wndbits = -wndbits;
 			zlibEnforce(inflateInit2(&m_zstream, wndbits));
 			readChunk();
 		}

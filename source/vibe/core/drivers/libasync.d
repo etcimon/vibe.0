@@ -520,7 +520,8 @@ final class LibasyncFileStream : FileStream {
 					_wchmod(path_str_utf, S_IREAD|S_IWRITE);
 				}
 				else FILE * f = fopen(path_str.toStringz, "w");
-				fclose(f);
+				if (f)
+					fclose(f);
 				m_truncated = true;
 			}
 		} 

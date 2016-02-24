@@ -289,7 +289,7 @@ ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserv
 		If the sanitize parameter is fals and the stream contains invalid UTF-8 code sequences,
 		a UTFException is thrown.
 */
-string readAllUTF8(InputStream stream, bool sanitize = false, size_t max_bytes = size_t.max)
+string readAllUTF8(InputStream stream, bool sanitize = true, size_t max_bytes = size_t.max)
 {
 	mixin(Trace);
 	import std.utf;

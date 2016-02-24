@@ -3,7 +3,8 @@ import vibe.core.file;
 import vibe.core.log;
 import vibe.http.router;
 import vibe.http.server;
-
+import vibe.stream.zlib;
+import vibe.stream.operations;
 import std.exception;
 
 
