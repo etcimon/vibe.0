@@ -102,7 +102,7 @@ class ZlibOutputStream : OutputStream {
 		scope(exit)
 			ThreadMem.free(m_outbuffer);
 
-		doFlush(Z_FINISH);
+		try doFlush(Z_FINISH); catch (ConnectionClosedException) {}
 		zlibEnforce(deflateEnd(&m_zstream));
 		m_finalized = true;
 	}
