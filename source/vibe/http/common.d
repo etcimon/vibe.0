@@ -357,6 +357,25 @@ abstract class MultiPartPart {
 
 }
 
+final class CustomMultiPart : MultiPartPart
+{
+	this(ref InetHeaderMap headers, string multipart_headers, ubyte[] data, string boundary = null) {
+		
+		super(headers, boundary);
+		
+		m_headers = new MemoryStream(cast(ubyte[])multipart_headers, false);
+		
+		m_data = new MemoryStream(data, false);
+	}
+
+	this(ref InetHeaderMap headers, string multipart_headers, string data, string boundary = null) {
+		this(headers, multipart_headers, cast(ubyte[]) data, boundary);
+	}
+
+	override void finalize() {
+	}
+}
+
 final class FileMultiPart : MultiPartPart
 {
 	import vibe.core.file : openFile, FileStream;
@@ -364,10 +383,6 @@ final class FileMultiPart : MultiPartPart
 
 	this(ref InetHeaderMap headers, string field_name, string file_path, string boundary = null, string content_type = null) {
 
-		if (!boundary) {
-			import std.uuid;
-			boundary = randomUUID().toString();
-		}
 		super(headers, boundary);
 		import std.path : baseName;
 		Appender!string app;
