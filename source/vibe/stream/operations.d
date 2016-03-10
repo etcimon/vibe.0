@@ -247,7 +247,7 @@ unittest {
 	Throws:
 		An exception is thrown if the stream contains more than max_bytes data.
 */
-ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserve_bytes = 0) /*@ufcs*/
+ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t reserve_bytes = 64, Duration max_wait = Duration.zero) /*@ufcs*/
 {
 	mixin(Trace);
 	enforce(stream !is null, "Null stream in readAll");
@@ -256,14 +256,21 @@ ubyte[] readAll(InputStream stream, size_t max_bytes = size_t.max, size_t reserv
 	// prepare output buffer
 	auto dst = appender!(ubyte[])();
 	scope(exit) dst.destroy();
-	reserve_bytes = max(reserve_bytes, min(max_bytes, stream.leastSize));
-	if (reserve_bytes) dst.reserve(reserve_bytes);
+
+	import std.traits : hasMember;
+	static if (hasMember!(Stream, "waitForData"))
+		if (max_wait > Duration.zero)
+			enforceEx!TimeoutException(stream.waitForData(max_wait));
+	dst.reserve( max(reserve_bytes, min(max_bytes, stream.leastSize) ));
 
 	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
 	scope(exit) ThreadMem.free(buffer);
 	
 	size_t n = 0;
 	while (!stream.empty) {
+		static if (hasMember!(Stream, "waitForData"))
+			if (max_wait > Duration.zero)
+				enforceEx!TimeoutException(stream.waitForData(max_wait));
 		size_t chunk = cast(size_t)min(stream.leastSize, buffer.length);
 		n += chunk;
 		enforce(!max_bytes || n <= max_bytes, "Input data too long!");

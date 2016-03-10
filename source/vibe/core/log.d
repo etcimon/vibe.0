@@ -118,7 +118,9 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 				import std.format : formattedWrite, FormatException;
 				
 				Sink sink;
-				char[1024*16] buf = void;
+				import memutils.utils;
+				char[] buf = ThreadMem.alloc!(char[])(1024*1024);
+				scope(exit) ThreadMem.free(buf);
 				sink.buf = buf[];
 				uint n;
 				try n = formattedWrite(&sink, fmt, args);

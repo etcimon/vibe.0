@@ -135,13 +135,26 @@ public:
 	{
 		m_writeLock = new RecursiveTaskMutex();
 		m_filePath = path;
-		if (!existsFile(m_filePath))
-		{ // touch
-			auto touch = openFile(path, FileMode.createTrunc);
-			touch.close();
-		}
+
+		if (!existsFile(m_filePath)) 
+			create(path);
+		
 		cleanup();
 		//logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
+	}
+
+	void create(Path path) const {
+		int tries;
+		bool success;
+		do {
+			try { // touch
+				auto touch = openFile(path, FileMode.createTrunc);
+				touch.close();
+				success = true;
+			} catch (Exception e) { 
+				if (++tries == 3) throw e; 
+			}
+		} while(!success && tries < 3);
 	}
 
 	this(string path)
@@ -163,8 +176,13 @@ public:
 	{
 		m_writeLock.lock();
 		scope(exit) m_writeLock.unlock();
-		StrictCookieSearch search = StrictCookieSearch(name, cookie.domain, cookie.path, cookie.secure, cookie.httpOnly);
-		removeCookies(&search.match);
+
+		if (!existsFile(m_filePath))
+			create(m_filePath);
+		else {
+			StrictCookieSearch search = StrictCookieSearch(name, cookie.domain, cookie.path, cookie.secure, cookie.httpOnly);
+			removeCookies(&search.match);
+		}
 		if (cookie.maxAge) {
 			cookie.expires = (Clock.currTime(UTC()) + dur!"seconds"(cookie.maxAge)).toRFC822DateTimeString();
 		}
@@ -174,8 +192,20 @@ public:
 		}
 
 		{
-			FileStream stream = openFile(m_filePath, FileMode.append);
-			scope(exit) stream.close();
+			FileStream stream;
+			scope(exit) {
+				if (stream && stream.isOpen)
+					stream.close();
+			}
+			bool success;
+			int tries;
+			do {
+				try {
+					stream = openFile(m_filePath, FileMode.append);
+					success = true;
+				} catch (Exception e) { if (++tries == 3) throw e; }
+			} while(!success && tries < 3);
+
 			auto range = StreamOutputRange(stream);
 			logTrace("writing cookie: %s", name);
 			cookie.writeString(&range, name, false);
@@ -210,6 +240,10 @@ public:
 	// read cookies from the file, allocating on the GC only for the selection
 	CookiePair[] readCookies(bool delegate(CookiePair) predicate) const {
 		import std.array : Appender;
+		if (!existsFile(m_filePath)) {
+			create(m_filePath);
+			return CookiePair[].init;
+		}
 		Appender!(CookiePair[]) cookies;
 		ubyte[2048] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
@@ -276,7 +310,10 @@ public:
 
 	// removes cookies by skipping those that test true for specified predicate
 	void removeCookies(bool delegate(CookiePair) predicate) {
-
+		if (!existsFile(m_filePath)) {
+			create(m_filePath);
+			return;
+		}
 		m_writeLock.lock();
 		scope(exit) m_writeLock.unlock();
 

@@ -291,6 +291,7 @@ final class MultiPart {
 	string[string] form;
 }
 
+import vibe.core.core;
 /// The client multipart requires the full size to be known beforehand in the Content-Length header.
 /// For this reason, we require the underlying data to be of type RandomAccessStream
 abstract class MultiPartPart {
@@ -304,7 +305,8 @@ abstract class MultiPartPart {
 	}
 
 	@property MultiPartPart addSibling(MultiPartPart part) 
-	{ 
+	{
+		part.m_boundary = m_boundary;
 		MultiPartPart sib;
 		for (sib = this; sib && sib.m_sibling; sib = sib.m_sibling)
 			continue;
@@ -317,7 +319,7 @@ abstract class MultiPartPart {
 		m_boundary = boundary;
 	}
 
-	final @property ulong size() { return m_headers.size + m_data.size + (m_sibling ? m_sibling.size : (m_boundary.length + "\r\n----".length)); }
+	final @property ulong size() { return m_headers.size + m_data.size + (m_sibling ? m_sibling.size + "\r\n".length : (m_boundary.length + "\r\n----".length)); }
 
 	final string peek(bool first = true)
 	{
@@ -359,12 +361,9 @@ abstract class MultiPartPart {
 
 final class CustomMultiPart : MultiPartPart
 {
-	this(ref InetHeaderMap headers, string multipart_headers, ubyte[] data, string boundary = null) {
-		
+	this(ref InetHeaderMap headers, string multipart_headers, ubyte[] data, string boundary = null) {		
 		super(headers, boundary);
-		
-		m_headers = new MemoryStream(cast(ubyte[])multipart_headers, false);
-		
+		m_headers = new MemoryStream(cast(ubyte[])multipart_headers, false);		
 		m_data = new MemoryStream(data, false);
 	}
 
@@ -427,7 +426,6 @@ final class MemoryMultiPart : MultiPartPart
 		/*headers*/{
 			Appender!string app;
 			// we generate the headers here because we need the payload size to be available at all times.
-			app ~= "\r\n";
 			app ~= "--";
 			app ~= m_boundary;
 			app ~= "\r\n";
@@ -455,7 +453,7 @@ final class MemoryMultiPart : MultiPartPart
 string getBoundary(ref InetHeaderMap headers)
 {
 	string boundary;
-	if (icmp2(headers.get("Content-Type", ""), "boundary=") != 0)
+	if (headers.get("Content-Type", "").indexOf("boundary=", CaseSensitive.no) == -1)
 		return null;
 	auto content_type = headers["Content-Type"];
 	boundary = content_type[content_type.indexOf("boundary=", CaseSensitive.no) + "boundary=".length .. $];
@@ -467,7 +465,7 @@ string getBoundary(ref InetHeaderMap headers)
 
 private void resolveBoundary(ref InetHeaderMap headers, ref string boundary)
 {
-	if (icmp2(headers.get("Content-Type", ""), "boundary=") != 0) {
+	if (headers.get("Content-Type", "").indexOf("boundary", CaseSensitive.no) == -1) {
 		if (!boundary) { // by default, we create a boundary 
 			import std.uuid : randomUUID;
 			boundary = randomUUID().toString();
@@ -478,7 +476,6 @@ private void resolveBoundary(ref InetHeaderMap headers, ref string boundary)
 	else { 
 		if (!boundary)  // by default, we extract the boundary from the headers
 			boundary = headers.getBoundary();
-
 	}
 }
 

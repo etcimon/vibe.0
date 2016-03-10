@@ -1261,7 +1261,7 @@ final class HTTPClientResponse : HTTPResponse {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
 			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
-			enforceEx!TimeoutException(req_method != HTTPMethod.POST || client.topStream.waitForData(11.seconds), "Response stream timed out while reading HTTP status code");
+			enforceEx!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
 			import std.algorithm : canFind;
 			enforceEx!ConnectionClosedException(client.topStream !is null, "Response stream not active");
 			const(ubyte)[] peek_data = client.topStream.peek();
@@ -1523,6 +1523,8 @@ final class HTTPClientResponse : HTTPResponse {
 			if( bodyReader.empty ){
 				finalize();
 			} else {
+				if(!s_sink)
+					s_sink = new NullOutputStream;
 				s_sink.write(bodyReader);
 				assert(!lockedConnection.__conn);
 			}
