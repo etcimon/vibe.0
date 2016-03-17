@@ -254,8 +254,8 @@ string OnCaptureIf(string condition, string keyword, string mixins)() {
 version(VibeNoDebug) {} else
 {
 	void pushCaptured(string kw, lazy string info) nothrow {
-		//import vibe.core.log: logInfo;
-		//logInfo("%s: %s", kw, info);
+		import vibe.core.log: logInfo;
+		logInfo("%s: %s", kw, info);
 
 
 		try if (s_isCapturing) s_pushCaptured(kw, info);

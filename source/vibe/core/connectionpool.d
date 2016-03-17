@@ -63,6 +63,7 @@ class ConnectionPool(Connection)
 			}
 		}
 
+
 		Connection conn;
 		if( cidx != size_t.max ){
 			logTrace("returning %s connection %d of %d", Connection.stringof, cidx, m_connections.length);
@@ -71,6 +72,9 @@ class ConnectionPool(Connection)
 				cidx = size_t.max;
 				conn = m_connectionFactory();
 			}
+
+			m_lockCount[conn] = 1;
+
 			static if (__traits(compiles, { bool is_connected = conn.connected(); }())) {
 				if (!conn.connected) {
 					static if (__traits(compiles, { conn.reconnect(); }()))
