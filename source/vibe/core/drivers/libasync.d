@@ -590,8 +590,10 @@ final class LibasyncFileStream : FileStream {
 	void read(ubyte[] dst)
 	{
 		mixin(Trace);
-		scope(failure)
+		scope(failure) {
+			logError("Failure in file stream");
 			close();
+		}
 		assert(this.readable, "To read a file, it must be opened in a read-enabled mode.");
 		shared ubyte[] bytes = cast(shared) dst;
 		bool truncate_if_exists;

@@ -712,6 +712,15 @@ public:
 	}
 
 	override Vector!ushort ciphersuiteList(TLSProtocolVersion _version, bool have_srp) const {
+		static Vector!ushort cache_ret;
+		static bool cache_have_srp;
+		static TLSProtocolVersion cache_version;
+		static bool has_cache;
+
+		if (has_cache && _version == cache_version && cache_have_srp == have_srp && cache_ret.length > 0) 
+			return cache_ret.dup;
+		
+
 		Vector!ushort ret;
 		if (m_pri_ciphersuites.length > 0) {
 			foreach (suite; m_pri_ciphersuites) {
@@ -723,7 +732,12 @@ public:
 			ret ~= super.ciphersuiteList(_version, have_srp);
 		}
 
-		return ret;
+		has_cache = true;
+		cache_version = _version;
+		cache_have_srp = have_srp;
+		cache_ret = ret.dup();		
+
+		return ret.move();
 	}
 
 	override bool acceptableProtocolVersion(TLSProtocolVersion _version) const
@@ -850,7 +864,7 @@ public:
 		// Commit to basic tests for other validation modes
 		if (m_validationMode & TLSPeerValidationMode.checkCert) {
 			import botan.asn1.asn1_time : X509Time;
-			X509Time current_time = X509Time(Clock.currTime());
+			X509Time current_time = X509Time(Clock.currTime(UTC()));
 			// Check all certs for valid time range
 			if (current_time < X509Time(cert_chain[0].startTime()))
 				throw new Exception("Certificate is not yet valid");

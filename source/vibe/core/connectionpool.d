@@ -63,8 +63,11 @@ class ConnectionPool(Connection)
 			}
 		}
 
-
 		Connection conn;
+		scope(failure) {
+			if (auto plc = conn in m_lockCount)
+				*plc = 0;
+		}
 		if( cidx != size_t.max ){
 			logTrace("returning %s connection %d of %d", Connection.stringof, cidx, m_connections.length);
 			try conn = m_connections[cidx];
@@ -81,7 +84,6 @@ class ConnectionPool(Connection)
 						conn.reconnect();
 					else {
 						m_lockCount.remove(conn);
-						conn.destroy();
 						m_connections[cidx] = conn = m_connectionFactory();
 					}
 				}
@@ -90,14 +92,13 @@ class ConnectionPool(Connection)
 			logDebug("creating new %s connection, all %d are in use", Connection.stringof, m_connections.length);
 			conn = m_connectionFactory(); // NOTE: may block
 			logDebug(" ... %s", cast(void*)conn);
+			m_lockCount[conn] = 1;
 		}
-		m_lockCount[conn] = 1;
 		if( cidx == size_t.max ){
 			m_connections ~= conn;
 			logDebug("Now got %d connections", m_connections.length);
 		}
-		auto ret = LockedConnection!Connection(this, conn);
-		return ret;
+		return LockedConnection!Connection(this, conn);
 	}
 }
 

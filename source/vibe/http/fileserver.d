@@ -298,20 +298,48 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 		return;
 	}
 
-	// else write out the file contents
-	//logTrace("Open file '%s' -> '%s'", srv_path, pathstr);
+
 	FileStream fil;
 	try {
-		fil = openFile(path);
+		fil = openFile(pathstr);
 	} catch( Exception e ){
-		// TODO: handle non-existant files differently than locked files?
-		logDebug("Failed to open file %s: %s", pathstr, e.toString());
 		return;
 	}
 	scope(exit) fil.close();
-	if (pce && !encodedFilepath.length) 
-		res.bodyWriter.write(fil);
-	else 
-		res.writeRawBody(fil);
+
+		
+	if (auto ptr = "Range" in req.headers) {
+		import std.algorithm : splitter;
+		import std.array : array;
+		import std.exception : enforce;
+		string hdr = cast(string) *ptr;
+		enforce(hdr.startsWith("bytes="));
+		hdr = hdr["bytes=".length .. $];
+		string[] rng = splitter(hdr, "-").array.to!(string[]);
+		ulong end = (rng[1] != "") ? rng[1].to!ulong : (dirent.size.to!ulong - 1);
+		ulong len = end - to!ulong(rng[0]) + 1;
+		res.headers["Content-Range"] = "bytes " ~ rng[0] ~ "-" ~ to!string(end) ~ "/" ~ to!string(dirent.size); 
+		res.headers["Content-Length"] = len.to!string;
+		// for HEAD responses, stop here
+		if( res.isHeadResponse() ){
+			res.writeVoidBody();
+			assert(res.headerWritten);
+			return;
+		}
+		fil.seek(rng[0].to!ulong);
+		
+		res.writeRawBody(fil, 206, cast(size_t) len);
+	}
+	else {	// for HEAD responses, stop here
+		if( res.isHeadResponse() ){
+			res.writeVoidBody();
+			assert(res.headerWritten);
+			return;
+		}
+		res.headers["Content-Length"] = to!string(dirent.size);
+		if (pce && !encodedFilepath.length) 
+			res.bodyWriter.write(fil);
+		else res.writeRawBody(fil);
+	}
 	logTrace("sent file %d, %s!", fil.size, res.headers["Content-Type"]);
 }

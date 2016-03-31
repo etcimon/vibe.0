@@ -852,7 +852,7 @@ private:
 		Duration latency;
 		logTrace("Running ping");
 		auto cb = getEventDriver().createManualEvent();
-		SysTime start = Clock.currTime();
+		SysTime start = Clock.currTime(UTC());
 		long sent = start.stdTime();
 		SysTime recv;
 		PingData data = PingData(sent, &recv, cb);
