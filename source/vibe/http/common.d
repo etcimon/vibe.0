@@ -319,7 +319,7 @@ abstract class MultiPartPart {
 		m_boundary = boundary;
 	}
 
-	final @property ulong size() { return m_headers.size + m_data.size + (m_sibling ? m_sibling.size + "\r\n".length : (m_boundary.length + "\r\n----".length)); }
+	final @property ulong size() { return m_headers.size + m_data.size + (m_sibling ? m_sibling.size + "\r\n".length : (m_boundary.length + "\r\n----\r\n".length)); }
 
 	final string peek(bool first = true)
 	{
@@ -335,7 +335,7 @@ abstract class MultiPartPart {
 		else { // we're done
 			app ~= "\r\n--";
 			app ~= m_boundary;
-			app ~= "--";
+			app ~= "--\r\n";
 		}
 		return app.data;
 	}
@@ -351,7 +351,7 @@ abstract class MultiPartPart {
 		else { // we're done
 			sink.write("\r\n--");
 			sink.write(m_boundary);
-			sink.write("--");
+			sink.write("--\r\n");
 		}
 	}
 

@@ -1507,7 +1507,7 @@ final class HTTPClientResponse : HTTPResponse {
 	*/
 	Json readJson(){
 		enforceEx!ConnectionClosedException(bodyReader !is null, "Empty json data");
-		auto bdy = bodyReader.readAllUTF8(true);
+		auto bdy = cast(string)bodyReader.readAll();
 		auto json = parseJson(bdy);
 
 		mixin(OnCapture!("HTTPClientResponse.json", "json.toPrettyString()"));
