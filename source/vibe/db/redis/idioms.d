@@ -372,9 +372,9 @@ end`);
 	{
 		import std.random;
 		import vibe.core.core;
-		import vibe.data.bson;
+		import std.uuid;
 
-		auto lockval = BsonObjectID.generate();
+		auto lockval = randomUUID().toString();
 		while (!m_db.setNX(m_key, cast(ubyte[])lockval, 30.seconds))
 			sleep(uniform(1, 50).msecs);
 

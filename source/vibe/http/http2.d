@@ -897,7 +897,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		while (ub.length > 0)
 		{
-			size_t to_send = min(m_tx.bufs.available, ub.length);
+			size_t to_send = std.algorithm.min(m_tx.bufs.available, ub.length);
 			ErrorCode rv = m_tx.bufs.add(cast(string) ub[0 .. to_send]);
 			dirty();
 			enforce(rv >= 0, "Error adding data to buffer");
@@ -1182,7 +1182,7 @@ private:
 				assert(c == bufs.head);
 
 			bool remove_one = (c.buf.available == 0 && dst.length >= c.buf.length);
-			wlen = min(cast(int) dst.length, cast(int) c.buf.length);
+			wlen = std.algorithm.min(cast(int) dst.length, cast(int) c.buf.length);
 
 			if (wlen == 0) {
 				m_tx.notify();
@@ -1223,7 +1223,7 @@ private:
 		int remote_chunk_size = m_session.get().getRemoteSettings(Setting.MAX_FRAME_SIZE);
 		int remote_window_size = m_session.get().getRemoteSettings(Setting.INITIAL_WINDOW_SIZE);
 		int local_window_size = m_session.m_defaultStreamWindowSize;
-		m_maxFrameSize = min(chunk_size, remote_chunk_size);
+		m_maxFrameSize = std.algorithm.min(chunk_size, remote_chunk_size);
 		m_rx.bufs = Mem.alloc!Buffers(m_maxFrameSize, local_window_size/m_maxFrameSize+2, 1, 0, m_session.m_tlsStream?true:false, false);
 		m_tx.bufs = Mem.alloc!Buffers(m_maxFrameSize, remote_window_size/m_maxFrameSize+2, 1, 0, m_session.m_tlsStream?true:false, false);
 		s_totalStreams++;
@@ -2475,7 +2475,7 @@ override:
 	{
 		HTTP2Stream stream = getStream(stream_id);
 
-		return min(stream.m_maxFrameSize, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+		return std.algorithm.min(stream.m_maxFrameSize, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
 	}
 
 	ErrorCode writeData(in Frame frame, ubyte[] framehd, uint length)

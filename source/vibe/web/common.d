@@ -319,36 +319,6 @@ PathAttribute path(string data)
 	return PathAttribute(data);
 }
 
-///
-unittest {
-	@path("/foo")
-	interface IAPI
-	{
-		@path("info2") string getInfo();
-	}
-
-	class API : IAPI {
-		string getInfo() { return "Hello, World!"; }
-	}
-	
-	void test()
-	{
-		import vibe.http.router;
-		import vibe.web.rest;
-
-		auto router = new URLRouter;
-		
-		// Tie IAPI.getInfo to "GET /root/foo/info2"
-		router.registerRestInterface!IAPI(new API(), "/root/");
-		
-		// Or just to "GET /foo/info2"
-		router.registerRestInterface!IAPI(new API());
-
-		// ...
-	}
-}
-
-
 /**
 	Scheduled for deprecation - use @$(D path) instead.
 
@@ -368,32 +338,6 @@ PathAttribute rootPath(string path)
 	if (!__ctfe)
 		assert(false, onlyAsUda!__FUNCTION__);
 	return PathAttribute("");
-}
-///
-unittest
-{
-	import vibe.http.router;
-	import vibe.web.rest;
-
-	@rootPathFromName
-	interface IAPI
-	{
-		int getFoo();
-	}
-
-	class API : IAPI
-	{
-		int getFoo()
-		{
-			return 42;
-		}
-	}
-
-	auto router = new URLRouter();
-	registerRestInterface(router, new API());
-	auto routes= router.getAllRoutes();
-
-	assert(routes[0].pattern == "/iapi/foo" && routes[0].method == HTTPMethod.GET);
 }
 
 

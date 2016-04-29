@@ -17,7 +17,6 @@ module vibe.web.web;
 
 public import vibe.internal.meta.funcattr : PrivateAccessProxy, before, after;
 public import vibe.web.common;
-public import vibe.web.i18n;
 public import vibe.web.validation;
 
 import vibe.core.core;
@@ -224,60 +223,6 @@ unittest {
 	}
 }
 
-
-/**
-	Renders a Diet template file to the current HTTP response.
-
-	This function is equivalent to vibe.http.server.render, but implicitly
-	writes the result to the response object of the currently processed
-	request.
-
-	Note that this may only be called from a function/method
-	registered using registerWebInterface.
-*/
-template render(string diet_file, ALIASES...) {
-	void render(string MODULE = __MODULE__, string FUNCTION = __FUNCTION__)()
-	{
-		import vibe.web.i18n;
-		import vibe.internal.meta.uda : findFirstUDA;
-		mixin("static import "~MODULE~";");
-
-		alias PARENT = typeof(__traits(parent, mixin(FUNCTION)).init);
-		enum FUNCTRANS = findFirstUDA!(TranslationContextAttribute, mixin(FUNCTION));
-		enum PARENTTRANS = findFirstUDA!(TranslationContextAttribute, PARENT);
-		static if (FUNCTRANS.found) alias TranslateContext = FUNCTRANS.value.Context;
-		else static if (PARENTTRANS.found) alias TranslateContext = PARENTTRANS.value.Context;
-
-		assert(s_requestContext.req !is null, "render() used outside of a web interface request!");
-		auto req = s_requestContext.req;
-
-		static if (is(TranslateContext) && TranslateContext.languages.length) {
-			static if (TranslateContext.languages.length > 1) {
-				switch (s_requestContext.language) {
-					default: {
-						static string diet_translate__(string key,string context=null) { return tr!(TranslateContext, TranslateContext.languages[0])(key,context); }
-						vibe.http.server.render!(diet_file, req, ALIASES, diet_translate__)(s_requestContext.res);
-						return;
-						}
-					foreach (lang; TranslateContext.languages[1 .. $])
-						case lang: {
-							mixin("struct "~lang~" { static string diet_translate__(string key,string context=null) { return tr!(TranslateContext, lang)(key,context); } void render() { vibe.http.server.render!(diet_file, req, ALIASES, diet_translate__)(s_requestContext.res); } }");
-							mixin(lang~" renderctx;");
-							renderctx.render();
-							return;
-							}
-				}
-			} else {
-				static string diet_translate__(string key,string context=null) { return tr!(TranslateContext, TranslateContext.languages[0])(key,context); }
-				vibe.http.server.render!(diet_file, req, ALIASES, diet_translate__)(s_requestContext.res);
-			}
-		} else {
-			vibe.http.server.render!(diet_file, req, ALIASES)(s_requestContext.res);
-		}
-	}
-}
-
-
 /**
 	Redirects to the given URL.
 
@@ -325,34 +270,6 @@ void terminateSession()
 	}
 }
 
-
-/**
-	Translates a text based on the language of the current web request.
-
-	See_also: $(D vibe.web.i18n.translationContext)
-*/
-string trWeb(string text, string context = null)
-{
-	assert(s_requestContext.req !is null, "trWeb() used outside of a web interface request!");
-	return s_requestContext.tr(text, context);
-}
-
-///
-unittest {
-	struct TRC {
-		import std.typetuple;
-		alias languages = TypeTuple!("en_US", "de_DE", "fr_FR");
-		//mixin translationModule!"test";
-	}
-
-	@translationContext!TRC
-	class WebService {
-		void index(HTTPServerResponse res)
-		{
-			res.writeBody(trWeb("This text will be translated!"));
-		}
-	}
-}
 
 
 /**
@@ -527,8 +444,6 @@ private {
 private struct RequestContext {
 	HTTPServerRequest req;
 	HTTPServerResponse res;
-	string language;
-	string function(string, string) tr;
 }
 
 private void handleRequest(string M, alias overload, C, ERROR...)(HTTPServerRequest req, HTTPServerResponse res, C instance, WebInterfaceSettings settings, ERROR error)
@@ -670,29 +585,6 @@ private RequestContext createRequestContext(alias handler)(HTTPServerRequest req
 	RequestContext ret;
 	ret.req = req;
 	ret.res = res;
-	ret.language = determineLanguage!handler(req);
-
-	import vibe.web.i18n;
-	import vibe.internal.meta.uda : findFirstUDA;
-
-	alias PARENT = typeof(__traits(parent, handler).init);
-	enum FUNCTRANS = findFirstUDA!(TranslationContextAttribute, handler);
-	enum PARENTTRANS = findFirstUDA!(TranslationContextAttribute, PARENT);
-	static if (FUNCTRANS.found) alias TranslateContext = FUNCTRANS.value.Context;
-	else static if (PARENTTRANS.found) alias TranslateContext = PARENTTRANS.value.Context;
-
-	static if (is(TranslateContext) && TranslateContext.languages.length) {
-		static if (TranslateContext.languages.length > 1) {
-			switch (ret.language) {
-				default: ret.tr = &tr!(TranslateContext, TranslateContext.languages[0]); break;
-				foreach (lang; TranslateContext.languages[1 .. $]) {
-					case lang:
-						ret.tr = &tr!(TranslateContext, lang);
-						break;
-				}
-			}
-		} else ret.tr = &tr!(TranslateContext, TranslateContext.languages[0]);
-	} else ret.tr = (t,c) => t;
 
 	return ret;
 }

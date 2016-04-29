@@ -700,7 +700,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 		auto self = Task.getThis();
 		return m_mutex.performLocked!({
 			if (!m_owner) {
-				assert(m_recCount == 0);
+				//assert(m_recCount == 0);
 				m_recCount = 1;
 				m_owner = self;
 				return true;
@@ -730,7 +730,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 		auto self = Task.getThis();
 		m_mutex.performLocked!({
 			assert(m_owner == self);
-			assert(m_recCount > 0);
+			//assert(m_recCount > 0);
 			m_recCount--;
 			if (m_recCount == 0) {
 				m_owner = Task.init;

@@ -116,24 +116,20 @@ final struct Session {
 	private Variant serialize(T)(T val)
 	{
 		import vibe.data.json;
-		import vibe.data.bson;
 
 		final switch (m_storageType) with (SessionStorageType) {
 			case native: return Variant(val);
 			case json: return Variant(serializeToJson(val));
-			case bson: return Variant(serializeToBson(val));
 		}
 	}
 
 	private T deserialize(T)(Variant val)
 	{
 		import vibe.data.json;
-		import vibe.data.bson;
 
 		final switch (m_storageType) with (SessionStorageType) {
 			case native: return val.get!T;
 			case json: return deserializeJson!T(val.get!Json);
-			case bson: return deserializeBson!T(val.get!Bson);
 		}
 	}
 }
@@ -189,8 +185,7 @@ interface SessionStore {
 
 enum SessionStorageType {
 	native,
-	json,
-	bson
+	json
 }
 
 

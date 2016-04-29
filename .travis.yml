@@ -1,7 +1,7 @@
 language: d
 
 d:
-  - dmd-2.067.1
+  - dmd-2.070.0
 
 env:
   - VIBED_DRIVER=libasync_botan
@@ -17,7 +17,6 @@ script:
 
 
 services:
-  - mongodb
   - redis-server
 
 sudo: false

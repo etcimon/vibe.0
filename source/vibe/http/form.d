@@ -12,7 +12,6 @@ public import std.typecons : Yes, No;
 
 import vibe.core.log;
 import vibe.http.client : HTTPClientRequest; // for writeFormBody
-import vibe.http.rest;
 import vibe.http.router;
 import vibe.http.server;
 import vibe.inet.url;

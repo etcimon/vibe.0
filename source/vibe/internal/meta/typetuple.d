@@ -119,7 +119,7 @@ template Compare(alias Group1, alias Group2)
 
 	enum Compare = implementation();
 }
-
+/*
 ///
 unittest
 {
@@ -129,3 +129,4 @@ unittest
 	static assert (Compare!(one, two));
 	static assert (!Compare!(one, three));
 }
+*/
