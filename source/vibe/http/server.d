@@ -326,29 +326,6 @@ void setVibeDistHost(string host, ushort port)
 
 
 /**
-	Renders the given template and makes all ALIASES available to the template.
-
-	This currently suffers from multiple DMD bugs - use renderCompat() instead for the time being.
-
-	You can call this function as a member of HTTPServerResponse using D's uniform function
-	call syntax.
-
-	Examples:
-		---
-		string title = "Hello, World!";
-		int pageNumber = 1;
-		res.render!("mytemplate.jd", title, pageNumber);
-		---
-*/
-@property void render(string template_file, ALIASES...)(HTTPServerResponse res)
-{
-	import vibe.templ.diet;
-	res.headers["Content-Type"] = "text/html; charset=UTF-8";
-	parseDietFile!(template_file, ALIASES)(res.bodyWriter);
-}
-
-
-/**
 	Creates a HTTPServerRequest suitable for writing unit tests.
 */
 HTTPServerRequest createTestHTTPServerRequest(URL url, HTTPMethod method = HTTPMethod.GET, InputStream data = null)
