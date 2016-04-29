@@ -1,7 +1,6 @@
 import vibe.core.log;
 import vibe.data.serialization;
 import vibe.data.json;
-import vibe.data.bson;
 
 
 void main()
@@ -32,13 +31,6 @@ void main()
 	auto dedata2 = deserialize!(JsonStringSerializer!string, Data)(app.data);
 	logInfo("  deserialized: %s %s %s %s", dedata2.number, dedata2.requiredNumber, dedata2.messages, dedata2.custom.counter);
 	logInfo(" ");
-
-	// serialize to a BSON value (binary in-memory representation)
-	logInfo("Serialize to BSON:");
-	auto bson = serializeToBson(data);
-	logInfo("  result: %s", bson.toJson().toString());
-	auto dedata3 = deserializeBson!Data(bson);
-	logInfo("  deserialized: %s %s %s %s", dedata3.number, dedata3.requiredNumber, dedata3.messages, dedata3.custom.counter);
 }
 
 
