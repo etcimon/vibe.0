@@ -1,9 +1,0 @@
-﻿{
-	"name": "http-info-example",
-	"description": "Displays request information using a Diet template.",
-	"authors": [ "Sönke Ludwig" ],
-	"dependencies": {
-		"vibe-d": {"version": "~master", "path": "../../"}
-	},
-	"versions": ["VibeDefaultMain"]
-}

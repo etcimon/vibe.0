@@ -1,9 +1,0 @@
-﻿{
-	"name": "task-control-example",
-	"description": "Task manipulation example.",
-	"authors": [ "Sönke Ludwig" ],
-	"dependencies": {
-		"vibe-d": {"version": "~master", "path": "../../"}
-	},
-	"versions": ["VibeDefaultMain"]
-}
