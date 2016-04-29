@@ -83,8 +83,9 @@ final class LibasyncDriver : EventDriver {
 		shared AsyncSignal m_exitSignal;
 
 		@property bool exitFlag() {
-			// accomodate Windows Services
-			version(Windows) return m_break || getExitFlag;
+
+			version(unittest) return m_break; else
+			version(Windows) return m_break || getExitFlag; // accomodate Windows Services
 			else return m_break;
 		}
 	}
@@ -120,6 +121,8 @@ final class LibasyncDriver : EventDriver {
 
 		m_exitSignal = new shared AsyncSignal(getEventLoop());
 		m_exitSignal.run({
+				import std.stdio : writeln;
+				writeln("Got exit signal");
 				m_break = true;
 			});
 
@@ -145,8 +148,8 @@ final class LibasyncDriver : EventDriver {
 			processTimers();
 			getDriverCore().notifyIdle();
 		}
+		logInfo("Event loop exit %s", exitFlag);
 		m_break = false;
-		logInfo("Event loop exit");
 		return 0;
 	}
 	

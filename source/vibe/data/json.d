@@ -1902,8 +1902,8 @@ unittest {
 
 unittest {
 	auto j = Json(double.init);
-
-	assert(j.toString == "undefined"); // A double nan should serialize to undefined
+	import std.stdio : writeln;
+	assert(j.toString == "null"); // A double nan should serialize to null
 	j = 17.04f;
 	assert(j.toString == "17.04");	// A proper double should serialize correctly
 

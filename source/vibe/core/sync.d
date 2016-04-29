@@ -458,6 +458,7 @@ private void runMutexUnitTests(M)()
 		exitEventLoop();
 	});
 	runEventLoop();
+	yield();
 	assert(!m.m_impl.m_locked);
 
 	// interruption test #1
