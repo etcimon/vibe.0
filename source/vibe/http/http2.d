@@ -1029,9 +1029,9 @@ private:
 	void readPushResponse(HTTP2Stream push_response)
 	{
 		import std.algorithm : swap;
-		.swap(m_rx.bufs, push_response.m_rx.bufs);
-		.swap(m_rx.headers, push_response.m_rx.headers);
-		.swap(m_stream_id, push_response.m_stream_id);
+		swap(m_rx.bufs, push_response.m_rx.bufs);
+		swap(m_rx.headers, push_response.m_rx.headers);
+		swap(m_stream_id, push_response.m_stream_id);
 		m_session.get().setStreamUserData(push_response.m_stream_id, cast(void*) this);
 		m_rx.dataSignalRaised = true;
 		m_rx.signal.emit();

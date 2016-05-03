@@ -27,8 +27,14 @@
 			"dependencies": {
 			},
 			"versions": []
+		},
+		{
+			"name": "libasync_botan_win32",
+			"subConfigurations": { "libasync": "32mscoff", "botan":"32mscoff", "botan-math": "32mscoff", "libhttp2": "32mscoff", "memutils": "32mscoff"},
+			"dflags-windows-x86": ["-m32mscoff"]
+
 		}
 	],
-	"versions": ["Have_vibe_d", "EnableDebugger", "Botan", "VibeUseNativeDriverType", "VibeLibasyncDriver"],
+	"versions": ["Have_vibe_d", "EnableDebugger"],
 	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."]
 }

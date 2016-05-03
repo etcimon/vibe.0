@@ -78,23 +78,14 @@ unittest {
 */
 TLSContext createTLSContext(TLSContextKind kind, TLSVersion ver = TLSVersion.any)
 {
-	version (OpenSSL) {
-		static TLSContext createOpenSSLContext(TLSContextKind kind, TLSVersion ver) {
-			import vibe.stream.openssl;
-			return new OpenSSLContext(kind, ver);
-		}
-		if (!gs_tlsContextFactory)
-			setTLSContextFactory(&createOpenSSLContext);
-	}
-	version(Botan) {
-		static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
-			import vibe.stream.botan;
-			return new BotanTLSContext(kind);
-		}
-		if (!gs_tlsContextFactory)
-			setTLSContextFactory(&createBotanContext);
 
+	static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
+		import vibe.stream.botan;
+		return new BotanTLSContext(kind);
 	}
+	if (!gs_tlsContextFactory)
+		setTLSContextFactory(&createBotanContext);
+
 	assert(gs_tlsContextFactory !is null, "No TLS context factory registered.");
 	return gs_tlsContextFactory(kind, ver);
 }
@@ -142,18 +133,11 @@ auto createTLSStreamFL(Stream underlying, TLSContext ctx, TLSStreamState state, 
 	// implementation headers.  When client code uses this function the compiler
 	// will have to semantically analyse it and subsequently will import the TLS
 	// implementation headers.
-	version (VibeNoTLS) assert(false, "No TLS support compiled (VibeNoTLS)");
-	version (OpenSSL) {
-		import vibe.utils.memory;
-		import vibe.stream.openssl;
-		static assert(AllocSize!TLSStream > 0);
-		return FreeListRef!OpenSSLStream(cast(TCPConnection)underlying, cast(OpenSSLContext)ctx, state, peer_name, peer_address);
-	}
-	version (Botan) {
-		import vibe.utils.memory;
-		import vibe.stream.botan;
-		return FreeListRef!BotanTLSStream(cast(TCPConnection) underlying, cast(BotanTLSContext) ctx, state, peer_name, peer_address);
-	}
+
+	import vibe.utils.memory;
+	import vibe.stream.botan;
+	return FreeListRef!BotanTLSStream(cast(TCPConnection) underlying, cast(BotanTLSContext) ctx, state, peer_name, peer_address);
+
 }
 
 void setTLSContextFactory(TLSContext function(TLSContextKind, TLSVersion) factory)

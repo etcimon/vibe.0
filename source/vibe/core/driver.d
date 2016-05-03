@@ -12,17 +12,12 @@ public import vibe.core.net;
 public import vibe.core.sync;
 public import vibe.core.stream;
 public import vibe.core.task;
-
+import vibe.core.drivers.libasync;
 import vibe.inet.url;
 
 import core.time;
 import std.exception;
 
-
-version (VibeUseNativeDriverType) {
-	import vibe.core.drivers.native;
-	alias StoredEventDriver = NativeEventDriver;
-} else alias StoredEventDriver = EventDriver;
 
 
 /**
@@ -39,7 +34,7 @@ class TimeoutException : Exception
 /**
 	Returns the active event driver
 */
-StoredEventDriver getEventDriver(bool ignore_unloaded = false) nothrow
+LibasyncDriver getEventDriver(bool ignore_unloaded = false) nothrow
 {
 	assert(ignore_unloaded || s_driver !is null, "No event driver loaded. Did the vibe.core.core module constructor run?");
 	return s_driver;
@@ -48,10 +43,7 @@ StoredEventDriver getEventDriver(bool ignore_unloaded = false) nothrow
 /// private
 package void setupEventDriver(DriverCore core_)
 {
-	version (VibeUseNativeDriverType) {}
-	else import vibe.core.drivers.native;
-
-	s_driver = new NativeEventDriver(core_);
+	s_driver = new LibasyncDriver(core_);
 }
 
 package void deleteEventDriver()
@@ -64,7 +56,7 @@ package void deleteEventDriver()
 
 
 private {
-	StoredEventDriver s_driver;
+	LibasyncDriver s_driver;
 }
 
 

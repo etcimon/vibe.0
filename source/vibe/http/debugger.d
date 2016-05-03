@@ -84,10 +84,9 @@ HTTPServerRequestDelegateS serveTaskManager() {
 		res.contentType = "text/plain";
 		res.printSummary();
 
-		version(VibeLibasyncDriver) {
-			import vibe.core.drivers.libasync;
-			res.bodyWriter.write(format("Have %d TCP connections active\n\n", LibasyncTCPConnection.totalConnections));
-		}
+		import vibe.core.drivers.libasync;
+		res.bodyWriter.write(format("Have %d TCP connections active\n\n", LibasyncTCPConnection.totalConnections));
+
 		auto tasks = TaskDebugger.getActiveTasks();
 		res.bodyWriter.write(format("Have %d Active and %d Pending fibers\n\n", tasks.length, getAvailableFiberCount()));
 		res.bodyWriter.write("Active fibers:\n");

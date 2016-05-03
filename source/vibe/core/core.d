@@ -1545,11 +1545,10 @@ static ~this()
 		// if we are the main thread, wait for all others before terminating
 		is_main_thread = idx == 0;
 		if (is_main_thread) { // we are the main thread, wait for others
-			
-			version(VibeLibasyncDriver) {
-				import libasync.threads : destroyAsyncThreads;
-				destroyAsyncThreads(); // destroy threads
-			}
+
+			import libasync.threads : destroyAsyncThreads;
+			destroyAsyncThreads(); // destroy threads
+
 
 			atomicStore(st_term, true);
 			st_threadsSignal.emit();

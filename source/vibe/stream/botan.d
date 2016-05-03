@@ -1,6 +1,5 @@
 ﻿module vibe.stream.botan;
 
-version(Botan):
 version = X509;
 import core.thread : Thread;
 import vibe.core.core;

@@ -7,8 +7,6 @@
 */
 module vibe.core.drivers.libasync;
 
-version(VibeLibasyncDriver):
-
 import vibe.core.core;
 import vibe.core.driver;
 import vibe.core.drivers.threadedfile;

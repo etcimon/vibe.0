@@ -612,10 +612,9 @@ final class SyslogLogger : Logger {
 		import core.thread;
 		msg.time = SysTime(DateTime(0, 1, 1, 0, 0, 0), FracSec.from!"usecs"(1));
 		msg.text = "αβγ";
-		version(VibeLibasyncDriver) {
-			import libasync.threads;
-			spawnAsyncThreads();
-		}
+		import libasync.threads;
+		spawnAsyncThreads();
+
 		msg.level = LogLevel.debug_;
 		logger.log(msg);
 		msg.level = LogLevel.diagnostic;
@@ -645,8 +644,7 @@ final class SyslogLogger : Logger {
 		assert(lines[6] == "<137>1 0000-01-01T00:00:00.000001 - " ~ BOM ~ "appname - - - " ~ BOM ~ "αβγ\n");
 		removeFile(fstream.path().toNativeString());
 
-		version(VibeLibasyncDriver)
-			destroyAsyncThreads();
+		destroyAsyncThreads();
 	}
 }
 
