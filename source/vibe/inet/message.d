@@ -47,14 +47,16 @@ void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_lin
 	}
 
 	string ln;
+	int i;
 	while ((ln = cast(string)input.readLine(max_line_length, "\r\n", alloc)).length > 0) {
+		i++;
 		import vibe.core.log;
 		logDebug("%s", ln);
 		if (ln[0] != ' ' && ln[0] != '\t') {
 			addPreviousHeader();
 
 			auto colonpos = ln.indexOf(':');
-			enforce(colonpos > 0 && colonpos < ln.length-1, "Header is missing ':'.");
+			enforce(colonpos > 0 && colonpos < ln.length, "Header is missing ':' at " ~ colonpos.to!string ~ " ln " ~ i.to!string ~ ": " ~ ln);
 			hdr = ln[0..colonpos].stripA();
 			hdrvalue = ln[colonpos+1..$].stripA();
 		} else {

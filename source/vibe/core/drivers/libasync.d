@@ -349,7 +349,8 @@ final class LibasyncDriver : EventDriver {
 		AsyncUDPSocket sock = new AsyncUDPSocket(getEventLoop());
 		sock.local = localaddr;
 		auto udp_connection = new LibasyncUDPConnection(sock);
-		sock.run(&udp_connection.handler);
+		if (!sock.run(&udp_connection.handler))
+			throw new Exception(format("Cannot listen to %s:%d: %s", bind_address, port, sock.error));
 		return udp_connection;
 	}
 	
