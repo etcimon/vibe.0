@@ -35,6 +35,7 @@ else { static assert(false, "Error: -version=VibeDefaultMain is required to use 
 */
 int main()
 {
+	static assert(false, "You must place your code in your own main() and cannot use shared static this() using this fork");
 	import vibe.core.args : finalizeCommandLineOptions;
 	import vibe.core.core : runEventLoop, lowerPrivileges;
 	import vibe.core.log;

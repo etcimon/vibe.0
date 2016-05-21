@@ -1724,7 +1724,6 @@ final class LibasyncUDPConnection : UDPConnection {
 		bool m_canBroadcast;
 		NetworkAddress m_peer;
 
-		bool m_waiting;
 	}
 	
 	private @property AsyncUDPSocket socket() {
@@ -1736,7 +1735,11 @@ final class LibasyncUDPConnection : UDPConnection {
 	body {
 		m_udpImpl = conn;
 	}
-		
+
+	~this() {
+		if (socket && socket.socket > 0) try close(); catch {}
+	}
+
 	@property string bindAddress() const {
 
 		return m_udpImpl.local.toAddressString();
@@ -1769,7 +1772,7 @@ final class LibasyncUDPConnection : UDPConnection {
 	
 	void release()
 	{
-		assert(m_task != Task(), "Trying to release a UDP socket that is not owned.");
+		assert(Task.getThis() == Task() || m_task != Task(), "Trying to release a UDP socket that is not owned.");
 		assert(m_task == Task.getThis(), "Trying to release a foreign UDP socket.");
 		m_task = Task();
 	}
@@ -1790,6 +1793,10 @@ final class LibasyncUDPConnection : UDPConnection {
 	void send(in ubyte[] data, in NetworkAddress* peer_address = null)
 	{
 		assert(data.length <= int.max);
+
+		acquire();
+		scope(exit)
+			release();
 		uint ret;
 		size_t retries = 3;
 		foreach  (i; 0 .. retries) {
@@ -1799,7 +1806,6 @@ final class LibasyncUDPConnection : UDPConnection {
 				ret = socket.sendTo(data, m_peer);
 			}
 			if (socket.status.code == Status.ASYNC) { 
-				m_waiting = true;
 				getDriverCore().yieldForEvent();
 			}
 			else break;
@@ -1854,28 +1860,24 @@ final class LibasyncUDPConnection : UDPConnection {
 					enforceEx!TimeoutException(timeout > 0.seconds && m_driver.isTimerPending(tm), "UDP receive timeout.");
 				}
 			}
-			m_waiting = true;
 			getDriverCore().yieldForEvent();
 		}
 	}
 
 	private void handler(UDPEvent ev)
 	{
-		logTrace("UDPConnection %p event", this);
-
+		logTrace("UDPConnection event: %s", ev.to!string);
 		Exception ex;
 		final switch (ev) {
 			case UDPEvent.READ:
-				if (m_waiting) {
-					m_waiting = false;
+				if (m_task != Task())
 					getDriverCore().resumeTask(m_task, null);
-				}
+
 				break;
 			case UDPEvent.WRITE:
-				if (m_waiting) {
-					m_waiting = false;
+				if (m_task != Task())
 					getDriverCore().resumeTask(m_task, null);
-				}
+
 				break;
 			case UDPEvent.ERROR:
 				getDriverCore.resumeTask(m_task, new Exception(socket.error));

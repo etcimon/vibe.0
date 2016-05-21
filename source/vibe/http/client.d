@@ -897,7 +897,6 @@ final class HTTPClientRequest : HTTPRequest {
 		FixedAppender!(string, 22) m_contentLengthBuffer;
 		NetworkAddress m_localAddress;
 		Duration* m_latency;
-
 		@property inout(Stream) topStream() inout { return cast(inout(Stream)) ((http2Stream && !m_isUpgrading) ? cast(Stream) http2Stream : ( tlsStream ? cast(Stream) tlsStream : cast(Stream) tcpConnection ) ); }
 	}
 
