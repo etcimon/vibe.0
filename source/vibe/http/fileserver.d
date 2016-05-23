@@ -307,7 +307,8 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 	}
 	scope(exit) fil.close();
 
-		
+	res.headers.addField("Accept-Ranges", "bytes");
+
 	if (auto ptr = "Range" in req.headers) {
 		import std.algorithm : splitter;
 		import std.array : array;
@@ -318,7 +319,7 @@ private void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res,
 		string[] rng = splitter(hdr, "-").array.to!(string[]);
 		ulong end = (rng[1] != "") ? rng[1].to!ulong : (dirent.size.to!ulong - 1);
 		ulong len = end - to!ulong(rng[0]) + 1;
-		res.headers["Content-Range"] = "bytes " ~ rng[0] ~ "-" ~ to!string(end) ~ "/" ~ to!string(dirent.size); 
+		res.headers["Content-Range"] = format("bytes %s-%s/%s", rng[0], to!string(end), to!string(dirent.size)); 
 		res.headers["Content-Length"] = len.to!string;
 		// for HEAD responses, stop here
 		if( res.isHeadResponse() ){
