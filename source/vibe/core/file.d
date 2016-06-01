@@ -143,15 +143,18 @@ FileStream createTempFile(string suffix = null)
 	version(Windows){
 		import std.conv : to;
 		import std.utf : toUTF8;
-		char[L_tmpnam] tmp;
 		wchar[256] tmp_path;
 		DWORD len = GetTempPathW(tmp_path.length, tmp_path.ptr);
 		string path = tmp_path.ptr[0 .. len].toUTF8;
-		tmpnam(tmp.ptr);
-		auto tmpname = to!string(tmp.ptr);
-		if( tmpname.startsWith("\\") ) tmpname = tmpname[1 .. $];
-		tmpname = path ~ tmpname ~ suffix;
-		return openFile(tmpname, FileMode.createTrunc);
+		import std.uuid : randomUUID;
+		import std.string : replace;
+		string random_letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+		char[10] tmpname;
+		import std.random : uniform;
+		foreach (i; 0 .. 10)
+			tmpname[i] = random_letters[uniform(0, random_letters.length-1)];
+		string tmp_name = path ~ (cast(string)tmpname.ptr[0 .. 10]) ~ suffix;
+		return openFile(tmp_name, FileMode.createTrunc);
 	} else {
 		enum pattern ="/tmp/vtmp.XXXXXX";
 		scope templ = new char[pattern.length+suffix.length+1];

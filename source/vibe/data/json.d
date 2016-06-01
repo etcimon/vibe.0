@@ -69,6 +69,7 @@ import std.traits;
 	a JSONException. Additionally, an explicit cast or using get!() or to!() is
 	required to convert a JSON value to the corresponding static D type.
 */
+align(8)
 struct Json {
 	private {
 		// putting all fields in a union results in many false pointers leading to
