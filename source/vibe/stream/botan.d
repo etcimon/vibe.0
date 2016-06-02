@@ -45,6 +45,7 @@ private:
 	ubyte[] m_sess_id;
 	Exception m_ex;
 
+	Vector!ubyte m_outBuf;
 public:
 	/// Returns the date/time the session was started
 	@property SysTime started() const { return m_session_age; }
@@ -159,7 +160,8 @@ public:
 	}
 
 	void flush() { 
-		processException();
+		doWrite(m_outBuf[]);
+		m_outBuf.length = 0;
 		m_tcp_conn.flush();
 	}
 
@@ -171,9 +173,9 @@ public:
 		processException();
 		scope(success) 
 			processException();
-
 		if (m_writer != Task())
 			m_writer.interrupt();
+		flush();
 		m_tls_channel.close();
 		m_tcp_conn.flush();
 		if (m_reader != Task())
@@ -223,6 +225,15 @@ public:
 	}
 
 	void write(in ubyte[] src) {
+		if (m_outBuf.length >= 64*1024 || src.length >= 64*1024)
+			flush();
+		if (src.length >= 64*1024)
+			doWrite(src);
+		else
+			m_outBuf ~= src;
+	}
+
+	private void doWrite(in ubyte[] src) {
 		mixin(STrace);
 		processException();
 		scope(success) 

@@ -1987,6 +1987,7 @@ private:
 		mixin(Trace);
 		scope(exit) {
 			logDebug("HTTP/2: Processed dirty streams");
+			topStream.flush();
 			m_tx.dirty.clear();
 		}
 		foreach (HTTP2Stream stream; m_tx.dirty)

@@ -1456,7 +1456,7 @@ final class HTTPServerResponse : HTTPResponse {
 		void writeLine(T...)(string fmt, T args)
 		{
 			logTrace(fmt, args);
-			dst.put(format(fmt, args));
+			formattedWrite(&dst, fmt, args);
 			dst.put("\r\n");
 		}
 		
@@ -1487,7 +1487,7 @@ final class HTTPServerResponse : HTTPResponse {
 		
 		// finalize response header
 		dst.put("\r\n");
-		dst.flush();
+		//dst.flush();
 	}
 
 	private void writeHeader()
@@ -1504,6 +1504,7 @@ final class HTTPServerResponse : HTTPResponse {
 				auto output = scoped!MemoryOutputStream(defaultAllocator());
 				scope(exit) output.destroy();
 				writeHeader(output);
+				output.flush();
 				return cast(string)output.data;
 			};
 
@@ -1520,7 +1521,7 @@ final class HTTPServerResponse : HTTPResponse {
 
 		writeHeader(topStream);
 
-		topStream.flush();
+		//topStream.flush();
 	}
 }
 
