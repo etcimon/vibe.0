@@ -1767,8 +1767,9 @@ class HTTP2HandlerContext
 		mixin(Trace);
 		mixin(Name!"HTTP/2 Request");
 		bool keep_alive = false;
+		HTTP2HandlerContext h2ctx = this;
 		enforce(context !is null);
-		.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, this, keep_alive);
+		.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, h2ctx, keep_alive);
 	}
 }
 

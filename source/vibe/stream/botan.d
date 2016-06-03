@@ -230,7 +230,7 @@ public:
 		if (src.length >= 64*1024)
 			doWrite(src);
 		else
-			m_outBuf ~= src;
+			m_outBuf ~= cast() src;
 	}
 
 	private void doWrite(in ubyte[] src) {
