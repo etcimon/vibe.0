@@ -367,7 +367,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	}
 
 	/// Read client request headers into supplied structures. The session must be opened as a server
-	void readHeader(out URL url, out HTTPMethod method, out InetHeaderMap header, Allocator alloc = defaultAllocator())
+	void readHeader(ref URL url, ref HTTPMethod method, ref InetHeaderMap header, Allocator alloc = defaultAllocator())
 	in { assert(m_session.isServer); }
 	body
 	{
@@ -417,7 +417,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	}
 
 	/// Read server response headers into supplied structures. The session must be opened as a client
-	void readHeader(out int status_code, out InetHeaderMap header, Allocator alloc = defaultAllocator())
+	void readHeader(ref int status_code, ref InetHeaderMap header, Allocator alloc = defaultAllocator())
 	in { assert(!m_session.isServer); }
 	body {
 		mixin(Trace);
