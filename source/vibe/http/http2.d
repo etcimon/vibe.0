@@ -1301,6 +1301,7 @@ final class HTTP2Session
 		bool m_paused;
 		bool m_aborted;
 		bool m_resume;
+		bool m_inWriteLoop;
 		void delegate(ref HTTP2Settings) m_settingsUpdater;
 
 		Duration m_readTimeout = 10.minutes; // max inactivity waiting for any data
@@ -1985,7 +1986,9 @@ private:
 		if (m_paused) return;
 		
 		mixin(Trace);
+		m_inWriteLoop = true;
 		scope(exit) {
+			m_inWriteLoop = false;
 			logDebug("HTTP/2: Processed dirty streams");
 			topStream.flush();
 			m_tx.dirty.clear();
@@ -2519,7 +2522,10 @@ override:
 	{
 		mixin(Trace);
 		ConnectionStream stream = m_session.topStream;
-		try stream.write(data);
+		try {
+			stream.write(data);
+			if (!m_session.m_inWriteLoop) stream.flush(); // the write loop is going to flush it otherwise
+		}
 		catch (Exception e) { m_session.m_rx.ex = e; return ErrorCode.CALLBACK_FAILURE; }
 		return cast(int)data.length;
 	}
