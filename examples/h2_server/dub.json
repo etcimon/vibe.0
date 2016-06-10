@@ -6,5 +6,5 @@
 		"vibe-d": {"path": "../../"}
 	},
 	"subConfigurations": {"vibe-d": "libasync_botan"},
-	"versions": ["SecurePool", "VibeDefaultMain"]
+	"versions": ["VibeCustomMain"]
 }

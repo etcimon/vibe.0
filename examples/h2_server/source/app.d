@@ -13,15 +13,13 @@ void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
 		res.writeBody("Hello, World!", "text/plain");
 }
 
-shared static this()
+void main()
 {
 	setLogLevel(LogLevel.trace);
 	auto settings = new HTTPServerSettings;
-	settings.port = 8080;
+	settings.port = 4343;
+	settings.disableHTTP2 = true;
 	settings.bindAddresses = ["::1", "127.0.0.1"];
-	version(Botan) settings.tlsContext = new BotanTLSContext(TLSContextKind.server/*, createCreds()*/); // see stream/botan for more options
-	settings.tlsContext.useCertificateChainFile("server.crt");
-	settings.tlsContext.usePrivateKeyFile("server.key");
-
 	listenHTTP(settings, &handleRequest);
+	runEventLoop();
 }

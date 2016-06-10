@@ -341,31 +341,6 @@ PathAttribute rootPath(string path)
 }
 
 
-/** 
- 	Respresents a Rest error response
-*/
-class RestException : HTTPStatusException {
-	private {
-		Json m_jsonResult;
-	}
-	
-	///
-	this(int status, Json jsonResult, string file = __FILE__, int line = __LINE__, Throwable next = null)
-	{
-		if (jsonResult.type == Json.Type.Object && jsonResult.statusMessage.type == Json.Type.String) {
-			super(status, jsonResult.statusMessage.get!string, file, line, next);
-		}
-		else {
-			super(status, httpStatusText(status) ~ " (" ~ jsonResult.toString() ~ ")", file, line, next);
-		}
-		
-		m_jsonResult = jsonResult;
-	}
-	
-	/// The HTTP status code
-	@property const(Json) jsonResult() const { return m_jsonResult; }
-}
-
 /// private
 package struct ContentTypeAttribute
 {

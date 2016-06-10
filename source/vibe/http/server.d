@@ -116,13 +116,8 @@ void listenHTTP(HTTPServerSettings settings, HTTPServerRequestDelegate request_h
 		}
 	}
 
-	// if a VibeDist host was specified on the command line, register there instead of listening
-	// directly.
-	if (s_distHost.length && !settings.disableDistHost) {
-		listenHTTPDist(settings, request_handler, s_distHost, s_distPort);
-	} else {
-		listenHTTPPlain(settings);
-	}
+	listenHTTPPlain(settings);
+
 }
 /// ditto
 void listenHTTP(HTTPServerSettings settings, HTTPServerRequestFunction request_handler)
@@ -461,21 +456,6 @@ enum HTTPServerOption {
 		parseMultiPartBody |
 		parseCookies |
 		errorStackTraces,
-
-	/// deprecated
-	None = none,
-	/// deprecated
-	ParseURL = parseURL,
-	/// deprecated
-	ParseQueryString = parseQueryString,
-	/// deprecated
-	ParseFormBody = parseFormBody,
-	/// deprecated
-	ParseJsonBody = parseJsonBody,
-	/// deprecated
-	ParseMultiPartBody = parseMultiPartBody,
-	/// deprecated
-	ParseCookies = parseCookies
 }
 
 
@@ -674,11 +654,6 @@ final class HTTPServerRequest : HTTPRequest {
 		string peer;
 		/// ditto
 		NetworkAddress clientAddress;
-
-		deprecated("Use req.tls") {
-			@property bool ssl() const { return tls; }
-			@property void ssl(bool b) { tls = b; }
-		}
 
 		/// Determines if the request was issued over an TLS encrypted channel.
 		bool tls;

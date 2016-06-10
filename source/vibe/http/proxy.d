@@ -34,7 +34,7 @@ import vibe.core.core;
 void listenHTTPReverseProxy(HTTPServerSettings settings, HTTPReverseProxySettings proxy_settings)
 {
 	// disable all advanced parsing in the server
-	settings.options = HTTPServerOption.None;
+	settings.options = HTTPServerOption.none;
 	listenHTTP(settings, reverseProxyRequest(proxy_settings));
 }
 /// ditto

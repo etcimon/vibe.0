@@ -104,15 +104,6 @@ struct Json {
 		string,     /// UTF-8 string
 		array,      /// Array of JSON values
 		object,     /// JSON object aka. dictionary from string to Json
-
-		Undefined = undefined,  /// Compatibility alias - will be deprecated soon
-		Null = null_,           /// Compatibility alias - will be deprecated soon
-		Bool = bool_,           /// Compatibility alias - will be deprecated soon
-		Int = int_,             /// Compatibility alias - will be deprecated soon
-		Float = float_,         /// Compatibility alias - will be deprecated soon
-		String = string,        /// Compatibility alias - will be deprecated soon
-		Array = array,          /// Compatibility alias - will be deprecated soon
-		Object = object         /// Compatibility alias - will be deprecated soon
 	}
 
 	/// New JSON value of Type.Undefined
@@ -714,14 +705,6 @@ struct Json {
 		enforceJson(m_type == Type.array, "'appendArrayElement' only allowed for array types, not "~.to!string(m_type)~".");
 		m_array ~= element;
 	}
-
-	/** Scheduled for deprecation, please use `opIndex` instead.
-		
-		Allows to access existing fields of a JSON object using dot syntax.
-	*/
-	@property const(Json) opDispatch(string prop)() const { return opIndex(prop); }
-	/// ditto
-	@property ref Json opDispatch(string prop)() { return opIndex(prop); }
 
 	/**
 		Compares two JSON values for equality.

@@ -16,7 +16,7 @@ import vibe.http.server;
 import std.conv;
 import std.exception;
 import std.process;
-
+version(none):
 
 /**
 	Listens for HTTP connections on the spefified load balancer using the given HTTP server settings.
