@@ -2167,9 +2167,9 @@ void handleRequest(TCPConnection tcp_conn,
 		if (req.method == HTTPMethod.HEAD) res.m_isHeadResponse = true;
 		if (context.settings.serverString.length)
 			res.headers["Server"] = context.settings.serverString;
+		import core.stdc.time : time, time_t;
 		static time_t last_time;
 		static string last_date_str;
-		import core.stdc.time : time;
 		time_t curr_time = core.stdc.time.time(null);
 		if (curr_time > last_time)
 		{
