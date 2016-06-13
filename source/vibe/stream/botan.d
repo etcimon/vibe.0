@@ -661,7 +661,7 @@ private:
 */
 class CustomTLSPolicy : TLSPolicy
 {
-	TLSProtocolVersion m_min_ver = TLSProtocolVersion.SSL_V3;
+	TLSProtocolVersion m_min_ver = TLSProtocolVersion.TLS_V10;
 	int m_min_dh_group_size = 1024;
 	Vector!TLSCiphersuite m_pri_ciphersuites;
 	Vector!string m_pri_ecc_curves;
