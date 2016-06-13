@@ -61,7 +61,7 @@ auto allocObject(T, bool MANAGED = true, ARGS...)(Allocator allocator, ARGS args
 }
 
 string copy(string str, Allocator allocator) {
-	char[] ret = allocator.alloc(str.length);
+	void[] ret = allocator.alloc(str.length);
 	import core.stdc.string : memcpy;
 	memcpy(ret.ptr, str.ptr, ret.length);
 	return cast(string) ret;

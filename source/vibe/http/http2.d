@@ -466,6 +466,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		//int len = cast(int)( 1 /*:status*/ + header.length + cookies.length );
 		import std.array : Appender;
 		Appender!(HeaderField[]) headers;
+		headers.reserve(header.length + cookies.length + 4);
 		scope(failure) {
 			foreach (hf; headers.data)
 			{
