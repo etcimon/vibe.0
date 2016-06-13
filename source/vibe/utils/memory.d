@@ -42,7 +42,7 @@ Allocator manualAllocator() nothrow
 	if( !alloc ){
 		alloc = new MallocAllocator;
 		alloc = new AutoFreeListAllocator(alloc);
-		alloc = new LockAllocator(alloc);
+		//alloc = new LockAllocator(alloc);
 		version(VibeNoDebug){} else alloc = new DebugAllocator(alloc);
 	}
 	return alloc;

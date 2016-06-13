@@ -1960,7 +1960,7 @@ void handleRequest(TCPConnection tcp_conn,
 	keep_alive = false;
 
 	// Used for the parser and the HTTPServerResponse
-	PoolAllocator request_allocator = FreeListObjectAlloc!PoolAllocator.alloc(1024, defaultAllocator());
+	PoolAllocator request_allocator = FreeListObjectAlloc!PoolAllocator.alloc(2048, manualAllocator());
 	scope(exit) {
 		request_allocator.reset();
 		FreeListObjectAlloc!PoolAllocator.free(request_allocator);
@@ -1974,7 +1974,7 @@ void handleRequest(TCPConnection tcp_conn,
 		// During an upgrade, we would need to read with HTTP/1.1 and write with HTTP/2, 
 		// so we define the InputStream before the upgrade starts
 		reqReader.reader = cast(InputStream) topStream;
-
+		
 		if (!http2_stream) {
 			// HTTP/1.1 headers
 			try parseRequestHeader(req, reqReader.reader, request_allocator, context.settings.maxRequestHeaderSize);
