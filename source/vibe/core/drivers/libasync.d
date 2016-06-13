@@ -1068,7 +1068,9 @@ final class LibasyncManualEvent : ManualEvent {
 			assert(0);
 		}
 		foreach (i; s_ev_len .. s_ev_cap) {
-			s_eventWaiters.insertBack(Vector!(Task, ThreadMem).init);
+			Vector!(Task, ThreadMem) waiter_tasks;
+			waiter_tasks.reserve(4);
+			s_eventWaiters.insertBack(waiter_tasks.move());
 		}
 	}
 
