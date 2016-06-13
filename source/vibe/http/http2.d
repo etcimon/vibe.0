@@ -389,30 +389,30 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 		
 		assert(m_active, "Stream is not active, but headers were received.");
-		import vibe.utils.memory : allocArray;
+		import vibe.utils.memory : copy;
 
 		foreach (HeaderField hf; m_rx.headers) {
 			if (hf.name == ":path") 
-				url.localURI = hf.value.idup;
+				url.localURI = hf.value.copy(alloc);
 			else if (hf.name == ":scheme")
-				url.schema = hf.value.idup;
+				url.schema = hf.value.copy(alloc);
 			else if (hf.name == ":method")
 				method = httpMethodFromString(hf.value);
 			else if ((icmp2(hf.name, "host") == 0 && !url.host) || hf.name == ":authority") {
 				import std.algorithm : countUntil;
 				int idx = cast(int)hf.value.countUntil(":");
 				if (idx == -1)
-					url.host = hf.value.idup;
+					url.host = hf.value.copy(alloc);
 				else {
 					import std.conv : parse;
-					url.host = hf.value[0 .. idx].idup;
+					url.host = hf.value[0 .. idx].copy(alloc);
 					auto chunk = hf.value[idx + 1 .. $];
 					url.port = to!ushort(chunk);
 				}
-				header.addField("Host", hf.value.idup);
+				header.addField("Host", hf.value.copy(alloc));
 			}
 			else
-				header.addField(hf.name.idup, hf.value.idup);
+				header.addField(hf.name.copy(alloc), hf.value.copy(alloc));
 		}
 	}
 

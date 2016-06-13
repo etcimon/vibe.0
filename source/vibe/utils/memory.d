@@ -60,6 +60,13 @@ auto allocObject(T, bool MANAGED = true, ARGS...)(Allocator allocator, ARGS args
 	else return cast(T*)mem.ptr;
 }
 
+string copy(string str, Allocator allocator) {
+	char[] ret = allocator.alloc(str.length);
+	import core.stdc.string : memcpy;
+	memcpy(ret.ptr, str.ptr, ret.length);
+	return cast(string) ret;
+}
+
 T[] allocArray(T, bool MANAGED = true)(Allocator allocator, size_t n)
 {
 	auto mem = allocator.alloc(T.sizeof * n);
