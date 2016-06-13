@@ -2152,7 +2152,7 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 		
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
-			if (icmp2(req.contentType, "application/json") == 0) {
+			if (icmp2(req.contentType, "application/json") == 0 || icmp2(req.contentType, "application/vnd.api+json") == 0) {
 				logTrace("Reading all");
 				auto bodyStr = cast(string)req.bodyReader.readAllUTF8(true);
 
@@ -2167,9 +2167,27 @@ void handleRequest(TCPConnection tcp_conn,
 		if (req.method == HTTPMethod.HEAD) res.m_isHeadResponse = true;
 		if (context.settings.serverString.length)
 			res.headers["Server"] = context.settings.serverString;
-		res.headers["Date"] = formatRFC822DateAlloc(request_allocator, req.timeCreated);
-		if (req.persistent && !http2_stream) res.headers["Keep-Alive"] = formatAlloc(request_allocator, "timeout=%d", context.settings.keepAliveTimeout.total!"seconds"());
-		
+		static time_t last_time;
+		static string last_date_str;
+		import core.stdc.time : time;
+		time_t curr_time = core.stdc.time.time(null);
+		if (curr_time > last_time)
+		{
+			last_time = curr_time;
+			last_date_str = formatRFC822DateAlloc(defaultAllocator(), req.timeCreated);
+		}
+		res.headers["Date"] = last_date_str;
+
+		if (req.persistent && !http2_stream) {
+			static Duration last_timeout;
+			static string last_keepalive_str;
+			if (last_timeout != context.settings.keepAliveTimeout)
+			{
+				last_timeout = context.settings.keepAliveTimeout;
+				last_keepalive_str = format("timeout=%d", context.settings.keepAliveTimeout.total!"seconds"());
+			}
+			res.headers["Keep-Alive"] = last_keepalive_str;
+		}
 		// finished parsing the request
 		parsed = true;
 		logTrace("persist: %s", req.persistent);
