@@ -303,9 +303,9 @@ final class HTTPClient {
 
 	/*shared*/ ~this() {
 		// fixme: will be called from the GC, ie. from any thread
-		if (master && Thread.getThis() == m_owner)
+		if (master)
 			disconnect(false, "dtor", true);
-		else if (!master && m_http2Context && Thread.getThis() == m_owner) {
+		else if (!master && m_http2Context) {
 			disconnect(true, "dtor", true);
 		}
 

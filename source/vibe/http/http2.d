@@ -334,8 +334,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	~this()
 	{
-		// fixme: This should never be called, but needs to defer the destructor
-		if (m_owner != Thread.getThis()) return;
 		try {
 			if (m_session && m_session.get() && streamId > 0) {
 				auto stream_internal = m_session.get().getStream(streamId);
@@ -1482,7 +1480,7 @@ final class HTTP2Session
 
 	~this() { 
 		// fixme: This needs to defer destruction instead
-		if (m_owner == Thread.getThis() && m_tcpConn !is null) { 
+		if (m_tcpConn !is null) { 
 			try onClose(); 
 			catch (Exception th) {
 				//import std.stdio : writeln;
