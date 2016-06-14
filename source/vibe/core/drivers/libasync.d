@@ -1217,7 +1217,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	~this() {
-		if (!m_closed && m_owner == Thread.getThis()) { 
+		if (!m_closed) { 
 			try onClose(null, false);
 			catch (Exception e)
 			{

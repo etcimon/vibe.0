@@ -859,7 +859,7 @@ private:
 		
 		m_http2Context.session.ping(data);
 		
-		cb.waitLocal();
+		cb.wait();
 		cb.destroy();
 		m_http2Context.latency = recv - start;
 	}

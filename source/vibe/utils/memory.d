@@ -393,8 +393,8 @@ final class AutoFreeListAllocator : Allocator {
 }
 
 final class PoolAllocator : Allocator {
-	static struct Pool { Pool* next; void[] data; void[] remaining; }
-	static struct Destructor { Destructor* next; void function(void*) destructor; void* object; }
+	static align(8) struct Pool { Pool* next; void[] data; void[] remaining; }
+	static align(8) struct Destructor { Destructor* next; void function(void*) destructor; void* object; }
 	private {
 		Allocator m_baseAllocator;
 		Pool* m_freePools;
@@ -494,7 +494,7 @@ final class PoolAllocator : Allocator {
 
 	void freeAll()
 	{
-		version(VibeManualMemoryManagement) {
+		if (!cast(GCAllocator) m_baseAllocator) {
 			// destroy all initialized objects
 			for (auto d = m_destructors; d; d = d.next)
 				d.destructor(cast(void*)d.object);
@@ -516,7 +516,7 @@ final class PoolAllocator : Allocator {
 
 	void reset()
 	{
-		version(VibeManualMemoryManagement) {
+		if (!cast(GCAllocator) m_baseAllocator) {
 			freeAll();
 			Pool* pnext;
 			for (auto p = cast(Pool*)m_freePools; p; p = pnext) {

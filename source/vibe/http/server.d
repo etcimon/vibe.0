@@ -641,7 +641,6 @@ final class HTTPServerRequest : HTTPRequest {
 		}
 
 		SysTime m_timeCreated;
-		FixedAppender!(string, 31) m_dateAppender;
 		HTTPServerSettings m_settings;
 		ushort m_port;
 		Reader m_bodyReader;
@@ -793,8 +792,6 @@ final class HTTPServerRequest : HTTPRequest {
 	{
 		m_timeCreated = reqtime;
 		m_port = port;
-		writeRFC822DateTimeString(m_dateAppender, m_timeCreated);
-		this.headers["Date"] = m_dateAppender.data();
 	}
 
 	this(ushort port)
