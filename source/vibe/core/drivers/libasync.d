@@ -1813,7 +1813,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		return m_readBuffer.empty;
 	}
 	
-	@property string address() const { enforceEx!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
+	@property string path() const { enforceEx!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
 
 	@property bool empty() { return leastSize == 0; }
 
