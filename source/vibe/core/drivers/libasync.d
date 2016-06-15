@@ -1764,7 +1764,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 }
 
-version(linux) final class LibasyncUDSConnection : UDSConnection, Buffered, CountedStream {
+version(linux) final class LibasyncUDSConnection : UDSConnection {
 	
 	private {
 		CircularBuffer!ubyte m_readBuffer;
