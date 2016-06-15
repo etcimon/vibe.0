@@ -337,11 +337,11 @@ final class LibasyncDriver : EventDriver {
 	version(linux) LibasyncUDSConnection connectUDS(string path)
 	{
 		mixin(Trace);
-		UnixAddress addr = UnixAddress(path);
+		UnixAddress addr = new UnixAddress(path.dup);
 		AsyncUDSConnection conn = new AsyncUDSConnection(getEventLoop());
 		
 		LibasyncUDSConnection uds_connection = new LibasyncUDSConnection(conn, (UDSConnection conn) { 
-				Task waiter = (cast(LibasyncTCPConnection) conn).m_settings.writer.task;
+				Task waiter = (cast(LibasyncUDSConnection) conn).m_settings.writer.task;
 				if (waiter != Task()) {
 					getDriverCore().resumeTask(waiter);
 				}
@@ -373,7 +373,6 @@ final class LibasyncDriver : EventDriver {
 			getDriverCore().yieldForEvent();
 		enforce(!uds_connection.m_error, uds_connection.m_error);
 		enforceEx!ConnectionClosedException(uds_connection.connected, "Could not connect");
-		uds_connection.m_udsImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
 			uds_connection.releaseWriter();
@@ -1782,7 +1781,6 @@ version(linux) final class LibasyncUDSConnection : UDSConnection, Buffered, Coun
 	this(AsyncUDSConnection conn, void delegate(UDSConnection) cb)
 	in { assert(conn !is null); }
 	body {
-		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
 		m_readBuffer.capacity = 32*1024;
 	}
@@ -1833,7 +1831,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection, Buffered, Coun
 			}
 			getDriverCore().yieldForEvent();
 		}
-		return (m_slice.length > 0) ? m_slice.length : m_readBuffer.length;
+		return m_readBuffer.length;
 	}
 	
 	void close()
@@ -1908,12 +1906,6 @@ version(linux) final class LibasyncUDSConnection : UDSConnection, Buffered, Coun
 		if (!dst) return;
 		mixin(Trace);
 		logTrace("Read UDS");
-		if (m_slice)
-		{
-			ubyte[] ret = readBuf(dst);
-			if (ret.length == dst.length) return;
-			else dst = dst[0 .. ret.length];
-		}
 		acquireReader();
 		scope(exit) releaseReader();
 		
