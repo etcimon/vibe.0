@@ -88,6 +88,11 @@ TCPConnection connectTCP(NetworkAddress addr) {
 	return getEventDriver().connectTCP(addr);
 }
 
+/// Establishes a connection to the given unix domain socket path
+version(linux) UDSConnection connectUDS(string path) {
+	return getEventDriver().connectUDS(path);
+}
+
 
 /**
 	Creates a bound UDP socket suitable for sending and receiving packets.
@@ -130,6 +135,13 @@ interface TCPConnection : ConnectionStream {
 
 }
 
+/**
+	Represents a single Unix Domain Sockets connection.
+*/
+version(linux) interface UDSConnection : ConnectionStream {
+	/// Returns the Path of the unix domain socket file.
+	@property string path() const;		
+}
 
 /**
 	Represents a listening TCP socket.

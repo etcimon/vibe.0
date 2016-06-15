@@ -333,7 +333,53 @@ final class LibasyncDriver : EventDriver {
 			tcp_connection.releaseWriter();
 		return tcp_connection;
 	}
-	
+
+	version(linux) LibasyncUDSConnection connectUDS(string path)
+	{
+		mixin(Trace);
+		UnixAddress addr = UnixAddress(path);
+		AsyncUDSConnection conn = new AsyncUDSConnection(getEventLoop());
+		
+		LibasyncUDSConnection uds_connection = new LibasyncUDSConnection(conn, (UDSConnection conn) { 
+				Task waiter = (cast(LibasyncTCPConnection) conn).m_settings.writer.task;
+				if (waiter != Task()) {
+					getDriverCore().resumeTask(waiter);
+				}
+			});
+		scope(failure) {
+			if (uds_connection) {
+				if (uds_connection.connected)
+					uds_connection.close();
+				uds_connection.m_settings.writer.task = Task();
+			}
+		}
+		if (Task.getThis() != Task()) 
+			uds_connection.acquireWriter();
+		
+		uds_connection.m_udsImpl.conn = conn;
+		conn.peer = addr;
+		
+		auto tm = createTimer(null);
+		scope(exit) {
+			stopTimer(tm);
+			releaseTimer(tm);
+		}
+		m_timers.getUserData(tm).owner = Task.getThis();
+		rearmTimer(tm, 30.seconds, false);
+		
+		enforce(conn.run(&uds_connection.handler), "An error occured while starting a new UDS connection: " ~ conn.error);
+		while (!uds_connection.connected && uds_connection.m_udsImpl.conn !is null 
+			&& uds_connection.m_udsImpl.conn.status.code == Status.ASYNC && !uds_connection.m_error && isTimerPending(tm)) 
+			getDriverCore().yieldForEvent();
+		enforce(!uds_connection.m_error, uds_connection.m_error);
+		enforceEx!ConnectionClosedException(uds_connection.connected, "Could not connect");
+		uds_connection.m_udsImpl.localAddr = conn.local;
+		
+		if (Task.getThis() != Task()) 
+			uds_connection.releaseWriter();
+		return uds_connection;
+	}
+
 	LibasyncTCPListener listenTCP(ushort port, void delegate(TCPConnection conn) conn_callback, string address, TCPListenOptions options)
 	{
 		NetworkAddress localaddr = getEventDriver().resolveHost(address);
@@ -1148,6 +1194,7 @@ final class LibasyncTCPListener : TCPListener {
 }
 
 
+
 final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
@@ -1715,6 +1762,443 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	struct TCPConnectionImpl {
 		NetworkAddress localAddr;
 		AsyncTCPConnection conn;
+	}
+}
+
+version(linux) final class LibasyncUDSConnection : UDSConnection, Buffered, CountedStream {
+	
+	private {
+		CircularBuffer!ubyte m_readBuffer;
+		UDSConnectionImpl m_udsImpl;
+		Settings m_settings;
+		string m_error;
+		bool m_closed = true;
+		bool m_mustRecv = true;
+		// The socket descriptor is unavailable to motivate low-level/API feature additions 
+		// rather than high-lvl platform-dependent hacking
+		// fd_t socket; 
+	}
+			
+	this(AsyncUDSConnection conn, void delegate(UDSConnection) cb)
+	in { assert(conn !is null); }
+	body {
+		m_owner = Thread.getThis();
+		m_settings.onConnect = cb;
+		m_readBuffer.capacity = 32*1024;
+	}
+	
+	~this() {
+		if (!m_closed) { 
+			try onClose(null, false);
+			catch (Exception e)
+			{
+				logError("Failure in UDSConnection dtor: %s", e.msg);
+			}
+		}
+	}
+	
+	private @property AsyncUDSConnection conn() {
+		
+		return m_udsImpl.conn;
+	}
+
+	@property bool connected() const { return !m_closed && m_udsImpl.conn && m_udsImpl.conn.isConnected; }
+	
+	@property bool dataAvailableForRead(){ 
+		logTrace("dataAvailableForRead UDS");
+		acquireReader();
+		scope(exit) releaseReader();
+		return !readEmpty;
+	}
+	
+	private @property bool readEmpty() {
+		return m_readBuffer.empty;
+	}
+	
+	@property string address() const { enforceEx!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
+
+	@property bool empty() { return leastSize == 0; }
+
+	
+	@property ulong leastSize()
+	{
+		mixin(Trace);
+		logTrace("leastSize UDS");
+		acquireReader();
+		scope(exit) releaseReader();
+		
+		while( readEmpty ){
+			if (!connected) {
+				return 0;
+			}
+			getDriverCore().yieldForEvent();
+		}
+		return (m_slice.length > 0) ? m_slice.length : m_readBuffer.length;
+	}
+	
+	void close()
+	{
+		logTrace("Close UDS");
+		//logTrace("closing");
+		acquireWriter();
+		scope(exit) releaseWriter();
+
+		destroy(m_readBuffer);
+		onClose(null, false);
+	}
+	
+	void notifyClose()
+	{
+		onClose(null, false);
+	}
+	
+	bool waitForData(Duration timeout = 0.seconds) 
+	{
+		if (timeout == Duration.zero)
+			timeout = Duration.max;
+		mixin(Trace);
+		//logTrace("WaitForData enter, timeout %s :: Ptr %s",  timeout.toString(), (cast(void*)this).to!string);
+		acquireReader();
+		auto _driver = getEventDriver();
+		auto tm = _driver.createTimer(null);
+		scope(exit) { 
+			_driver.stopTimer(tm);
+			_driver.releaseTimer(tm);
+			releaseReader();
+		}
+		_driver.m_timers.getUserData(tm).owner = Task.getThis();
+		
+		if (timeout != Duration.max) _driver.rearmTimer(tm, timeout, false);
+		
+		logTrace("waitForData UDS");
+		while (readEmpty) {
+			if (!connected) return false;
+			logTrace("Still Connected");
+			if (m_mustRecv)
+				onRead();
+			else {
+				//logTrace("Yielding for event in waitForData, waiting? %s", m_settings.reader.isWaiting);
+				getDriverCore().yieldForEvent();
+				logTrace("Unyielded");
+			}
+			if (timeout != Duration.max && !_driver.isTimerPending(tm)) {
+				logTrace("WaitForData UDS: timer signal");
+				return false;
+			}
+		}
+		if (readEmpty && !connected) return false;
+		//logTrace("WaitForData exit: fiber resumed with read buffer");
+		return !readEmpty;
+	}
+	
+	const(ubyte)[] peek()
+	{
+		logTrace("Peek UDS");
+		acquireReader();
+		scope(exit) releaseReader();
+		
+		if (!readEmpty)
+			return m_readBuffer.peek();
+		else
+			return null;
+	}
+	
+	void read(ubyte[] dst)
+	{
+		if (!dst) return;
+		mixin(Trace);
+		logTrace("Read UDS");
+		if (m_slice)
+		{
+			ubyte[] ret = readBuf(dst);
+			if (ret.length == dst.length) return;
+			else dst = dst[0 .. ret.length];
+		}
+		acquireReader();
+		scope(exit) releaseReader();
+		
+		while( dst.length > 0 ){
+			while( m_readBuffer.empty ){
+				checkConnected();
+				if (m_mustRecv)
+					onRead();
+				else {
+					getDriverCore().yieldForEvent(); //wait for data...
+				}
+			}
+			size_t amt = min(dst.length, m_readBuffer.length);
+			
+			m_readBuffer.read(dst[0 .. amt]);
+			dst = dst[amt .. $];
+		}
+	}
+	
+	void write(in ubyte[] bytes_)
+	{
+		assert(bytes_ !is null);
+		mixin(Trace);
+		logTrace("%s", "write enter");
+		acquireWriter();
+		scope(exit) releaseWriter();
+		checkConnected();
+		const(ubyte)[] bytes = bytes_;
+		logTrace("UDS write with %s bytes called", bytes.length);
+		
+		bool first = true;
+		size_t offset;
+		size_t len = bytes.length;
+		do {
+			if (!first) {
+				getDriverCore().yieldForEvent();
+			}
+			checkConnected();
+			offset += conn.send(bytes[offset .. $]);
+			
+			if (conn.hasError) {
+				throw new ConnectionClosedException(conn.error);
+			}
+			first = false;
+		} while (offset != len);
+	}
+	
+	void flush()
+	{
+		logTrace("%s", "Flush");
+		acquireWriter();
+		scope(exit) releaseWriter();
+		
+		checkConnected();		
+	}
+	
+	void finalize()
+	{
+		flush();
+		
+	}
+	
+	void write(InputStream stream, ulong nbytes = 0)
+	{
+		writeDefault(stream, nbytes);
+	}
+private:
+	void acquireReader() { 
+		if (Task.getThis() == Task()) {
+			logTrace("Reading without task");
+			return;
+		}
+		logTrace("%s", "Acquire Reader");
+		assert(!amReadOwner()); 
+		m_settings.reader.task = Task.getThis();
+		//logTrace("Task waiting in: " ~ (cast(void*)cast(LibasyncUDSConnection)this).to!string);
+		m_settings.reader.isWaiting = true;
+	}
+	
+	void releaseReader() { 
+		if (Task.getThis() == Task()) return;
+		logTrace("%s", "Release Reader");
+		assert(amReadOwner());
+		m_settings.reader.isWaiting = false;
+	}
+	
+	bool amReadOwner() const {
+		if (m_settings.reader.isWaiting && m_settings.reader.task == Task.getThis())
+			return true;
+		return false;
+	}
+	
+	void acquireWriter() { 
+		if (Task.getThis() == Task()) return;
+		logTrace("%s", "Acquire Writer");
+		assert(!amWriteOwner(), "Failed to acquire writer in task: " ~ Task.getThis().fiber.to!string ~ ", it was busy with: " ~ m_settings.writer.task.to!string);
+		m_settings.writer.task = Task.getThis();
+		m_settings.writer.isWaiting = true;
+	}
+	
+	void releaseWriter() { 
+		if (Task.getThis() == Task()) return;
+		logTrace("%s", "Release Writer");
+		assert(amWriteOwner()); 
+		m_settings.writer.isWaiting = false;
+	}
+	
+	bool amWriteOwner() const { 
+		if (m_settings.writer.isWaiting && m_settings.writer.task == Task.getThis()) 
+			return true;
+		return false;
+	}
+	
+	void checkConnected()
+	{
+		enforceEx!ConnectionClosedException(connected, "The remote peer has closed the connection.");
+		//logTrace("Check Connected");
+	}
+		
+	void onRead() {
+		m_mustRecv = true; // assume we didn't receive everything
+
+		logTrace("OnRead with %s", m_readBuffer.freeSpace);
+				
+		while( m_readBuffer.freeSpace > 0 ) {
+			ubyte[] dst = m_readBuffer.peekDst();
+			assert(dst.length <= int.max);
+			logTrace("Try to read up to bytes: %s", dst.length);
+			bool read_more;
+			do {
+				uint ret = conn.recv(dst);
+				if( ret > 0 ){
+					logTrace("received bytes: %s", ret);
+					m_readBuffer.putN(ret);
+				} 
+				read_more = ret == dst.length;
+				// ret == 0! let's look for some errors
+				if (read_more) {
+					if (m_readBuffer.freeSpace == 0) m_readBuffer.capacity = m_readBuffer.capacity*2;
+					dst = m_readBuffer.peekDst();
+				}
+			} while( read_more );
+			if (conn.status.code == Status.ASYNC) {
+				m_mustRecv = false; // we'll have to wait
+				break; // the kernel's buffer is empty
+			}
+			else if (conn.status.code == Status.ABORT) {
+				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
+			}
+			else if (conn.status.code != Status.OK) {
+				// We have a read error and the socket may now even be closed...
+				auto err = conn.error;
+				
+				logTrace("receive error %s %s", err, conn.status.code);
+				throw new Exception("Socket error: " ~ conn.status.code.to!string);
+			}
+			else {
+				m_mustRecv = false;
+				break;
+			}
+		}
+		logTrace("OnRead exit with free bytes: %s", m_readBuffer.freeSpace);
+	}
+	
+	/* The AsyncUDSConnection object will be automatically disposed when this returns.
+	 * We're given some time to cleanup.
+	*/
+	void onClose(in string msg = null, bool wake_ex = true) {
+		if (msg)
+			m_error = msg;
+		if (!m_closed) {
+			s_totalConnections--;
+			
+			m_closed = true;
+			
+			if (m_udsImpl.conn && m_udsImpl.conn.isConnected) {
+				m_udsImpl.conn.kill(Task.getThis() != Task.init); // close the connection
+				m_udsImpl.conn = null;
+			}
+		}
+		
+		Exception ex;
+		if (!msg && wake_ex)
+			ex = new ConnectionClosedException("Connection closed");
+		else if (wake_ex) {
+			if (msg == "Software caused connection abort.")
+				ex = new ConnectionClosedException(msg);
+			else ex = new Exception(msg);
+		}
+		
+		Task reader = m_settings.reader.task;
+		Task writer = m_settings.writer.task;
+		
+		bool hasUniqueReader = m_settings.reader.isWaiting;
+		bool hasUniqueWriter = m_settings.writer.isWaiting && reader != writer;
+		
+		if (hasUniqueReader && Task.getThis() != reader && wake_ex) {
+			getDriverCore().resumeTask(reader, null);
+		}
+		if (hasUniqueWriter && Task.getThis() != writer && wake_ex) {
+			getDriverCore().resumeTask(writer, ex);
+		}
+	}
+	
+	void onConnect() {
+		bool failure;
+		if (m_udsImpl.conn && m_udsImpl.conn.isConnected)
+		{
+			bool inbound = m_udsImpl.conn.inbound;
+			
+			try m_settings.onConnect(this); 
+			catch ( ConnectionClosedException e) {
+				failure = true;
+			}
+			catch ( Exception e) {
+				logError("%s", e.toString);
+				failure = true;
+			}
+			catch ( Throwable e) {
+				logError("Fatal error: %s", e.toString);
+				failure = true;
+			}
+			if (inbound) close();
+			else if (failure) onClose();
+		}
+		logTrace("Finished callback");
+	}
+	
+	void handler(EventCode ev) {
+		Exception ex;
+		final switch (ev) {
+			case EventCode.CONNECT:
+				m_closed = false;
+				// read & write are guaranteed to be successful on any platform at this point
+				assert(m_settings.onConnect !is null);
+				if (m_udsImpl.conn.inbound)
+					runTask(&onConnect);
+				else onConnect();
+				m_settings.onConnect = null;
+				break;
+			case EventCode.READ:
+				// fill the read buffer and resume any task if waiting
+				try onRead();
+				catch (Exception e) ex = e;
+				if (m_settings.reader.isWaiting) 
+					getDriverCore().resumeTask(m_settings.reader.task, ex);
+				goto case EventCode.WRITE;
+			case EventCode.WRITE:
+				// The kernel is ready to have some more data written, all we need to do is wake up the writer
+				if (m_settings.writer.isWaiting) 
+					getDriverCore().resumeTask(m_settings.writer.task, ex);
+				break;
+			case EventCode.CLOSE:
+				m_closed = false;
+				onClose();
+				if (m_settings.onConnect)
+					m_settings.onConnect(this);
+				m_settings.onConnect = null;
+				break;
+			case EventCode.ERROR:
+				m_closed = false;
+				onClose(conn.error);
+				if (m_settings.onConnect)
+					m_settings.onConnect(this);
+				m_settings.onConnect = null;
+				break;
+		}
+		return;
+	}
+	
+	struct Waiter {
+		Task task; // we can only have one task waiting for read/write operations
+		bool isWaiting; // if a task is actively waiting
+	}
+	
+	struct Settings {
+		void delegate(UDSConnection) onConnect;
+		Duration readTimeout;
+		Waiter reader;
+		Waiter writer;
+	}
+	
+	struct UDSConnectionImpl {
+		NetworkAddress localAddr;
+		AsyncUDSConnection conn;
 	}
 }
 

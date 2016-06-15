@@ -399,7 +399,7 @@ final class ThreadedFileStream : FileStream {
 		assert(this.readable);
 		while (dst.length > 0) {
 			enforce(dst.length <= leastSize);
-			auto sz = min(dst.length, 4096);
+			auto sz = min(dst.length, 64*1024);
 			enforce(.read(m_fileDescriptor, dst.ptr, cast(int)sz) == sz, "Failed to read data from disk.");
 			dst = dst[sz .. $];
 			m_ptr += sz;
@@ -412,7 +412,7 @@ final class ThreadedFileStream : FileStream {
 		const(ubyte)[] bytes = bytes_;
 		assert(this.writable);
 		while (bytes.length > 0) {
-			auto sz = min(bytes.length, 4096);
+			auto sz = min(bytes.length, 64*1024);
 			auto ret = .write(m_fileDescriptor, bytes.ptr, cast(int)sz);
 			enforce(ret == sz, "Failed to write data to disk."~to!string(sz)~" "~to!string(errno)~" "~to!string(ret)~" "~to!string(m_fileDescriptor));
 			bytes = bytes[sz .. $];
