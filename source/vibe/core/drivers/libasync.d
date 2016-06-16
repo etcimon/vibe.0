@@ -1296,7 +1296,13 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
 	}
 	
-	@property string peerAddress() const { enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address"); return m_tcpImpl.conn.peer.toString(); }
+	@property string peerAddress() const { 
+		enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
+		static string peer_addr;
+		if (!peer_addr)
+			peer_addr = m_tcpImpl.conn.peer.toString();
+		return peer_addr;
+	}
 
 	@property NetworkAddress localAddress() const { return m_tcpImpl.localAddr; }
 	@property NetworkAddress remoteAddress() const { return m_tcpImpl.conn.peer; }
