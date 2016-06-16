@@ -339,45 +339,25 @@ final class LibasyncDriver : EventDriver {
 		mixin(Trace);
 		UnixAddress addr = new UnixAddress(path.dup);
 		AsyncUDSConnection conn = new AsyncUDSConnection(getEventLoop());
-		
-		LibasyncUDSConnection uds_connection = new LibasyncUDSConnection(conn, (UDSConnection conn) { 
-				Task waiter = (cast(LibasyncUDSConnection) conn).m_settings.writer.task;
-				if (waiter != Task()) {
-					getDriverCore().resumeTask(waiter);
-				}
+		Task waiter = Task.getThis();
+		LibasyncUDSConnection uds_connection = new LibasyncUDSConnection(conn, (UDSConnection conn) {
+				getDriverCore().resumeTask(waiter);
 			});
 		scope(failure) {
 			if (uds_connection) {
 				if (uds_connection.connected)
 					uds_connection.close();
-				uds_connection.m_settings.writer.task = Task();
 			}
 		}
-		if (Task.getThis() != Task()) 
-			uds_connection.acquireWriter();
-		
 		uds_connection.m_udsImpl.conn = conn;
 		conn.peer = addr;
-		
-		auto tm = createTimer(null);
-		scope(exit) {
-			stopTimer(tm);
-			releaseTimer(tm);
-		}
-		m_timers.getUserData(tm).owner = Task.getThis();
-		rearmTimer(tm, 30.seconds, false);
-		
 		enforce(conn.run(&uds_connection.handler), "An error occured while starting a new UDS connection: " ~ conn.error);
-		while (!uds_connection.connected && uds_connection.m_udsImpl.conn !is null 
-			&& uds_connection.m_udsImpl.conn.status.code == Status.ASYNC && !uds_connection.m_error && isTimerPending(tm)) 
-			getDriverCore().yieldForEvent();
+		getDriverCore().yieldForEvent();
 		enforce(!uds_connection.m_error, uds_connection.m_error);
-		enforceEx!ConnectionClosedException(uds_connection.connected, "Could not connect");
 		
-		if (Task.getThis() != Task()) 
-			uds_connection.releaseWriter();
 		return uds_connection;
 	}
+
 
 	LibasyncTCPListener listenTCP(ushort port, void delegate(TCPConnection conn) conn_callback, string address, TCPListenOptions options)
 	{
