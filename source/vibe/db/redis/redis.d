@@ -909,7 +909,7 @@ final class RedisSubscriberImpl {
 		if (!m_lockedConnection.conn || !m_lockedConnection.conn.connected) {
 			try {
 				version(linux){
-					if (conn.m_host.startsWith("/"))
+					if (m_lockedConnection.m_host.startsWith("/"))
 						m_lockedConnection.conn = connectUDS(m_lockedConnection.m_host);
 					else
 						m_lockedConnection.conn = connectTCP(m_lockedConnection.m_host, m_lockedConnection.m_port);
@@ -918,9 +918,7 @@ final class RedisSubscriberImpl {
 			catch (Exception e) {
 				throw new Exception(format("Failed to connect to Redis server at %s:%s.", m_lockedConnection.m_host, m_lockedConnection.m_port), __FILE__, __LINE__, e);
 			}
-			if (m_lockedConnection.conn)
-				m_lockedConnection.conn.tcpNoDelay = true;
-			
+
 			m_lockedConnection.setAuth(m_client.m_authPassword); 
 			m_lockedConnection.setDB(m_client.m_selectedDB);
 		}
@@ -978,7 +976,7 @@ final class RedisSubscriberImpl {
 		// commands sent by redis. The PubSub client protocol is simple enough
 
 		void pubsub_handler() {
-			TCPConnection conn = m_lockedConnection.conn;
+			ConnectionStream conn = m_lockedConnection.conn;
 			ubyte[] newLine = allocArray!ubyte(manualAllocator(), 1);
 			scope(exit) freeArray(manualAllocator(), newLine);
 			logTrace("Pubsub handler");
