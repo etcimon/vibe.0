@@ -907,7 +907,14 @@ final class RedisSubscriberImpl {
 		}
 
 		if (!m_lockedConnection.conn || !m_lockedConnection.conn.connected) {
-			try m_lockedConnection.conn = connectTCP(m_lockedConnection.m_host, m_lockedConnection.m_port);
+			try {
+				version(linux){
+					if (conn.m_host.startsWith("/"))
+						m_lockedConnection.conn = connectUDS(m_lockedConnection.m_host);
+					else
+						m_lockedConnection.conn = connectTCP(m_lockedConnection.m_host, m_lockedConnection.m_port);
+				} else m_lockedConnection.conn = connectTCP(m_lockedConnection.m_host, m_lockedConnection.m_port);
+			}
 			catch (Exception e) {
 				throw new Exception(format("Failed to connect to Redis server at %s:%s.", m_lockedConnection.m_host, m_lockedConnection.m_port), __FILE__, __LINE__, e);
 			}
@@ -1382,7 +1389,7 @@ private final class RedisConnection {
 	private {
 		string m_host;
 		ushort m_port;
-		TCPConnection m_conn;
+		ConnectionStream m_conn;
 		string m_password;
 		long m_selectedDB;
 		RedisReplyContext m_replyContext;
@@ -1394,8 +1401,9 @@ private final class RedisConnection {
 		m_port = port;
 	}
 
-	@property TCPConnection conn() { return m_conn; }
-	@property void conn(TCPConnection conn) { m_conn = conn; }
+	@property ConnectionStream conn() { return m_conn; }
+	@property void conn(TCPConnection conn) { m_conn = conn; conn.tcpNoDelay = true; }
+	@property void conn(UDSConnection conn) { m_conn = conn; }
 
 	void setAuth(string password)
 	{
@@ -1476,12 +1484,17 @@ private void _request_void(ARGS...)(RedisConnection conn, string command, scope 
 	import vibe.stream.wrapper;
 
 	if (!conn.conn || !conn.conn.connected) {
-		try conn.conn = connectTCP(conn.m_host, conn.m_port);
+		try {
+			version(linux){
+				if (conn.m_host.startsWith("/"))
+					conn.conn = connectUDS(conn.m_host);
+				else
+					conn.conn = connectTCP(conn.m_host, conn.m_port);
+			} else conn.conn = connectTCP(conn.m_host, conn.m_port);
+		}
 		catch (Exception e) {
 			throw new Exception(format("Failed to connect to Redis server at %s:%s.", conn.m_host, conn.m_port), __FILE__, __LINE__, e);
 		}
-		if (conn.conn)
-			conn.conn.tcpNoDelay = true;
 	}
 
 	auto nargs = conn.countArgs(args);
@@ -1495,12 +1508,17 @@ private RedisReply!T _request_reply(T = ubyte[], ARGS...)(RedisConnection conn, 
 	import vibe.stream.wrapper;
 
 	if (!conn.conn || !conn.conn.connected) {
-		try conn.conn = connectTCP(conn.m_host, conn.m_port);
+		try {
+			version(linux){
+				if (conn.m_host.startsWith("/"))
+					conn.conn = connectUDS(conn.m_host);
+				else
+					conn.conn = connectTCP(conn.m_host, conn.m_port);
+			} else conn.conn = connectTCP(conn.m_host, conn.m_port);
+		}
 		catch (Exception e) {
 			throw new Exception(format("Failed to connect to Redis server at %s:%s.", conn.m_host, conn.m_port), __FILE__, __LINE__, e);
 		}
-		if (conn.conn)
-			conn.conn.tcpNoDelay = true;
 	}
 
 	auto nargs = conn.countArgs(args);
