@@ -44,7 +44,7 @@ unittest {
 public import vibe.data.serialization;
 
 public import std.json : JSONException;
-import std.algorithm : equal, min;
+import std.algorithm;
 import std.array;
 import std.conv;
 import std.datetime;
@@ -53,6 +53,7 @@ import std.format;
 import std.string;
 import std.range;
 import std.traits;
+import std.bigint;
 
 
 /******************************************************************************/
@@ -70,14 +71,29 @@ import std.traits;
 	required to convert a JSON value to the corresponding static D type.
 */
 align(8)
-struct Json {
+struct Json {	
+	static assert(!hasElaborateDestructor!BigInt && !hasElaborateCopyConstructor!BigInt,
+		"struct Json is missing required ~this and/or this(this) members for BigInt.");
+
 	private {
 		// putting all fields in a union results in many false pointers leading to
 		// memory leaks and, worse, std.algorithm.swap triggering an assertion
 		// because of internal pointers. This crude workaround seems to fix
 		// the issues.
-		void*[2] m_data;
-		ref inout(T) getDataAs(T)() inout { static assert(T.sizeof <= m_data.sizeof); return *cast(inout(T)*)m_data.ptr; }
+		enum m_size = max((BigInt.sizeof+(void*).sizeof), 2);
+		// NOTE : DMD 2.067.1 doesn't seem to init void[] correctly on its own.
+		// Explicity initializing it works around this issue. Using a void[]
+		// array here to guarantee that it's scanned by the GC.
+		void[m_size] m_data = (void[m_size]).init;
+		
+		static assert(m_data.offsetof == 0, "m_data must be the first struct member.");
+		static assert(BigInt.alignof <= 8, "Json struct alignment of 8 isn't sufficient to store BigInt.");
+
+		ref inout(T) getDataAs(T)() inout {
+			static assert(T.sizeof <= m_data.sizeof);
+			return (cast(inout(T)[1])m_data[0 .. T.sizeof])[0];
+		}
+		@property ref inout(BigInt) m_bigInt() inout { return getDataAs!BigInt(); }
 		@property ref inout(long) m_int() inout { return getDataAs!long(); }
 		@property ref inout(double) m_float() inout { return getDataAs!double(); }
 		@property ref inout(bool) m_bool() inout { return getDataAs!bool(); }
@@ -100,6 +116,7 @@ struct Json {
 		null_,      /// Null value
 		bool_,      /// Boolean value
 		int_,       /// 64-bit integer value
+		bigInt,     /// BigInt values
 		float_,     /// 64-bit floating point value
 		string,     /// UTF-8 string
 		array,      /// Array of JSON values
@@ -120,9 +137,9 @@ struct Json {
 	/**
 		Constructor for a JSON object.
 	*/
-	this(typeof(null)) { m_type = Type.null_; }
+	this(typeof(null)) @trusted { m_type = Type.null_; }
 	/// ditto
-	this(bool v) { m_type = Type.bool_; m_bool = v; }
+	this(bool v) @trusted { m_type = Type.bool_; m_bool = v; }
 	/// ditto
 	this(byte v) { this(cast(long)v); }
 	/// ditto
@@ -136,27 +153,37 @@ struct Json {
 	/// ditto
 	this(uint v) { this(cast(long)v); }
 	/// ditto
-	this(long v) { m_type = Type.int_; m_int = v; }
+	this(long v) @trusted { m_type = Type.int_; m_int = v; }
 	/// ditto
-	this(double v) { m_type = Type.float_; m_float = v; }
+	this(BigInt v) @trusted { m_type = Type.bigInt; initBigInt(); m_bigInt = v; }
 	/// ditto
-	this(string v) { m_type = Type.string; m_string = v; }
+	this(double v) @trusted { m_type = Type.float_; m_float = v; }
 	/// ditto
-	this(Json[] v) { m_type = Type.array; m_array = v; }
+	this(string v) @trusted { m_type = Type.string; m_string = v; }
 	/// ditto
-	this(Json[string] v) { m_type = Type.object; m_object = v; }
+	this(Json[] v) @trusted { m_type = Type.array; m_array = v; }
+	/// ditto
+	this(Json[string] v) @trusted { m_type = Type.object; m_object = v; }
 
 	/**
 		Allows assignment of D values to a JSON value.
 	*/
 	ref Json opAssign(Json v)
 	{
+		if (v.type != Type.bigInt)
+			runDestructors();
+		auto old_type = m_type;
 		m_type = v.m_type;
 		final switch(m_type){
 			case Type.undefined: m_string = null; break;
 			case Type.null_: m_string = null; break;
 			case Type.bool_: m_bool = v.m_bool; break;
 			case Type.int_: m_int = v.m_int; break;
+			case Type.bigInt:
+				if (old_type != Type.bigInt)
+					initBigInt();
+				m_bigInt = v.m_bigInt;
+				break;
 			case Type.float_: m_float = v.m_float; break;
 			case Type.string: m_string = v.m_string; break;
 			case Type.array: opAssign(v.m_array); break;
@@ -165,28 +192,45 @@ struct Json {
 		return this;
 	}
 	/// ditto
-	void opAssign(typeof(null)) { m_type = Type.null_; m_string = null; }
+	void opAssign(typeof(null)) { runDestructors(); m_type = Type.null_; m_string = null; }
 	/// ditto
-	bool opAssign(bool v) { m_type = Type.bool_; m_bool = v; return v; }
+	bool opAssign(bool v) { runDestructors(); m_type = Type.bool_; m_bool = v; return v; }
 	/// ditto
-	int opAssign(int v) { m_type = Type.int_; m_int = v; return v; }
+	int opAssign(int v) { runDestructors(); m_type = Type.int_; m_int = v; return v; }
 	/// ditto
-	long opAssign(long v) { m_type = Type.int_; m_int = v; return v; }
+	long opAssign(long v) { runDestructors(); m_type = Type.int_; m_int = v; return v; }
 	/// ditto
-	double opAssign(double v) { m_type = Type.float_; m_float = v; return v; }
+	BigInt opAssign(BigInt v)
+	{
+		if (m_type != Type.bigInt)
+			initBigInt();
+		m_type = Type.bigInt;
+		m_bigInt = v;
+		return v;
+	}
 	/// ditto
-	string opAssign(string v) { m_type = Type.string; m_string = v; return v; }
+	double opAssign(double v) { runDestructors(); m_type = Type.float_; m_float = v; return v; }
+	/// ditto
+	string opAssign(string v) { runDestructors(); m_type = Type.string; m_string = v; return v; }
 	/// ditto
 	Json[] opAssign(Json[] v)
 	{
+		runDestructors();
 		m_type = Type.array;
 		m_array = v;
-		version (VibeJsonFieldNames) { if (m_magic == 0x1337f00d) { foreach (idx, ref av; m_array) av.m_name = format("%s[%s]", m_name, idx); } else m_name = null; }
+
+		version (VibeJsonFieldNames) {
+			if (m_magic == 0x1337f00d) {
+				foreach (idx, ref av; m_array)
+					av.m_name = format("%s[%s]", m_name, idx);
+			} else m_name = null;
+		}
 		return v;
 	}
 	/// ditto
 	Json[string] opAssign(Json[string] v)
 	{
+		runDestructors();
 		m_type = Type.object;
 		m_object = v;
 		version (VibeJsonFieldNames) { if (m_magic == 0x1337f00d) { foreach (key, ref av; m_object) av.m_name = format("%s.%s", m_name, key); } else m_name = null; }
@@ -201,7 +245,7 @@ struct Json {
 	/**
 		The current type id of this JSON object.
 	*/
-	@property Type type() const { return m_type; }
+	@property Type type() const @safe { return m_type; }
 
 	/**
 		Clones a JSON value recursively.
@@ -213,6 +257,7 @@ struct Json {
 			case Type.null_: return Json(null);
 			case Type.bool_: return Json(m_bool);
 			case Type.int_: return Json(m_int);
+			case Type.bigInt: return Json(m_bigInt);
 			case Type.float_: return Json(m_float);
 			case Type.string: return Json(m_string);
 			case Type.array:
@@ -419,7 +464,16 @@ struct Json {
 		else static if (is(T == float)) return cast(T)m_float;
 		else static if (is(T == long)) return m_int;
 		else static if (is(T == ulong)) return cast(ulong)m_int;
-		else static if (is(T : long)){ enforceJson(m_int <= T.max && m_int >= T.min, "Integer conversion out of bounds error"); return cast(T)m_int; }
+		else static if (is(T == BigInt)) return m_type == Type.bigInt ? m_bigInt : BigInt(m_int);
+		else static if (is(T : long)) {
+			if (m_type == Type.bigInt) {
+				enforceJson(m_bigInt <= T.max && m_bigInt >= T.min, "Integer conversion out of bounds error");
+				return cast(T)m_bigInt.toLong();
+			} else {
+				enforceJson(m_int <= T.max && m_int >= T.min, "Integer conversion out of bounds error");
+				return cast(T)m_int;
+			}
+		}
 		else static if (is(T == string)) return m_string;
 		else static if (is(T == Json[])) return m_array;
 		else static if (is(T == Json[string])) return m_object;
@@ -463,6 +517,7 @@ struct Json {
 				case Type.null_: return false;
 				case Type.bool_: return m_bool;
 				case Type.int_: return m_int != 0;
+				case Type.bigInt: return m_bigInt != 0;
 				case Type.float_: return m_float != 0;
 				case Type.string: return m_string.length > 0;
 				case Type.array: return m_array.length > 0;
@@ -474,6 +529,7 @@ struct Json {
 				case Type.null_: return 0;
 				case Type.bool_: return m_bool ? 1 : 0;
 				case Type.int_: return m_int;
+				case Type.bigInt: return bigIntToLong();
 				case Type.float_: return m_float;
 				case Type.string: return .to!double(cast(string)m_string);
 				case Type.array: return double.init;
@@ -485,6 +541,7 @@ struct Json {
 				case Type.null_: return 0;
 				case Type.bool_: return m_bool ? 1 : 0;
 				case Type.int_: return m_int;
+				case Type.bigInt: return bigIntToLong();
 				case Type.float_: return m_float;
 				case Type.string: return .to!float(cast(string)m_string);
 				case Type.array: return float.init;
@@ -497,6 +554,7 @@ struct Json {
 				case Type.null_: return 0;
 				case Type.bool_: return m_bool ? 1 : 0;
 				case Type.int_: return m_int;
+				case Type.bigInt: return cast(long)bigIntToLong();
 				case Type.float_: return cast(long)m_float;
 				case Type.string: return .to!long(m_string);
 				case Type.array: return 0;
@@ -508,6 +566,7 @@ struct Json {
 				case Type.null_: return 0;
 				case Type.bool_: return m_bool ? 1 : 0;
 				case Type.int_: return cast(T)m_int;
+				case Type.bigInt: return cast(T)bigIntToLong();
 				case Type.float_: return cast(T)m_float;
 				case Type.string: return cast(T).to!long(cast(string)m_string);
 				case Type.array: return 0;
@@ -527,6 +586,18 @@ struct Json {
 			switch( m_type ){
 				default: return Json(["value": this]);
 				case Type.object: return m_object;
+			}		
+		} else static if( is(T == BigInt) ){
+			final switch( m_type ){
+				case Type.undefined: return BigInt(0);
+				case Type.null_: return BigInt(0);
+				case Type.bool_: return BigInt(m_bool ? 1 : 0);
+				case Type.int_: return BigInt(m_int);
+				case Type.bigInt: return m_bigInt;
+				case Type.float_: return BigInt(cast(long)m_float);
+				case Type.string: return BigInt(.to!long(m_string));
+				case Type.array: return BigInt(0);
+				case Type.object: return BigInt(0);
 			}
 		} else static assert("JSON can only be cast to (bool, long, double, string, Json[] or Json[string]. Not "~T.stringof~".");
 	}
@@ -552,8 +623,9 @@ struct Json {
 			checkType!bool();
 			return Json(~m_bool);
 		} else static if( op == "+" || op == "-" || op == "++" || op == "--" ){
-			checkType!(long, double)("unary "~op);
+			checkType!(BigInt, long, double)("unary "~op);
 			if( m_type == Type.int_ ) mixin("return Json("~op~"m_int);");
+			else if( m_type == Type.bigInt ) mixin("return Json("~op~"m_bigInt);");
 			else if( m_type == Type.float_ ) mixin("return Json("~op~"m_float);");
 			else assert(false);
 		} else static assert("Unsupported operator '"~op~"' for type JSON.");
@@ -586,28 +658,33 @@ struct Json {
 			checkType!(bool)(op);
 			return Json(m_bool || other.m_bool);
 		} else static if( op == "+" ){
-			checkType!(long, double)(op);
-			if( m_type == Type.Int ) return Json(m_int + other.m_int);
+			checkType!(BigInt, long, double)(op);
+			if( m_type == Type.int_ ) return Json(m_int + other.m_int);
+			else if( m_type == Type.bigInt ) return Json(m_bigInt + other.m_bigInt);
 			else if( m_type == Type.float_ ) return Json(m_float + other.m_float);
 			else assert(false);
 		} else static if( op == "-" ){
-			checkType!(long, double)(op);
-			if( m_type == Type.Int ) return Json(m_int - other.m_int);
+			checkType!(BigInt, long, double)(op);
+			if( m_type == Type.int_ ) return Json(m_int - other.m_int);
+			else if( m_type == Type.bigInt ) return Json(m_bigInt - other.m_bigInt);
 			else if( m_type == Type.float_ ) return Json(m_float - other.m_float);
 			else assert(false);
 		} else static if( op == "*" ){
-			checkType!(long, double)(op);
-			if( m_type == Type.Int ) return Json(m_int * other.m_int);
+			checkType!(BigInt, long, double)(op);
+			if( m_type == Type.int_ ) return Json(m_int * other.m_int);
+			else if( m_type == Type.bigInt ) return Json(m_bigInt * other.m_bigInt);
 			else if( m_type == Type.float_ ) return Json(m_float * other.m_float);
 			else assert(false);
 		} else static if( op == "/" ){
-			checkType!(long, double)(op);
-			if( m_type == Type.Int ) return Json(m_int / other.m_int);
+			checkType!(BigInt, long, double)(op);
+			if( m_type == Type.int_ ) return Json(m_int / other.m_int);
+			else if( m_type == Type.bigInt ) return Json(m_bigInt / other.m_bigInt);
 			else if( m_type == Type.float_ ) return Json(m_float / other.m_float);
 			else assert(false);
 		} else static if( op == "%" ){
-			checkType!(long, double)(op);
-			if( m_type == Type.Int ) return Json(m_int % other.m_int);
+			checkType!(BigInt, long, double)(op);
+			if( m_type == Type.int_ ) return Json(m_int % other.m_int);
+			else if( m_type == Type.bigInt ) return Json(m_bigInt % other.m_bigInt);
 			else if( m_type == Type.float_ ) return Json(m_float % other.m_float);
 			else assert(false);
 		} else static if( op == "~" ){
@@ -633,25 +710,30 @@ struct Json {
 		if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op =="~")
 	{
 		enforceJson(m_type == other.m_type || op == "~" && m_type == Type.array,
-				"Binary operation '"~op~"=' between "~.to!string(m_type)~" and "~.to!string(other.m_type)~" JSON objects.");
+			"Binary operation '"~op~"=' between "~.to!string(m_type)~" and "~.to!string(other.m_type)~" JSON objects.");
 		static if( op == "+" ){
 			if( m_type == Type.int_ ) m_int += other.m_int;
+			else if( m_type == Type.bigInt ) m_bigInt += other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float += other.m_float;
 			else enforceJson(false, "'+=' only allowed for scalar types, not "~.to!string(m_type)~".");
 		} else static if( op == "-" ){
 			if( m_type == Type.int_ ) m_int -= other.m_int;
+			else if( m_type == Type.bigInt ) m_bigInt -= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float -= other.m_float;
 			else enforceJson(false, "'-=' only allowed for scalar types, not "~.to!string(m_type)~".");
 		} else static if( op == "*" ){
 			if( m_type == Type.int_ ) m_int *= other.m_int;
+			else if( m_type == Type.bigInt ) m_bigInt *= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float *= other.m_float;
 			else enforceJson(false, "'*=' only allowed for scalar types, not "~.to!string(m_type)~".");
 		} else static if( op == "/" ){
 			if( m_type == Type.int_ ) m_int /= other.m_int;
+			else if( m_type == Type.bigInt ) m_bigInt /= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float /= other.m_float;
 			else enforceJson(false, "'/=' only allowed for scalar types, not "~.to!string(m_type)~".");
 		} else static if( op == "%" ){
 			if( m_type == Type.int_ ) m_int %= other.m_int;
+			else if( m_type == Type.bigInt ) m_bigInt %= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float %= other.m_float;
 			else enforceJson(false, "'%=' only allowed for scalar types, not "~.to!string(m_type)~".");
 		} else static if( op == "~" ){
@@ -671,7 +753,23 @@ struct Json {
 	/// ditto
 	Json opBinary(string op)(bool other) const { checkType!bool(); mixin("return Json(m_bool "~op~" other);"); }
 	/// ditto
-	Json opBinary(string op)(long other) const { checkType!long(); mixin("return Json(m_int "~op~" other);"); }
+	Json opBinary(string op)(long other) const
+	{
+		checkType!(long, BigInt)();
+		if (m_type == Type.bigInt)
+			mixin("return Json(m_bigInt "~op~" other);");
+		else
+			mixin("return Json(m_int "~op~" other);");
+	}
+	/// ditto
+	Json opBinary(string op)(BigInt other) const
+	{
+		checkType!(long, BigInt)();
+		if (m_type == Type.bigInt)
+			mixin("return Json(m_bigInt "~op~" other);");
+		else
+			mixin("return Json(m_int "~op~" other);");
+	}
 	/// ditto
 	Json opBinary(string op)(double other) const { checkType!double(); mixin("return Json(m_float "~op~" other);"); }
 	/// ditto
@@ -681,11 +779,29 @@ struct Json {
 	/// ditto
 	Json opBinaryRight(string op)(bool other) const { checkType!bool(); mixin("return Json(other "~op~" m_bool);"); }
 	/// ditto
-	Json opBinaryRight(string op)(long other) const { checkType!long(); mixin("return Json(other "~op~" m_int);"); }
+	Json opBinaryRight(string op)(long other) const
+	{
+		checkType!(long, BigInt)();
+		if (m_type == Type.bigInt)
+			mixin("return Json(other "~op~" m_bigInt);");
+		else
+			mixin("return Json(other "~op~" m_int);");
+	}
+	/// ditto
+	Json opBinaryRight(string op)(BigInt other) const
+	{
+		checkType!(long, BigInt)();
+		if (m_type == Type.bigInt)
+			mixin("return Json(other "~op~" m_bigInt);");
+		else
+			mixin("return Json(other "~op~" m_int);");
+	}
 	/// ditto
 	Json opBinaryRight(string op)(double other) const { checkType!double(); mixin("return Json(other "~op~" m_float);"); }
 	/// ditto
 	Json opBinaryRight(string op)(string other) const if(op == "~") { checkType!string(); return Json(other ~ m_string); }
+	/// ditto
+	Json opBinaryRight(string op)(Json[] other) { checkType!(Json[])(); mixin("return Json(other "~op~" m_array);"); }
 	/// ditto
 	inout(Json)* opBinaryRight(string op)(string other) inout if(op == "in") {
 		checkType!(Json[string])();
@@ -694,8 +810,6 @@ struct Json {
 		if( pv.type == Type.undefined ) return null;
 		return pv;
 	}
-	/// ditto
-	Json opBinaryRight(string op)(Json[] other) { checkType!(Json[])(); mixin("return Json(other "~op~" m_array);"); }
 
 	/**
 	 * The append operator will append arrays. This method always appends it's argument as an array element, so nested arrays can be created.
@@ -721,6 +835,7 @@ struct Json {
 			case Type.null_: return true;
 			case Type.bool_: return m_bool == other.m_bool;
 			case Type.int_: return m_int == other.m_int;
+			case Type.bigInt: return m_bigInt == other.m_bigInt;
 			case Type.float_: return m_float == other.m_float;
 			case Type.string: return m_string == other.m_string;
 			case Type.array: return m_array == other.m_array;
@@ -737,6 +852,8 @@ struct Json {
 	bool opEquals(int v) const { return m_type == Type.int_ && m_int == v; }
 	/// ditto
 	bool opEquals(long v) const { return m_type == Type.int_ && m_int == v; }
+	/// ditto
+	bool opEquals(BigInt v) const { return (m_type == Type.int_ && m_int == v) || (m_type == Type.bigInt && m_bigInt == v); }
 	/// ditto
 	bool opEquals(double v) const { return m_type == Type.float_ && m_float == v; }
 	/// ditto
@@ -760,6 +877,7 @@ struct Json {
 			case Type.null_: return 0;
 			case Type.bool_: return m_bool < other.m_bool ? -1 : m_bool == other.m_bool ? 0 : 1;
 			case Type.int_: return m_int < other.m_int ? -1 : m_int == other.m_int ? 0 : 1;
+			case Type.bigInt: return m_bigInt < other.m_bigInt ? -1 : m_bigInt == other.m_bigInt ? 0 : 1;
 			case Type.float_: return m_float < other.m_float ? -1 : m_float == other.m_float ? 0 : 1;
 			case Type.string: return m_string < other.m_string ? -1 : m_string == other.m_string ? 0 : 1;
 			case Type.array: return m_array < other.m_array ? -1 : m_array == other.m_array ? 0 : 1;
@@ -783,22 +901,49 @@ struct Json {
 		else static if( is(T == string) ) return Type.string;
 		else static if( is(T == Json[]) ) return Type.array;
 		else static if( is(T == Json[string]) ) return Type.object;
+		else static if( is(T == BigInt) ) return Type.bigInt;
 		else static assert(false, "Unsupported JSON type '"~T.stringof~"'. Only bool, long, double, string, Json[] and Json[string] are allowed.");
 	}
 
 	/**
 		Returns the JSON object as a string.
-
 		For large JSON values use writeJsonString instead as this function will store the whole string
 		in memory, whereas writeJsonString writes it out bit for bit.
-
 		See_Also: writeJsonString, toPrettyString
 	*/
 	string toString()
-	const {
+	const @trusted {
+		// DMD BUG: this should actually be all @safe, but for some reason
+		// @safe inference for writeJsonString doesn't work.
 		auto ret = appender!string();
 		writeJsonString(ret, this);
 		return ret.data;
+	}
+	/// ditto
+	void toString(scope void delegate(const(char)[]) @safe sink, FormatSpec!char fmt)
+	@trusted {
+		// DMD BUG: this should actually be all @safe, but for some reason
+		// @safe inference for writeJsonString doesn't work.
+		static struct DummyRange {
+			void delegate(const(char)[]) @safe sink;
+			void put(const(char)[] str) @safe { sink(str); }
+			void put(char ch) @trusted { sink((&ch)[0 .. 1]); }
+		}
+		auto r = DummyRange(sink);
+		writeJsonString(r, this);
+	}
+	/// ditto
+	void toString(scope void delegate(const(char)[]) @system sink, FormatSpec!char fmt)
+	{
+		// DMD BUG: this should actually be all @safe, but for some reason
+		// @safe inference for writeJsonString doesn't work.
+		static struct DummyRange {
+			void delegate(const(char)[]) sink;
+			void put(const(char)[] str) { sink(str); }
+			void put(char ch) { sink((&ch)[0 .. 1]); }
+		}
+		auto r = DummyRange(sink);
+		writeJsonString(r, this);
 	}
 
 	/**
@@ -853,6 +998,34 @@ struct Json {
 		else throw new JSONException(format("Got %s, expected %s for %s.", name, expected, op));
 	}
 
+	private void initBigInt()
+	{
+		BigInt[1] init_;
+		// BigInt is a struct, and it has a special BigInt.init value, which differs from null.
+		// m_data has no special initializer and when it tries to first access to BigInt
+		// via m_bigInt(), we should explicitly initialize m_data with BigInt.init
+		m_data[0 .. BigInt.sizeof] = cast(void[])init_;
+	}
+	
+	private void runDestructors()
+	{
+		if (m_type != Type.bigInt) return;
+		
+		BigInt init_;
+		// After swaping, init_ contains the real number from Json, and it
+		// will be destroyed when this function is finished.
+		// m_bigInt now contains static BigInt.init value and destruction may
+		// be ommited for it.
+		swap(init_, m_bigInt);
+	}
+	
+	private long bigIntToLong() inout
+	{
+		assert(m_type == Type.bigInt, format("Converting non-bigInt type with bitIntToLong!?: %s", cast(Type)m_type));
+		enforceJson(m_bigInt >= long.min && m_bigInt <= long.max, "Number out of range while converting BigInt("~format("%d", m_bigInt)~") to long.");
+		return m_bigInt.toLong();
+	}
+
 	/*invariant()
 	{
 		assert(m_type >= Type.Undefined && m_type <= Type.Object);
@@ -880,6 +1053,8 @@ Json parseJson(R)(ref R range, int* line = null, string filename = null)
 
 	skipWhitespace(range, line);
 
+	enforceJson(!range.empty, "JSON string contains only whitespaces.", filename, 0);
+
 	version(JsonLineNumbers) {
 		import vibe.core.log;
 		int curline = line ? *line : 0;
@@ -901,12 +1076,18 @@ Json parseJson(R)(ref R range, int* line = null, string filename = null)
 			range.popFrontN(4);
 			ret = true;
 			break;
-		case '0': .. case '9':
 		case '-':
+		case '0': .. case '9':
+			bool is_long_overflow;
 			bool is_float;
-			auto num = skipNumber(range, is_float);
-			if( is_float ) ret = to!double(num);
-			else ret = to!long(num);
+			auto num = skipNumber(range, is_float, is_long_overflow);
+			if( is_float ) {
+				ret = to!double(num);
+			} else if (is_long_overflow) {
+				ret = BigInt(num);
+			} else {
+				ret = to!long(num);
+			}
 			break;
 		case '\"':
 			ret = skipJsonString(range);
@@ -1004,51 +1185,39 @@ unittest {
 
 /**
 	Serializes the given value to JSON.
-
 	The following types of values are supported:
-
 	$(DL
 		$(DT `Json`)            $(DD Used as-is)
 		$(DT `null`)            $(DD Converted to `Json.Type.null_`)
 		$(DT `bool`)            $(DD Converted to `Json.Type.bool_`)
 		$(DT `float`, `double`)   $(DD Converted to `Json.Type.float_`)
 		$(DT `short`, `ushort`, `int`, `uint`, `long`, `ulong`) $(DD Converted to `Json.Type.int_`)
+		$(DT `BigInt`)          $(DD Converted to `Json.Type.bigInt`)
 		$(DT `string`)          $(DD Converted to `Json.Type.string`)
 		$(DT `T[]`)             $(DD Converted to `Json.Type.array`)
 		$(DT `T[string]`)       $(DD Converted to `Json.Type.object`)
 		$(DT `struct`)          $(DD Converted to `Json.Type.object`)
 		$(DT `class`)           $(DD Converted to `Json.Type.object` or `Json.Type.null_`)
 	)
-
 	All entries of an array or an associative array, as well as all R/W properties and
 	all public fields of a struct/class are recursively serialized using the same rules.
-
 	Fields ending with an underscore will have the last underscore stripped in the
 	serialized output. This makes it possible to use fields with D keywords as their name
 	by simply appending an underscore.
-
 	The following methods can be used to customize the serialization of structs/classes:
-
 	---
 	Json toJson() const;
 	static T fromJson(Json src);
-
 	string toString() const;
 	static T fromString(string src);
 	---
-
 	The methods will have to be defined in pairs. The first pair that is implemented by
 	the type will be used for serialization (i.e. `toJson` overrides `toString`).
-
 	See_Also: `deserializeJson`, `vibe.data.serialization`
 */
 Json serializeToJson(T)(T value)
 {
-	version (VibeOldSerialization) {
-		return serializeToJsonOld(value);
-	} else {
-		return serialize!JsonSerializer(value);
-	}
+	return serialize!JsonSerializer(value);
 }
 /// ditto
 void serializeToJson(R, T)(R destination, T value)
@@ -1087,7 +1256,6 @@ unittest {
 
 /**
 	Serializes the given value to a pretty printed JSON string.
-
 	See_also: `serializeToJson`, `vibe.data.serialization`
 */
 void serializeToPrettyJson(R, T)(R destination, T value)
@@ -1123,77 +1291,9 @@ unittest {
 }
 
 
-/// private
-Json serializeToJsonOld(T)(T value)
-{
-	import vibe.internal.meta.traits;
-
-	alias TU = Unqual!T;
-	static if (is(TU == Json)) return value;
-	else static if (is(TU == typeof(null))) return Json(null);
-	else static if (is(TU == bool)) return Json(value);
-	else static if (is(TU == float)) return Json(cast(double)value);
-	else static if (is(TU == double)) return Json(value);
-	else static if (is(TU == DateTime)) return Json(value.toISOExtString());
-	else static if (is(TU == SysTime)) return Json(value.toISOExtString());
-	else static if (is(TU == Date)) return Json(value.toISOExtString());
-	else static if (is(TU : long)) return Json(cast(long)value);
-	else static if (is(TU : string)) return Json(value);
-	else static if (isArray!T) {
-		auto ret = new Json[value.length];
-		foreach (i; 0 .. value.length)
-			ret[i] = serializeToJson(value[i]);
-		return Json(ret);
-	} else static if (isAssociativeArray!TU) {
-		Json[string] ret;
-		alias TK = KeyType!T;
-		foreach (key, value; value) {
-			static if(is(TK == string)) {
-				ret[key] = serializeToJson(value);
-			} else static if (is(TK == enum)) {
-				ret[to!string(key)] = serializeToJson(value);
-			} else static if (isStringSerializable!(TK)) {
-				ret[key.toString()] = serializeToJson(value);
-			} else static assert("AA key type %s not supported for JSON serialization.");
-		}
-		return Json(ret);
-	} else static if (isJsonSerializable!TU) {
-		return value.toJson();
-	} else static if (isStringSerializable!TU) {
-		return Json(value.toString());
-	} else static if (is(TU == struct)) {
-		Json[string] ret;
-		foreach (m; __traits(allMembers, T)) {
-			static if (isRWField!(TU, m)) {
-				auto mv = __traits(getMember, value, m);
-				ret[underscoreStrip(m)] = serializeToJson(mv);
-			}
-		}
-		return Json(ret);
-	} else static if(is(TU == class)) {
-		if (value is null) return Json(null);
-		Json[string] ret;
-		foreach (m; __traits(allMembers, T)) {
-			static if (isRWField!(TU, m)) {
-				auto mv = __traits(getMember, value, m);
-				ret[underscoreStrip(m)] = serializeToJson(mv);
-			}
-		}
-		return Json(ret);
-	} else static if (isPointer!TU) {
-		if (value is null) return Json(null);
-		return serializeToJson(*value);
-	} else {
-		static assert(false, "Unsupported type '"~T.stringof~"' for JSON serialization.");
-	}
-}
-
-
 /**
 	Deserializes a JSON value into the destination variable.
-
 	The same types as for `serializeToJson()` are supported and handled inversely.
-
 	See_Also: `serializeToJson`, `serializeToJsonString`, `vibe.data.serialization`
 */
 void deserializeJson(T)(ref T dst, Json src)
@@ -1203,89 +1303,13 @@ void deserializeJson(T)(ref T dst, Json src)
 /// ditto
 T deserializeJson(T)(Json src)
 {
-	version (VibeOldSerialization) {
-		return deserializeJsonOld!T(src);
-	} else {
-		return deserialize!(JsonSerializer, T)(src);
-	}
+	return deserialize!(JsonSerializer, T)(src);
 }
 /// ditto
 T deserializeJson(T, R)(R input)
 	if (isInputRange!R && !is(R == Json))
 {
 	return deserialize!(JsonStringSerializer!R, T)(input);
-}
-
-/// private
-T deserializeJsonOld(T)(Json src)
-{
-	import vibe.internal.meta.traits;
-
-	static if( is(T == struct) || isSomeString!T || isIntegral!T || isFloatingPoint!T )
-		if( src.type == Json.Type.null_ ) return T.init;
-	static if (is(T == Json)) return src;
-	else static if (is(T == typeof(null))) { return null; }
-	else static if (is(T == bool)) return src.get!bool;
-	else static if (is(T == float)) return src.to!float;   // since doubles are frequently serialized without
-	else static if (is(T == double)) return src.to!double; // a decimal point, we allow conversions here
-	else static if (is(T == DateTime)) return DateTime.fromISOExtString(src.get!string);
-	else static if (is(T == SysTime)) return SysTime.fromISOExtString(src.get!string);
-	else static if (is(T == Date)) return Date.fromISOExtString(src.get!string);
-	else static if (is(T : long)) return cast(T)src.get!long;
-	else static if (is(T : string)) return cast(T)src.get!string;
-	else static if (isArray!T) {
-		alias TV = typeof(T.init[0]) ;
-		auto dst = new Unqual!TV[src.length];
-		foreach (size_t i, v; src)
-			dst[i] = deserializeJson!(Unqual!TV)(v);
-		return cast(T)dst;
-	} else static if( isAssociativeArray!T ) {
-		alias TV = typeof(T.init.values[0]) ;
-		alias TK = KeyType!T;
-		Unqual!TV[TK] dst;
-		foreach (string key, value; src) {
-			static if (is(TK == string)) {
-				dst[key] = deserializeJson!(Unqual!TV)(value);
-			} else static if (is(TK == enum)) {
-				dst[to!(TK)(key)] = deserializeJson!(Unqual!TV)(value);
-			} else static if (isStringSerializable!TK) {
-				auto dsk = TK.fromString(key);
-				dst[dsk] = deserializeJson!(Unqual!TV)(value);
-			} else static assert("AA key type %s not supported for JSON serialization.");
-		}
-		return dst;
-	} else static if (isJsonSerializable!T) {
-		return T.fromJson(src);
-	} else static if (isStringSerializable!T) {
-		return T.fromString(src.get!string);
-	} else static if (is(T == struct)) {
-		T dst;
-		foreach (m; __traits(allMembers, T)) {
-			static if (isRWPlainField!(T, m) || isRWField!(T, m)) {
-				alias TM = typeof(__traits(getMember, dst, m)) ;
-				__traits(getMember, dst, m) = deserializeJson!TM(src[underscoreStrip(m)]);
-			}
-		}
-		return dst;
-	} else static if (is(T == class)) {
-		if (src.type == Json.Type.null_) return null;
-		auto dst = new T;
-		foreach (m; __traits(allMembers, T)) {
-			static if (isRWPlainField!(T, m) || isRWField!(T, m)) {
-				alias TM = typeof(__traits(getMember, dst, m)) ;
-				__traits(getMember, dst, m) = deserializeJson!TM(src[underscoreStrip(m)]);
-			}
-		}
-		return dst;
-	} else static if (isPointer!T) {
-		if (src.type == Json.Type.null_) return null;
-		alias TD = typeof(*T.init) ;
-		dst = new TD;
-		*dst = deserializeJson!TD(src);
-		return dst;
-	} else {
-		static assert(false, "Unsupported type '"~T.stringof~"' for JSON serialization.");
-	}
 }
 
 ///
@@ -1474,17 +1498,15 @@ struct JsonSerializer {
 	void beginWriteArrayEntry(T)(size_t) {}
 	void endWriteArrayEntry(T)(size_t) { m_compositeStack[$-1].appendArrayElement(m_current); }
 
-	void writeValue(T)(T value)
+	void writeValue(T)(in T value)
+		if (!is(T == Json))
 	{
-		static if (is(T == Json)) m_current = value;
-		else static if (isJsonSerializable!T) m_current = value.toJson();
+		static if (isJsonSerializable!T) m_current = value.toJson();
 		else m_current = Json(value);
 	}
 
-	void writeValue(T)(in Json value) if (is(T == Json))
-	{
-		m_current = value.clone;
-	}
+	void writeValue(T)(Json value) if (is(T == Json)) { m_current = value; }
+	void writeValue(T)(in Json value) if (is(T == Json)) { m_current = value.clone; }
 
 	//
 	// deserialization
@@ -1517,8 +1539,12 @@ struct JsonSerializer {
 		static if (is(T == Json)) return m_current;
 		else static if (isJsonSerializable!T) return T.fromJson(m_current);
 		else static if (is(T == float) || is(T == double)) {
-			if (m_current.type == Json.Type.undefined) return T.nan;
-			return m_current.type == Json.Type.float_ ? cast(T)m_current.get!double : cast(T)m_current.get!long;
+			switch (m_current.type) {
+				default: return cast(T)m_current.get!long;
+				case Json.Type.undefined: return T.nan;
+				case Json.Type.float_: return cast(T)m_current.get!double;
+				case Json.Type.bigInt: return cast(T)m_current.bigIntToLong();
+			}
 		}
 		else {
 			return m_current.get!T();
@@ -1585,6 +1611,7 @@ struct JsonStringSerializer(R, bool pretty = false)
 			static if (is(T == typeof(null))) m_range.put("null");
 			else static if (is(T == bool)) m_range.put(value ? "true" : "false");
 			else static if (is(T : long)) m_range.formattedWrite("%s", value);
+			else static if (is(T == BigInt)) m_range.formattedWrite("%d", value);
 			else static if (is(T : real)) {
 				if (value != value) 
 					m_range.put("null"); // JSON has no NaN value so set null
@@ -1709,12 +1736,21 @@ struct JsonStringSerializer(R, bool pretty = false)
 				return ret;
 			} else static if (is(T : long)) {
 				bool is_float;
-				auto num = m_range.skipNumber(is_float);
+				bool is_long_overflow;
+				auto num = m_range.skipNumber(is_float, is_long_overflow);
 				enforceJson(!is_float, "Expecting integer number.");
+				enforceJson(!is_long_overflow, num~" is too big for long.");
 				return to!T(num);
+			} else static if (is(T : BigInt)) {
+				bool is_float;
+				bool is_long_overflow;
+				auto num = m_range.skipNumber(is_float, is_long_overflow);
+				enforceJson(!is_float, "Expecting integer number.");
+				return BigInt(num);
 			} else static if (is(T : real)) {
 				bool is_float;
-				auto num = m_range.skipNumber(is_float);
+				bool is_long_overflow;
+				auto num = m_range.skipNumber(is_float, is_long_overflow);
 				return to!T(num);
 			}
 			else static if (is(T == string)) return m_range.skipJsonString(&m_line);
@@ -1727,10 +1763,6 @@ struct JsonStringSerializer(R, bool pretty = false)
 		{
 			m_range.skipWhitespace(&m_line);
 			if (m_range.front != 'n') return false;
-			static if (is(R == string)) {
-				import vibe.core.log;
-				logInfo("%s", m_range[0 .. min(4, $)]);
-			}
 			foreach (ch; "null") {
 				enforceJson(m_range.front == ch, "Expecting 'null'.");
 				m_range.popFront();
@@ -1764,6 +1796,7 @@ void writeJsonString(R, bool pretty = false)(ref R dst, in Json json, size_t lev
 		case Json.Type.null_: dst.put("null"); break;
 		case Json.Type.bool_: dst.put(cast(bool)json ? "true" : "false"); break;
 		case Json.Type.int_: formattedWrite(dst, "%d", json.get!long); break;
+		case Json.Type.bigInt: () @trusted { formattedWrite(dst, "%d", json.get!BigInt); } (); break;
 		case Json.Type.float_: 
 			auto d = json.get!double;
 			if (d != d) 
@@ -2050,24 +2083,43 @@ private string jsonUnescape(R)(ref R range)
 }
 
 /// private
-private string skipNumber(R)(ref R s, out bool is_float)
+private string skipNumber(R)(ref R s, out bool is_float, out bool is_long_overflow)
 {
 	// TODO: make this work with input ranges
 	size_t idx = 0;
 	is_float = false;
+	is_long_overflow = false;
+	ulong int_part = 0;
 	if (s[idx] == '-') idx++;
 	if (s[idx] == '0') idx++;
 	else {
-		enforceJson(isDigit(s[idx++]), "Digit expected at beginning of number.");
-		while( idx < s.length && isDigit(s[idx]) ) idx++;
+		enforceJson(isDigit(s[idx]), "Digit expected at beginning of number.");
+		int_part = s[idx++] - '0';
+		while( idx < s.length && isDigit(s[idx]) )
+		{
+			if (!is_long_overflow)
+			{
+				auto dig = s[idx] - '0';
+				if ((long.max / 10) > int_part || ((long.max / 10) == int_part && (long.max % 10) >= dig))
+				{
+					int_part *= 10;
+					int_part += dig;
+				}
+				else
+				{
+					is_long_overflow = true;
+				}
+			}
+			idx++;
+		}
 	}
-
+	
 	if( idx < s.length && s[idx] == '.' ){
 		idx++;
 		is_float = true;
 		while( idx < s.length && isDigit(s[idx]) ) idx++;
 	}
-
+	
 	if( idx < s.length && (s[idx] == 'e' || s[idx] == 'E') ){
 		idx++;
 		is_float = true;
@@ -2076,7 +2128,7 @@ private string skipNumber(R)(ref R s, out bool is_float)
 		idx++;
 		while( idx < s.length && isDigit(s[idx]) ) idx++;
 	}
-
+	
 	string ret = s[0 .. idx];
 	s = s[idx .. $];
 	return ret;
@@ -2128,15 +2180,12 @@ package template isJsonSerializable(T) { enum isJsonSerializable = is(typeof(T.i
 
 private void enforceJson(string file = __FILE__, size_t line = __LINE__)(bool cond, lazy string message = "JSON exception")
 {
-	static if (__VERSION__ >= 2065) enforceEx!JSONException(cond, message, file, line);
-	else if (!cond) throw new JSONException(message);
+	enforceEx!JSONException(cond, message, file, line);
 }
 
 private void enforceJson(string file = __FILE__, size_t line = __LINE__)(bool cond, lazy string message, string err_file, int err_line)
 {
-	auto errmsg = format("%s(%s): Error: %s", err_file, err_line+1, message);
-	static if (__VERSION__ >= 2065) enforceEx!JSONException(cond, errmsg, file, line);
-	else if (!cond) throw new JSONException(errmsg);
+	enforceEx!JSONException(cond, format("%s(%s): Error: %s", err_file, err_line+1, message), file, line);
 }
 
 private void enforceJson(string file = __FILE__, size_t line = __LINE__)(bool cond, lazy string message, string err_file, int* err_line)

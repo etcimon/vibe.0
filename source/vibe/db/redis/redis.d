@@ -1401,7 +1401,7 @@ private final class RedisConnection {
 
 	@property ConnectionStream conn() { return m_conn; }
 	@property void conn(TCPConnection conn) { m_conn = conn; conn.tcpNoDelay = true; }
-	@property void conn(UDSConnection conn) { m_conn = conn; }
+	version(linux)@property void conn(UDSConnection conn) { m_conn = conn; }
 
 	void setAuth(string password)
 	{
