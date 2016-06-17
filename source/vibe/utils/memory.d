@@ -22,20 +22,18 @@ import std.algorithm;
 
 Allocator defaultAllocator() nothrow
 {
-	version(VibeManualMemoryManagement){
-		return manualAllocator();
-	} else {
-		static __gshared Allocator alloc;
-		if( !alloc ){
-			alloc = new GCAllocator;
-			//alloc = new AutoFreeListAllocator(alloc);
-			//alloc = new DebugAllocator(alloc); // doesnt work
-			//alloc = new LockAllocator(alloc);
-		}
-		return alloc;
+	static __gshared Allocator alloc;
+	if( !alloc ){
+		alloc = new GCAllocator;
+		//alloc = new AutoFreeListAllocator(alloc);
+		//alloc = new DebugAllocator(alloc); // doesnt work
+		//alloc = new LockAllocator(alloc);
 	}
+	return alloc;
+
 }
 
+/// lockless allocator for request-scoped allocations
 Allocator manualAllocator() nothrow
 {
 	static __gshared Allocator alloc;

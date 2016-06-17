@@ -774,22 +774,26 @@ class CustomTLSCredentials : TLSCredentialsManager
 public:
 	this() { }
 
-	// Client constructor
+	/// Client constructor
 	this(TLSPeerValidationMode validation_mode = TLSPeerValidationMode.checkPeer) {
 		m_validationMode = validation_mode;
 	}
 
-	// Server constructor
+	/// Server constructor
 	this(X509Certificate server_cert, X509Certificate ca_cert, PrivateKey server_key) 
 	{
 		m_server_cert = server_cert;
-		m_ca_cert = ca_cert;
+		m_ca_cert = ca_cert; // used for client certificate request
 		m_key = server_key;
+
+		m_validationMode = TLSPeerValidationMode.none;
+
+		if (!m_ca_cert)
+			return;
 		auto store = new CertificateStoreInMemory;
 
 		store.addCertificate(m_ca_cert);
 		m_stores.pushBack(store);
-		m_validationMode = TLSPeerValidationMode.none;
 	}
 
 	void addTrustedCertificate(ubyte[] cert)
@@ -804,7 +808,8 @@ public:
 	override Vector!CertificateStore trustedCertificateAuthorities(in string, in string)
 	{
 		// todo: Check machine stores for client mode
-
+		if (m_stores.length == 0)
+			return Vector!CertificateStore.init;
 		return m_stores.dup;
 	}
 	
