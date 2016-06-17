@@ -375,6 +375,7 @@ private:
 	void delegate(scope TLSStream) m_after_handshake;
 
 	~this() {
+		if (m_owner != Thread.getThis()) return;
 		m_credentials.destroy();
 		if (m_policy !is gs_default_policy) m_policy.destroy();
 		m_offer_version.destroy();
@@ -920,7 +921,9 @@ public:
 		ref Vector!ubyte salt,
 		bool generate_fake_on_unknown)
 	{ return super.srpVerifier(type, context, identifier, group_name, verifier, salt, generate_fake_on_unknown); }
-	
+
+	override bool hasPsk() { return false; }
+
 	override string pskIdentityHint(in string type, in string context)
 	{ return super.pskIdentityHint(type, context); }
 	
