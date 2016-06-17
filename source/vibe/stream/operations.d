@@ -131,7 +131,7 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 	}
 
 	size_t nmatched = 0;
-	ubyte[] buf = allocArray(manualAllocator(), 8192);
+	ubyte[] buf = allocArray!ubyte(manualAllocator(), 8192);
 	scope(exit) freeArray(manualAllocator(), buf, false);
 
 	ulong bytes_read = 0;
