@@ -491,7 +491,6 @@ final class HTTPClient {
 				if (notify)
 					m_conn.tlsStream.notifyClose();
 				else {
-					m_conn.tlsStream.finalize();
 					m_conn.tlsStream.close(); // TLS has an alert for connection closure
 				}
 			}
@@ -1244,10 +1243,7 @@ final class HTTPClientResponse : HTTPResponse {
 	/// private
 	this(HTTPClient client, HTTPMethod req_method, ref bool keepalive, bool is_owner = false)
 	{
-		version (VibeManualMemoryManagement) {
-			m_alloc = new PoolAllocator(1024, defaultAllocator());
-		} else m_alloc = defaultAllocator();
-
+		m_alloc = defaultAllocator();
 		m_client = client;
 		m_keepAlive = keepalive;
 		m_is_owner = is_owner;

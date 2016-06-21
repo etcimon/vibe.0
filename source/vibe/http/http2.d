@@ -445,9 +445,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			if (hf.name == ":status")
 				status_code = hf.value.parse!int;
 			else if (hf.name == ":authority")
-				header.addField("Host", hf.value.idup);
+				header.addField("Host", hf.value.copy(alloc));
 			else
-				header.addField(hf.name.idup, hf.value.idup);
+				header.addField(hf.name.idup, hf.value.copy(alloc));
 		}
 
 

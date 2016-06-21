@@ -1283,7 +1283,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	@property bool keepAlive() const { return m_settings.keepAlive; }
 	
-	@property bool connected() const { return !m_closed && m_tcpImpl.conn && m_tcpImpl.conn.isConnected; }
+	@property bool connected() const { 
+		return !m_closed && m_tcpImpl.conn !is null && m_tcpImpl.conn.isConnected; 
+	}
 	
 	@property bool dataAvailableForRead(){ 
 		logTrace("dataAvailableForRead TCP");
@@ -1628,6 +1630,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	 * We're given some time to cleanup.
 	*/
 	private void onClose(in string msg = null, bool wake_ex = true) {
+		logTrace("Got close event: %s", msg);
 		if (msg)
 			m_error = msg;
 		if (!m_closed) {

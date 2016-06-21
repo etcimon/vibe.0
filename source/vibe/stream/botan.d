@@ -145,7 +145,7 @@ public:
 
 	void close()
 	{
-		if (m_tcp_conn.connected) finalize();
+		if (m_tcp_conn.connected) try finalize(); catch (Exception e) { import vibe.core.log : logError; logError("Error finalize: %s %s", e.toString(), m_ex ? m_ex.toString() : "No m_EX"); }
 		m_tcp_conn.close();
 		m_tls_channel.destroy();
 	}
@@ -240,7 +240,9 @@ public:
 			processException();
 		try m_tls_channel.write(src);
 		catch (TLSClosedException e) {
-			throw new ConnectionClosedException("TLSClosedException: " ~ e.msg);
+			import vibe.core.log : logError;
+			logError("doWrite failed: %s", e.toString());
+			throw new ConnectionClosedException("TLSClosedException: " ~ e.msg, e.file, e.line, e.next);
 		}
 	}
 
@@ -298,9 +300,13 @@ public:
 
 private:
 	void onAlert(in TLSAlert alert, in ubyte[] data) {
-		if (alert.isFatal) {
-			m_tcp_conn.close();
-			m_ex = new ConnectionClosedException("Fatal TLS Alert Received: " ~ alert.typeString());
+		if (alert.isFatal || alert.type() == TLSAlert.CLOSE_NOTIFY) {
+			import vibe.core.log : logError;
+			if (alert.isFatal || m_ctx.m_kind == TLSContextKind.client)
+				m_tcp_conn.close();
+			if (alert.isFatal || m_ctx.m_kind != TLSContextKind.client) 
+				m_ex = new ConnectionClosedException("Fatal TLS Alert Received: " ~ alert.typeString());
+
 		}
 		if (m_alert_cb)
 			m_alert_cb(alert, data);
