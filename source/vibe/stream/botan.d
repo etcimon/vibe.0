@@ -145,7 +145,8 @@ public:
 
 	void close()
 	{
-		if (m_tcp_conn.connected) try finalize(); catch (Exception e) { import vibe.core.log : logError; logError("Error finalize: %s %s", e.toString(), m_ex ? m_ex.toString() : "No m_EX"); }
+		if (m_tcp_conn.connected) 
+			try finalize(); catch (Exception e) { import vibe.core.log : logError; logError("Error finalize: %s %s", e.toString(), m_ex ? m_ex.toString() : "No m_EX"); }
 		m_tcp_conn.close();
 		m_tls_channel.destroy();
 	}
@@ -175,7 +176,8 @@ public:
 			processException();
 		if (m_writer != Task())
 			m_writer.interrupt();
-		flush();
+		if (m_tls_channel.underlyingChannel !is null && m_tls_channel.underlyingChannel.isActive())
+			flush();
 		m_tls_channel.close();
 		m_tcp_conn.flush();
 		if (m_reader != Task())
