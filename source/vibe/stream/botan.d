@@ -130,7 +130,7 @@ public:
 			m_ctx.onAfterHandshake(cast(TLSStream)this);
 		}
 		catch(Exception e) {
-			vibe.core.log.logError("Error in handshake: %s", e.msg);
+			//vibe.core.log.logError("Error in handshake: %s", e.msg);
 			m_ex = e;
 		}
 	}
@@ -338,7 +338,7 @@ private:
 		mixin(STrace);
 		ubyte[] ret;
 		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
-			enforceEx!TimeoutException(m_tcp_conn.waitForData(20.seconds), "Handshake could not be handled");
+			enforceEx!TimeoutException(m_tcp_conn.waitForData(30.seconds), "Handshake could not be handled");
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
 			ret = buffered.readBuf(buf);
 			return ret;

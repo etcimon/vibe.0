@@ -105,7 +105,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		bool m_safety_level_changed;
 		int m_maxFrameSize; // The buffers also allocate their additional storage at these intervals
 
-		static ulong s_totalStreams;
 		ulong m_bytesRecv;
 		ulong m_bytesSend;
 
@@ -413,6 +412,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			else
 				header.addField(hf.name.copy(alloc), hf.value.copy(alloc));
 		}
+		s_http2Registry[cast(size_t)cast(void*)m_session] = Registry(url.localURI, Clock.currTime(UTC()));
 	}
 
 	/// Read server response headers into supplied structures. The session must be opened as a client
@@ -1279,8 +1279,6 @@ struct HTTP2Settings {
 final class HTTP2Session
 {
 	private {
-		static ulong s_totalSessions;
-
 		import vibe.stream.tls : TLSStream;
 		Thread m_owner;
 		Session m_session; // libhttp2 implementation
@@ -1733,8 +1731,10 @@ private:
 	}
 
 	void onClose() {
+		if (cast(size_t)cast(void*)this in s_http2Registry) 
+			s_http2Registry.remove(cast(size_t)cast(void*)this);
 		if (!m_tcpConn) return;
-		try m_tcpConn.close(); catch {}
+		try if (!isServer) m_tcpConn.close(); catch {}
 		m_tcpConn = null;
 		foreach(HTTP2Stream stream; m_pushResponses) 
 			if (stream.m_connected) 
@@ -2390,7 +2390,7 @@ override:
 		if (!bufs) {
 			m_session.get().consumeConnection(data.length);
 			m_session.m_tx.notify();
-			return !m_session.isServer; // the stream errored out...
+			return false; // the stream errored out...
 		}
 		if (stream.m_paused)
 			pause = true;
@@ -2409,7 +2409,7 @@ override:
 	bool onInvalidFrame(in Frame frame, FrameError error_code)
 	{
 		import vibe.core.log : logError;
-		logError("HTTP/2 onInvalidFrame: %s", error_code.to!string);
+		logError("HTTP/2 onInvalidFrame: %s %s %s", error_code.to!string, frame.hd.type == 0x01 ? frame.headers.hfa[0].name ~ "=" ~ frame.headers.hfa[0].value : frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString());
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 
 		if (error_code == FrameError.PROTOCOL_ERROR)

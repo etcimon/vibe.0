@@ -1497,6 +1497,14 @@ shared static this()
 	}
 }
 
+import std.datetime: SysTime;
+struct Registry { string URI; SysTime last_activity; }
+public static ulong s_totalSessions;
+public static Registry[size_t] s_http2Registry;
+public static ulong s_totalStreams;
+public static ulong s_botanStreams;
+public static ulong s_totalConnections;
+
 shared static ~this()
 {
 	if (!s_core) return;
@@ -1507,10 +1515,12 @@ shared static ~this()
 	synchronized (st_threadsMutex) {
 		if( !st_workerTasks.empty ) tasks_left = st_workerTasks.length;
 	}
-
+	import memutils.utils;
 	if (!s_yieldedTasks.empty) tasks_left += s_yieldedTasks.length;
-	if (tasks_left > 0) {
-		logWarn("There were still %d tasks running at exit.", tasks_left);
+	if (tasks_left > 0 || s_totalConnections > 0) {
+		logWarn("There were still %d connections %d tasks %d streams %d sessions running at exit.", s_totalConnections, tasks_left, s_totalStreams, s_totalSessions);
+		foreach (reg; s_http2Registry)
+			logWarn("Started %s uri: %s", reg.last_activity.to!string, reg.URI);
 	}
 
 	destroy(s_core);
@@ -1706,7 +1716,7 @@ nothrow {
 		vibe.core.log.logError("onSignal assertion failure: %s", e.msg);
 	}
 
-	logInfo("Received signal %d. Shutting down.", signal);
+	logTrace("Received signal %d. Shutting down.", signal);
 }
 
 private extern(C) void onBrokenPipe(int signal)

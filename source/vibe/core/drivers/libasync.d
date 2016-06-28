@@ -480,6 +480,7 @@ final class LibasyncDriver : EventDriver {
 		auto next = m_timers.getFirstTimeout();
 		Duration dur;
 		if (next == SysTime.max) return;
+		import std.algorithm : max;
 		dur = max(1.msecs, next - now);
 		if (m_nextSched != next)
 			m_nextSched = next;
@@ -1188,7 +1189,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		bool m_mustRecv = true;
 		ulong m_bytesRecv;
 		ulong m_bytesSend;
-		static ulong s_totalConnections;
 		// The socket descriptor is unavailable to motivate low-level/API feature additions 
 		// rather than high-lvl platform-dependent hacking
 		// fd_t socket; 
