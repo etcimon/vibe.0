@@ -1,7 +1,7 @@
 language: d
 
 d:
-  - dmd-2.070.0
+  - dmd-2.071.0
 
 env:
   - VIBED_DRIVER=libasync_botan

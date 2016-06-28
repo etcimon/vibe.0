@@ -766,9 +766,16 @@ void lowerPrivileges(string uname, string gname)
 		int uid = -1, gid = -1;
 		if (uname != "" && !tryParse(uname, uid)) uid = getUID(uname);
 		if (gname != "" && !tryParse(gname, gid)) gid = getGID(gname);
-		setUID(uid, gid);
+		lowerPrivileges(uid, gid);
 	} else logWarn("Vibe was run as root, and no user/group has been specified for privilege lowering. Running with full permissions.");
 }
+
+/// ditto
+void lowerPrivileges(int uid, int gid)
+{
+	setUID(uid, gid);
+}
+
 
 // ditto
 void lowerPrivileges()

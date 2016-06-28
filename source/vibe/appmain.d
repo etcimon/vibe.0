@@ -25,7 +25,7 @@ version (VibeCustomMain) {}
 else:
 
 version (VibeDefaultMain) {}
-else { static assert(false, "Error: -version=VibeDefaultMain is required to use vibe.d's default main(). Or use -version=VibeCustomMain to use your own main() instead. Please update your build scripts."); }
+else { version(unittest){} else static assert(false, "Error: -version=VibeDefaultMain is required to use vibe.d's default main(). Or use -version=VibeCustomMain to use your own main() instead. Please update your build scripts."); }
 
 /**
 	The predefined vibe.d application entry point.

@@ -41,6 +41,7 @@ import std.datetime;
 import std.conv : to;
 import std.exception;
 import std.format;
+import std.algorithm;
 
 alias B64 = Base64Impl!('-', '_', Base64.NoPadding);
 
