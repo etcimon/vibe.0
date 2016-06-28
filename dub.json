@@ -1,5 +1,5 @@
 {
-	"name": "vibe-d",
+	"name": "vibe-0",
 	"description": "Asynchronous I/O framework",
 	"license": "MIT",
 	"copyright": "Copyright © 2012-2014 rejectedsoftware e.K.",
@@ -8,6 +8,7 @@
 			"Sönke Ludwig",
 			"Jan Krüger",
 			"Matthias Dondorff",
+			"Etienne Cimon",
 			"see github for more"
 	],
 
