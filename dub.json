@@ -15,7 +15,6 @@
 	"dependencies": {
 		"libhttp2": { "version": "~>0.2.8" },
 		"botan": {"version": "~>1.12.5" },
-		"standardpaths": { "version": "~>0.7.0" },
 		"libasync": {"version": "~>0.7.9" }
 	},
 
