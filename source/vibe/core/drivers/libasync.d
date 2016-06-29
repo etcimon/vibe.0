@@ -1243,7 +1243,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	~this() {
-		s_totalConnections--;
 		if (!m_closed) { 
 			try onClose(null, false);
 			catch (Exception e)
@@ -1635,6 +1634,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (msg)
 			m_error = msg;
 		if (!m_closed) {
+			s_totalConnections--;
+
 			m_closed = true;
 
 			if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {

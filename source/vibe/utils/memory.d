@@ -14,6 +14,7 @@ import vibe.core.log;
 
 import core.exception : OutOfMemoryError;
 import core.stdc.stdlib;
+import core.stdc.string;
 import core.memory;
 import std.conv;
 import std.exception : enforceEx;
@@ -73,10 +74,12 @@ T[] allocArray(T, bool MANAGED = true)(Allocator allocator, size_t n)
 		static if( hasIndirections!T )
 			GC.addRange(mem.ptr, mem.length);
 		// TODO: use memset for class, pointers and scalars
-		foreach (ref el; ret) {
+		static if (isBasicType!T)
+			memset(ret.ptr, 0, ret.length * T.sizeof);
+		else foreach (ref el; ret) {
 			internalEmplace!T(cast(void[])((&el)[0 .. 1]));
 		}
-	}
+	} else pragma(inline, true);
 	return ret;
 }
 
@@ -89,7 +92,7 @@ void freeArray(T, bool MANAGED = true)(Allocator allocator, ref T[] array, bool 
 			if (call_destructors)
 				foreach_reverse (ref el; array)
 					destroy(el);
-	}
+	} else pragma(inline, true);
 	allocator.free(cast(void[])array);
 	array = null;
 }
