@@ -21,6 +21,7 @@ import vibe.utils.string;
 
 import std.algorithm;
 import std.array;
+import std.range;
 import std.conv;
 import std.datetime;
 import std.exception;
