@@ -124,9 +124,7 @@ public:
 		import vibe.core.core : Trace; mixin(Trace);
 		try {
 			m_ctx.onBeforeHandshake(cast(TLSStream)this);
-			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = true;
 			m_tls_channel.doHandshake();
-			if (m_tcp_conn) m_tcp_conn.tcpNoDelay = false;
 			m_ctx.onAfterHandshake(cast(TLSStream)this);
 		}
 		catch(Exception e) {
@@ -146,7 +144,7 @@ public:
 	void close()
 	{
 		if (m_tcp_conn.connected) 
-			try finalize(); catch (Exception e) { import vibe.core.log : logError; logError("Error finalize: %s %s", e.toString(), m_ex ? m_ex.toString() : "No m_EX"); }
+			finalize();
 		m_tcp_conn.close();
 		m_tls_channel.destroy();
 	}
@@ -302,13 +300,14 @@ public:
 
 private:
 	void onAlert(in TLSAlert alert, in ubyte[] data) {
+        import vibe.core.log : logError;
+        //logError("Got TLS Alert: %s", cast(string)data);
 		if (alert.isFatal || alert.type() == TLSAlert.CLOSE_NOTIFY) {
 			import vibe.core.log : logError;
 			if (alert.isFatal || m_ctx.m_kind == TLSContextKind.client)
 				m_tcp_conn.close();
 			if (alert.isFatal || m_ctx.m_kind != TLSContextKind.client) 
 				m_ex = new ConnectionClosedException("Fatal TLS Alert Received: " ~ alert.typeString());
-
 		}
 		if (m_alert_cb)
 			m_alert_cb(alert, data);
@@ -490,6 +489,15 @@ public:
 		return new BotanTLSStream(cast(TCPConnection)underlying, this, state, peer_name, peer_address);
 	}
 
+    /// Add a ChannelID PrivateKey handler
+    @property void cpkHandler(PrivateKey delegate(string hostname) del) {
+        if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+            credentials.m_cpk_del = del;
+            return;
+        }
+        else assert(false, "Cannot handle cpkHandler if CustomTLSCredentials is not used");
+    }
+
 	/** Specifies the validation level of remote peers.
 
 		The default mode for TLSContextKind.client is
@@ -606,6 +614,15 @@ public:
 		} 
 		else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
 	}
+
+    /// Use the CA root certificate with this client to validate the peer cert
+    void addTrustedCertificate(ubyte[] cert_data) { 
+        if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+            credentials.addTrustedCertificate(cert_data);
+            return;
+        } 
+        else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
+    }
 private:
 	SNIContextSwitchInfo sniHandler(string hostname) 
 	{
@@ -647,12 +664,10 @@ private:
 		if (auto creds = cast(CustomTLSCredentials) m_credentials) {
 			auto sigs = m_policy.allowedSignatureMethods();
 			import botan.asn1.oids : OIDS;
-			import vibe.core.log : logDebug;
 			auto sig_algo = OIDS.lookup(creds.m_server_cert.signatureAlgorithm().oid());
 			import std.range : front;
 			import std.algorithm.iteration : splitter;
 			string sig_algo_str = sig_algo.splitter("/").front.to!string;
-			logDebug("Certificate algorithm: %s", sig_algo_str);
 			bool found;
 			foreach (sig; sigs[]) {
 				if (sig == sig_algo_str) {
@@ -806,10 +821,14 @@ public:
 
 	void addTrustedCertificate(ubyte[] cert)
 	{
-		auto store = new CertificateStoreInMemory;
 		Vector!ubyte cert_vec = Vector!ubyte(cert);
-		store.addCertificate(X509Certificate(cert_vec));
-		m_stores.pushBack(store);
+        if (m_stores.length == 0) {
+            auto store = new CertificateStoreInMemory;
+            store.addCertificate(X509Certificate(cert_vec));
+		    m_stores.pushBack(store);
+        }
+        else 
+            (cast(CertificateStoreInMemory)m_stores[0]).addCertificate(X509Certificate(cert_vec));
 		return;
 	}
 
@@ -910,7 +929,13 @@ public:
 	{
 		return m_key;
 	}
-	
+
+    /// In TLSClient, identifies this machine with the server
+    override PrivateKey channelPrivateKey(string hostname)
+    {
+        return m_cpk_del(hostname);
+    }
+    
 	// Interface fallthrough	
 	override Vector!X509Certificate certChainSingleType(in string cert_key_type,
 		in string type,
@@ -955,6 +980,7 @@ public:
 public:
 	X509Certificate m_server_cert, m_ca_cert;
 	PrivateKey m_key;
+    PrivateKey delegate(string) m_cpk_del;
 	Vector!CertificateStore m_stores;
 
 private:

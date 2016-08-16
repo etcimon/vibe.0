@@ -2012,7 +2012,7 @@ private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
 		}
 	}
 }
-
+import std.string : toLower;
 /// private
 private string jsonUnescape(R)(ref R range)
 {
@@ -2025,7 +2025,7 @@ private string jsonUnescape(R)(ref R range)
 				range.popFront();
 				enforceJson(!range.empty, "Unterminated string escape sequence.");
 				switch(range.front){
-					default: enforceJson(false, "Invalid string escape sequence."); break;
+					default: enforceJson(false, "Invalid string escape sequence after: " ~ ret.data); break;
 					case '"': ret.put('\"'); range.popFront(); break;
 					case '\\': ret.put('\\'); range.popFront(); break;
 					case '/': ret.put('/'); range.popFront(); break;
@@ -2034,6 +2034,9 @@ private string jsonUnescape(R)(ref R range)
 					case 'n': ret.put('\n'); range.popFront(); break;
 					case 'r': ret.put('\r'); range.popFront(); break;
 					case 't': ret.put('\t'); range.popFront(); break;
+                    case 'U': // todo UTF-32
+                        foreach (i; 0 .. 9) range.popFront();
+                        break;
 					case 'u':
 
 						dchar decode_unicode_escape() {

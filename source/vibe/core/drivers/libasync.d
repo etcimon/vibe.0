@@ -43,6 +43,9 @@ private __gshared EventLoop gs_evLoop;
 private EventLoop s_evLoop;
 private DriverCore s_driverCore;
 
+static if (__VERSION__ >= 2071)
+    extern (C) bool gc_inFinalizer();
+
 version(Windows) extern(C) {
 	FILE* _wfopen(const(wchar)* filename, in wchar* mode);
 	int _wchmod(in wchar*, int);
@@ -397,7 +400,9 @@ final class LibasyncDriver : EventDriver {
 	void acquireTimer(size_t timer_id) { m_timers.getUserData(timer_id).refCount++; }
 	void releaseTimer(size_t timer_id)
 	{
-		assert(m_ownerThread is Thread.getThis());
+
+        static if (__VERSION__ >= 2071)
+    		assert(gc_inFinalizer() || m_ownerThread is Thread.getThis());
 		logTrace("Releasing timer %s", timer_id);
 		if (!--m_timers.getUserData(timer_id).refCount) {
 			m_timers.destroy(timer_id);
@@ -408,7 +413,8 @@ final class LibasyncDriver : EventDriver {
 	
 	void rearmTimer(size_t timer_id, Duration dur, bool periodic)
 	{
-		assert(m_ownerThread is Thread.getThis());
+        static if (__VERSION__ >= 2071)
+    		assert(gc_inFinalizer() || m_ownerThread is Thread.getThis());
 		if (!isTimerPending(timer_id)) acquireTimer(timer_id);
 		m_timers.schedule(timer_id, dur, periodic);
 		rescheduleTimerEvent(Clock.currTime(UTC()));
@@ -427,7 +433,8 @@ final class LibasyncDriver : EventDriver {
 	{
 		mixin(Trace);
 		logTrace("Waiting for timer in %s", Task.getThis());
-		assert(m_ownerThread is Thread.getThis());
+        static if (__VERSION__ >= 2071)
+            assert(gc_inFinalizer() || m_ownerThread is Thread.getThis());
 		while (true) {
 			assert(!m_timers.isPeriodic(timer_id), "Cannot wait for a periodic timer.");
 			if (!m_timers.isPending(timer_id)) {
@@ -1297,13 +1304,15 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	private @property bool readEmpty() {
 		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
 	}
-	
+
+    private string m_peer_addr;
+
 	@property string peerAddress() const { 
 		enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
-		static string peer_addr;
-		if (!peer_addr)
-			peer_addr = m_tcpImpl.conn.peer.toString();
-		return peer_addr;
+		
+        if (!m_peer_addr)
+            m_peer_addr = m_tcpImpl.conn.peer.toString();
+        return m_peer_addr;
 	}
 
 	@property NetworkAddress localAddress() const { return m_tcpImpl.localAddr; }

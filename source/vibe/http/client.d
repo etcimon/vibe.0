@@ -39,6 +39,8 @@ import std.string;
 import std.typecons;
 import std.datetime;
 
+static if (__VERSION__ >= 2071)
+    extern (C) bool gc_inFinalizer();
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -245,6 +247,8 @@ class HTTPClientSettings {
 		/// Settings sent through protocol
 		/// fixme: Make this private and use properties?
 		HTTP2Settings settings;
+		/// ALPN Suggestions
+		string[] alpn = ["h2", "h2-14", "h2-16", "spdy/3.1", "http/1.1"];
 	} HTTP2 http2;
 
 	/// Custom TLS context for this client
@@ -303,8 +307,10 @@ final class HTTPClient {
 
 	/*shared*/ ~this() {
 		// fixme: will be called from the GC, ie. from any thread
-		if (master)
+		if (master) {
 			disconnect(false, "dtor", true);
+
+        }
 		else if (!master && m_http2Context) {
 			disconnect(true, "dtor", true);
 		}
@@ -349,6 +355,7 @@ final class HTTPClient {
 		m_conn = new HTTPClientConnection();
 		m_conn.server = server;
 		m_conn.port = port;
+        m_state.master = true;
 		if (use_tls)
 			setupTLS();
 
@@ -376,7 +383,7 @@ final class HTTPClient {
 			if (m_settings.http2.disable)
 				m_conn.tlsContext.setClientALPN(["http/1.1"]);
 			else
-				m_conn.tlsContext.setClientALPN(["h2", "h2-14", "h2-16", "http/1.1"]);
+				m_conn.tlsContext.setClientALPN(m_settings.http2.alpn);
 		}
 
 	}
@@ -431,6 +438,9 @@ final class HTTPClient {
 					if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
 						if (m_conn.tcp) m_conn.tcp.close();
 						m_conn.tcp = null;
+						import vibe.stream.botan : BotanTLSStream;
+						if (auto botan_stream = cast(BotanTLSStream)m_conn.tlsStream)
+							botan_stream.processException();
 					}
 					else try {
 						if (m_settings.http2.pingInterval != Duration.zero) {
@@ -507,6 +517,7 @@ final class HTTPClient {
 			}
 		}
 		m_conn.tcp = null;
+        m_conn.tlsStream.destroy();
 		m_conn.tlsStream = null;
 		m_state.http2Stream = null;
 
@@ -519,13 +530,13 @@ final class HTTPClient {
 	*/
 	void disconnect(bool rst_stream = true, string reason = "", bool notify = false)
 	{
-
-		mixin(Trace);
+        mixin(Trace);
 		m_state.responding = false;
-		if (!m_conn) return;
+		if (!m_conn || !m_conn.tcp) return;
 		m_conn.totRequest = 0;
 		m_conn.maxRequests = int.max;
-
+        if (!rst_stream && master) 
+            m_conn.keepAliveTimeout = Duration.zero;
 		if (isHTTP2Started && !rst_stream && !m_http2Context.closing) {
 			if (m_http2Context.pinger !is Timer.init && m_http2Context.pinger.pending)
 				m_http2Context.pinger.stop();
@@ -582,7 +593,6 @@ final class HTTPClient {
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
 		mixin(Trace);
-
 		validateConnection();
 		do {
 			bool keepalive;
@@ -1256,8 +1266,8 @@ final class HTTPClientResponse : HTTPResponse {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
 			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
-			enforceEx!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
-			import std.algorithm : canFind;
+            enforceEx!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
+            import std.algorithm : canFind;
 			enforceEx!ConnectionClosedException(client.topStream !is null, "Response stream not active");
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')
@@ -1514,6 +1524,7 @@ final class HTTPClientResponse : HTTPResponse {
 	*/
 	void dropBody()
 	{
+
 		if( !m_finalized && m_client ){
 			if( bodyReader.empty ){
 				finalize();
@@ -1589,6 +1600,16 @@ class HTTPClientConnection {
 	Duration nextTimeout; //keepalive
 	int totRequest;
 	int maxRequests = int.max;
+
+    ~this() {
+        keepAliveTimeout = Duration.zero;
+        if (tlsStream && tlsStream.connected) {
+            tlsStream.notifyClose();
+            tlsStream.destroy();
+        }
+        if (tcp && tcp.connected)
+            tcp.close();
+    }
 
 	void rearmKeepAlive() {
 		if (keepAlive is Timer.init) {

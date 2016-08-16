@@ -534,6 +534,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		void cookieSinkIndividually(string[] cookies) {
 			foreach (c; cookies) {
+                if (c.length == 0) continue;
 				char[] cookie = Mem.alloc!(char[])(c.length);
 				cookie[] = cast(char[])c[];
 				cookie_arr ~= cookie;

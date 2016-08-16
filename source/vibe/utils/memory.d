@@ -68,6 +68,7 @@ string copy(string str, Allocator allocator) {
 
 T[] allocArray(T, bool MANAGED = true)(Allocator allocator, size_t n)
 {
+    static if (!MANAGED) pragma(inline, true);
 	auto mem = allocator.alloc(T.sizeof * n);
 	auto ret = cast(T[])mem;
 	static if( MANAGED ){
@@ -85,6 +86,7 @@ T[] allocArray(T, bool MANAGED = true)(Allocator allocator, size_t n)
 
 void freeArray(T, bool MANAGED = true)(Allocator allocator, ref T[] array, bool call_destructors = true)
 {
+    static if (!MANAGED) pragma(inline, true);
 	static if (MANAGED) {
 		static if (hasIndirections!T)
 			GC.removeRange(array.ptr);
