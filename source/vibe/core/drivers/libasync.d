@@ -1311,7 +1311,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
 		
         if (!m_peer_addr)
-            m_peer_addr = m_tcpImpl.conn.peer.toString();
+            (cast()this).m_peer_addr = m_tcpImpl.conn.peer.toString();
         return m_peer_addr;
 	}
 
