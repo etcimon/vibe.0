@@ -933,7 +933,9 @@ public:
     /// In TLSClient, identifies this machine with the server
     override PrivateKey channelPrivateKey(string hostname)
     {
-        return m_cpk_del(hostname);
+        if (m_cpk_del)
+            return m_cpk_del(hostname);
+        return super.channelPrivateKey(hostname);
     }
     
 	// Interface fallthrough	
