@@ -306,6 +306,7 @@ final class HTTPClient {
 	}
 
 	/*shared*/ ~this() {
+		if (g_exiting) return;
 		// fixme: will be called from the GC, ie. from any thread
 		if (master) {
 			disconnect(false, "dtor", true);
@@ -594,6 +595,7 @@ final class HTTPClient {
 	{
 		mixin(Trace);
 		validateConnection();
+
 		do {
 			bool keepalive;
 			HTTPMethod req_method;
@@ -645,7 +647,7 @@ private:
 			connect();
 		}
 		else if (!m_conn.tcp || !m_conn.tcp.connected) {
-			logDebug("TCP noto connected");
+			logDebug("TCP not connected");
 			connect();
 		}
 		else if (++m_conn.totRequest >= m_conn.maxRequests)
@@ -1602,6 +1604,7 @@ class HTTPClientConnection {
 	int maxRequests = int.max;
 
     ~this() {
+		if (g_exiting) return;
         keepAliveTimeout = Duration.zero;
         if (tlsStream && tlsStream.connected) {
             tlsStream.notifyClose();
@@ -1618,7 +1621,7 @@ class HTTPClientConnection {
 		}
 		if (nextTimeout == Duration.zero) {
 			logTrace("NextTimeout is zero");
-			if (keepAlive.pending) {
+			if ((cast(bool)keepAlive) && keepAlive.pending) {
 				logTrace("Stopped timer");
 				keepAlive.stop();
 			}
@@ -1641,7 +1644,7 @@ class HTTPClientConnection {
 		}
 		if (Duration.zero == timeout) {
 			logTrace("Got zero keep-alive timeout");
-			if (keepAlive.pending) {
+			if ((cast(bool)keepAlive) && keepAlive.pending) {
 				logTrace("Stop keep-alive");
 				keepAlive.stop();
 			}
@@ -1654,6 +1657,11 @@ class HTTPClientConnection {
 
 
 } 
+
+__gshared bool g_exiting;
+shared static ~this() {
+	g_exiting = true;
+}
 
 class HTTP2ClientContext {
 	int refcnt;

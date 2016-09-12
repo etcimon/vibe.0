@@ -122,8 +122,6 @@ final class LibasyncDriver : EventDriver {
 
 		m_exitSignal = new shared AsyncSignal(getEventLoop());
 		m_exitSignal.run({
-				import std.stdio : writeln;
-				writeln("Got exit signal");
 				m_break = true;
 			});
 
@@ -409,7 +407,7 @@ final class LibasyncDriver : EventDriver {
 		}
 	}
 	
-	bool isTimerPending(size_t timer_id) nothrow { return m_timers.isPending(timer_id); }
+	bool isTimerPending(size_t timer_id) nothrow { return m_timerEvent !is null && m_timers.isPending(timer_id); }
 	
 	void rearmTimer(size_t timer_id, Duration dur, bool periodic)
 	{

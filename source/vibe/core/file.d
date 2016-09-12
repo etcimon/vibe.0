@@ -240,8 +240,7 @@ bool existsFile(Path path) nothrow
 bool existsFile(string path) nothrow
 {
 	// This was *annotated* nothrow in 2.067.
-	static if (__VERSION__ < 2067)
-		scope(failure) assert(0, "Error: existsFile should never throw");
+	scope(failure) assert(0, "Error: existsFile should never throw");
 	return std.file.exists(path);
 }
 
