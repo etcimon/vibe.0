@@ -391,6 +391,163 @@ public:
 
 }
 
+
+class MemoryCookieJar : CookieJar
+{
+private:
+	CookiePair[] m_cookies;
+	RecursiveTaskMutex m_writeLock;
+public:
+	void get(string host, string path, bool secure, void delegate(string) send_to) const
+	{
+		logTrace("Get cookies (concat) for host: %s path: %s secure: %s", host, path, secure);
+		import std.array : Appender;
+		StrictCookieSearch search = StrictCookieSearch("*", host, path, secure);
+		Appender!string app;
+		app.reserve(128);
+		bool flag;
+		
+		auto ret = readCookies( (CookiePair cookie) {
+				if (search.match(cookie)) {
+					//logDebug("Search matched cookie: %s", cookie.name);
+					if (flag) {
+						app ~= "; ";
+					}
+					else flag = true;
+					app ~= cookie.name;
+					app ~= '=';
+					app ~= cookie.value.value;
+				}
+				return false;
+			});
+		assert(ret.length == 0);
+		// the data will be copied upon being received through the callback
+		send_to(app.data);
+		
+	}
+	
+	void get(string host, string path, bool secure, void delegate(string[]) send_to) const
+	{
+		logTrace("Get cookies for host: %s path: %s secure: %s", host, path, secure);
+		import std.array : Appender;
+		StrictCookieSearch search = StrictCookieSearch("*", host, path, secure);
+		Appender!(string[]) app;
+		scope(exit) {
+			foreach (ref string kv; app.data)
+			{
+				freeArray(defaultAllocator(), kv);
+			}
+		}
+		
+		auto ret = readCookies( (CookiePair cookie) {
+				if (search.match(cookie)) {
+					//logDebug("Search matched cookie: %s", cookie.name);
+					char[] kv = allocArray!char(defaultAllocator(), cookie.name.length + 1 + cookie.value.value.length);
+					kv[0 .. cookie.name.length] = cookie.name[];
+					kv[cookie.name.length] = '=';
+					kv[cookie.name.length + 1 .. $] = cookie.value.value[];
+					app ~= cast(string) kv;
+				}
+				return false;
+			});
+		assert(ret.length == 0);
+		
+		send_to(app.data);
+	}
+	
+	/// Sets the cookies using the provided Set-Cookie: header value entry
+	void set(string host, string set_cookie)
+	{
+		m_writeLock.lock();
+		scope(exit) m_writeLock.unlock();
+		auto cookie_local = FreeListObjectAlloc!Cookie.alloc();
+		scope(exit) FreeListObjectAlloc!Cookie.free(cookie_local);
+		parseSetCookieString(set_cookie, cookie_local, (CookiePair cookie) {
+				if (cookie.value.domain is null || cookie.value.domain == "")
+					cookie.value.domain = host;
+				setCookie(cookie.name, cookie.value);
+			});
+	}
+	
+	this(Path path)
+	{
+		m_writeLock = new RecursiveTaskMutex();
+				
+		cleanup();
+		//logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
+	}
+		
+	this(string path)
+	{
+		version(Posix)
+			if (!path.canFind('/') || path.startsWith("./"))
+				path = getcwd() ~ "/" ~ path;
+		
+		this(Path(path));
+	}
+	
+	CookiePair[] find(string domain = "*", string name = "*", string path = "/", bool secure = false, bool http_only = false)
+	{
+		StrictCookieSearch search = StrictCookieSearch(name, domain, path, secure, http_only);
+		return readCookies(&search.match);
+	}
+	
+	void setCookie(string name, Cookie cookie)
+	{
+		m_cookies ~= CookiePair(name, cookie);
+	}
+	
+	void remove(string domain = "*", string name = "*", string path = "/", bool secure = false, bool http_only = false)
+	{
+		m_writeLock.lock();
+		scope(exit) m_writeLock.unlock();
+		StrictCookieSearch search = StrictCookieSearch(name, domain, path, secure, http_only);
+		return removeCookies(&search.match);
+	}
+	
+	void clearSession()
+	{
+		m_writeLock.lock();
+		scope(exit) m_writeLock.unlock();
+		removeCookies( (CookiePair cookie) { return parseCookieDate(cookie.value.expires) == epoch_parsed; } );
+	}
+	
+	void cleanup()
+	{
+		m_writeLock.lock();
+		scope(exit) m_writeLock.unlock();
+		StrictCookieSearch search;
+		search.expires = Clock.currTime(UTC()).toRFC822DateTimeString(); // find cookies with expiration before now, excluding session cookies
+		removeCookies( &search.match );
+	}
+	
+	// read cookies from the file, allocating on the GC only for the selection
+	CookiePair[] readCookies(bool delegate(CookiePair) predicate) const {
+		import std.array : Appender;
+		Appender!(CookiePair[]) cookies;
+		cookies.reserve(8);
+		foreach (cookie_pair; m_cookies)
+			if (predicate(cast()cookie_pair))
+				cookies ~= cast()cookie_pair;
+		
+		return cookies.data;
+	}
+	
+	// removes cookies by skipping those that test true for specified predicate
+	void removeCookies(bool delegate(CookiePair) predicate) {
+		import std.array : Appender;
+		Appender!(CookiePair[]) cookies;
+		cookies.reserve(m_cookies.length);
+		foreach (cookie_pair; m_cookies) {
+			if (predicate(cookie_pair))
+				cookies ~= cookie_pair;
+		}
+		m_cookies = cookies.data;
+	}
+	
+}
+
+
 struct StrictCookieSearch
 {
 	string name = "*";

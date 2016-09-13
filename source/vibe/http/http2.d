@@ -514,6 +514,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	}
 
 	/// Queue client request headers, sent when requesting data from a server. The session must be opened as a client.
+	/// Note: You can override the cookie jar by adding a cookie header
 	void writeHeader(in string path, in string scheme, in HTTPMethod method, const ref InetHeaderMap header, in CookieStore cookie_jar, bool concatenate_cookies)
 	in { enforce(m_session); assert(!m_session.isServer); }
 	body {
@@ -549,7 +550,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		if (!authority)
 			throw new Exception("Cannot write headers, Host was not present");
 
-		if (cookie_jar) {
+		if (cookie_jar && "Cookie" !in header) {
 			if (concatenate_cookies)
 				cookie_jar.get(authority, path, scheme == "https", &cookieSinkConcatenate);
 			else
@@ -580,21 +581,34 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				Mem.free(cookie_concat);
 				cookie_concat = cookie_tmp;
 			} else if (icmp2(name, "Cookie") == 0) {
+				import std.string : strip, indexOf;
+				import std.algorithm : splitter;
 				if (value.length > 0) {
-					char[] cookie_val = Mem.alloc!(char[])(value.length);
-					cookie_val[] = cast(char[]) value;
-					cookie_arr ~= cookie_val;
-					headers ~= HeaderField("Cookie", cast(string) cookie_val);	
+					if (value.indexOf("; ") != -1 && !cookie_concat) {
+						foreach (cval_; value.splitter("; ")) {
+							auto cval = cval_.strip();
+							char[] cookie_val = Mem.alloc!(char[])(cval.length);
+							cookie_val[] = cast(char[]) cval;
+							headers ~= HeaderField("Cookie", cast(string) cookie_val);
+						}
+					}
+					else {
+						char[] cookie_val = Mem.alloc!(char[])(value.length);
+						cookie_val[] = cast(char[]) value;
+						vibe.core.log.logError("Got cookie: %s", cast(string)cookie_val);
+						headers ~= HeaderField("Cookie", cast(string) cookie_val);
+					}
+					wrote_cookie = true;
 				} 
 			}
 			else headers ~= HeaderField(name, value);
 		}
 
 		// write cookies, individually by default to use indexing
-		if (cookie_jar) {
+		if (cookie_jar && !wrote_cookie) {
 			if (concatenate_cookies)
 				headers ~= HeaderField("Cookie", cast(string) cookie_concat);
-			else if (!wrote_cookie) foreach (char[] cookie; cookie_arr[])
+			else foreach (char[] cookie; cookie_arr[])
 				headers ~= HeaderField("Cookie", cast(string) cookie);
 		}
 

@@ -2112,8 +2112,15 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		// cookie parsing if desired
 		if (context.settings.options & HTTPServerOption.parseCookies) {
-			auto pv = "cookie" in req.headers;
-			if (pv) parseCookies(*pv, req.cookies);
+			if (req.httpVersion == HTTPVersion.HTTP_2)
+			{
+				req.headers.getAll("cookie", (const string cookie) {
+						parseCookies(cookie, req.cookies);
+					});
+			} else {
+				auto pv = "cookie" in req.headers;
+				if (pv) parseCookies(*pv, req.cookies);
+			}
 		}
 		
 		// lookup the session
