@@ -595,7 +595,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 					else {
 						char[] cookie_val = Mem.alloc!(char[])(value.length);
 						cookie_val[] = cast(char[]) value;
-						vibe.core.log.logError("Got cookie: %s", cast(string)cookie_val);
 						headers ~= HeaderField("Cookie", cast(string) cookie_val);
 					}
 					wrote_cookie = true;

@@ -238,7 +238,9 @@ string Trace(string info = null) {
 /// Use this everywhere possible, it doesn't slow down the program when you are not capturing. 
 string OnCapture(string keyword, string mixins)() {
 	version(VibeNoDebug) {
-		return "";
+		version(VibeRequestDebugger)
+			return "import vibe.core.log: logInfo;logInfo(`%s: %s`, `" ~ keyword ~ "`, " ~ mixins ~ ");";
+		else return "";
 	} else
 		return "pushCaptured(`" ~ keyword ~ "`, " ~ mixins ~ ");";
 }

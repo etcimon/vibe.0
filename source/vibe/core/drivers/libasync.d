@@ -423,7 +423,6 @@ final class LibasyncDriver : EventDriver {
 		logTrace("Stopping timer %s", timer_id);
 		if (m_timers.isPending(timer_id)) {
 			m_timers.unschedule(timer_id);
-			releaseTimer(timer_id);
 		}
 	}
 	

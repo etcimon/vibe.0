@@ -116,93 +116,52 @@ unittest {
 /// Usage example is to limit concurrent connections in a connection pool
 class LocalTaskSemaphore
 {
-	// requires a queue
-	import std.container.binaryheap;
-	import std.container.array;
+	import memutils.vector;
 	import vibe.utils.memory;
-
-	struct Waiter {
-		ManualEvent signal;
-		ubyte priority;
-		uint seq;
-	}
-
-	BinaryHeap!(Array!Waiter, asc) m_waiters;
+		
+	Vector!ManualEvent m_waiters;
 	uint m_maxLocks;
 	uint m_locks;
-	uint m_seq;
-
+	
 	@property void maxLocks(uint max_locks) { m_maxLocks = max_locks; }
 	@property uint maxLocks() const { return m_maxLocks; }
 	@property uint available() const { return m_maxLocks - m_locks; }
-
-	this(uint max_locks) 
-	{ 
+	
+	this(uint max_locks)
+	{
 		m_maxLocks = max_locks;
 	}
 
+
 	bool tryLock()
 	{
-		if (available > 0) 
+		if (available > 0)
 		{
-			m_locks++; 
+			m_locks++;
 			return true;
 		}
 		return false;
 	}
-
+	
 	void lock()
-	{ 
+	{
 		if (tryLock())
 			return;
-
-		Waiter w;
-		w.signal = getEventDriver().createManualEvent();
-		w.priority = Task.getThis().priority;
-		w.seq = min(0, m_seq - w.priority);
-		if (++m_seq == uint.max)
-			rewindSeq();
-
-		m_waiters.insert(w);
-		do w.signal.wait(); while (!tryLock());
+		
+		ManualEvent s = getEventDriver().createManualEvent();		
+		m_waiters.insert(s);
+		s.wait();
 		// on resume:
-		destroy(w.signal);
+		//destroy(s);
 	}
-
-	void unlock() 
+	
+	void unlock()
 	{
-		m_locks--;
-		if (m_waiters.length > 0 && available > 0) {
-			Waiter w = m_waiters.front();
-			w.signal.emit(); // resume one
-			m_waiters.removeFront();
-		}
-	}
-
-	// if true, a goes after b. ie. b comes out front()
-	static bool asc(ref Waiter a, ref Waiter b) 
-	{
-		if (a.seq == b.seq) {
-			if (a.priority == b.priority) {
-				// resolve using the pointer address
-				return (cast(size_t)&a.signal) > (cast(size_t) &b.signal);
-			}
-			// resolve using priority
-			return a.priority < b.priority;
-		}
-		// resolve using seq number
-		return a.seq > b.seq;
-	}
-
-	void rewindSeq() {
-		Array!Waiter waiters = m_waiters.release();
-		ushort min_seq;
-		import std.algorithm : min;
-		foreach (ref waiter; waiters[])
-			min_seq = min(waiter.seq, min_seq);
-		foreach (ref waiter; waiters[])
-			waiter.seq -= min_seq;
-		m_waiters.assume(waiters);
+		if (m_waiters.length > 0) {
+			ManualEvent s = m_waiters.back();
+			m_waiters.removeBack();
+			s.emit(); // resume one
+		} else m_locks--;
 	}
 }
 

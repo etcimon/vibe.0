@@ -395,11 +395,15 @@ private void serializeImpl(Serializer, alias Policy, T, ATTRIBUTES...)(ref Seria
 				alias TM = TypeTuple!(typeof(__traits(getMember, value, mname)));
 				static if (TM.length == 1) {
 					alias TA = TypeTuple!(__traits(getAttributes, __traits(getMember, T, mname)));
+	
 					enum name = getAttribute!(TU, mname, NameAttribute)(NameAttribute(underscoreStrip(mname))).name;
 					auto vt = __traits(getMember, value, mname);
+					static if (hasAttributeL!(OptionalAttribute, TA))
+						if (vt == typeof(vt).init) continue;
 					serializer.beginWriteDictionaryEntry!(typeof(vt))(name);
 					serializeImpl!(Serializer, Policy, typeof(vt), TA)(serializer, vt);
 					serializer.endWriteDictionaryEntry!(typeof(vt))(name);
+
 				} else {
 					alias TA = TypeTuple!(); // FIXME: support attributes for tuples somehow
 					enum name = underscoreStrip(mname);
