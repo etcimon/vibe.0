@@ -423,6 +423,7 @@ final class LibasyncDriver : EventDriver {
 		logTrace("Stopping timer %s", timer_id);
 		if (m_timers.isPending(timer_id)) {
 			m_timers.unschedule(timer_id);
+			releaseTimer(timer_id);
 		}
 	}
 	
@@ -817,7 +818,10 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 		auto tm = getEventDriver().createTimer(null);
 		getEventDriver().m_timers.getUserData(tm).owner = Task.getThis();
 		getEventDriver().rearmTimer(tm, timeout, false);
-
+		scope(exit) {
+			getEventDriver().stopTimer(tm);
+			getEventDriver().releaseTimer(tm);
+		}
 		while (m_changes.empty) {
 			getDriverCore().yieldForEvent();
 			if (!getEventDriver().isTimerPending(tm)) break;
@@ -943,9 +947,9 @@ final class LibasyncManualEvent : ManualEvent {
 		else m_owner = Thread.getThis();
 
 		auto tm = getEventDriver().createTimer(null);
-		scope (exit) getEventDriver().releaseTimer(tm);
 		getEventDriver().m_timers.getUserData(tm).owner = Task.getThis();
 		getEventDriver().rearmTimer(tm, timeout, false);
+		scope (exit) getEventDriver().releaseTimer(tm);
 
 		m_localWaiters.insertBack(Task.getThis());
 		getDriverCore().yieldForEvent();
@@ -2295,12 +2299,11 @@ final class LibasyncUDPConnection : UDPConnection {
 	
 	ubyte[] recv(Duration timeout, ubyte[] buf = null, NetworkAddress* peer_address = null)
 	{
-		size_t tm;
+		size_t tm = size_t.max;
 		auto m_driver = getEventDriver();
 		if (timeout != Duration.max && timeout > 0.seconds) {
 			tm = m_driver.createTimer(null);
 			m_driver.rearmTimer(tm, timeout, false);
-			m_driver.acquireTimer(tm);
 		}
 		
 		acquire();
