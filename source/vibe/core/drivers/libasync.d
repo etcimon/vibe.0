@@ -1220,8 +1220,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		}
 
 		if (m_readBuffer.length > 0)
-		{			
-			size_t amt = min(buffer.length, m_readBuffer.length);			
+		{
+			size_t amt = min(buffer.length, m_readBuffer.length);	
 			m_readBuffer.read(buffer[0 .. amt]);
 			logTrace("readBuf returned with existing amount: %d", amt);
 			m_bytesRecv += amt;
@@ -1337,6 +1337,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		logTrace("leastSize TCP");
 		acquireReader();
 		scope(exit) releaseReader();
+
+		if (m_mustRecv)
+			onRead();
 
 		while( readEmpty ){
 			if (!connected) {
