@@ -118,15 +118,15 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 				import std.format : formattedWrite, FormatException;
 				
 				Sink sink;
-				import memutils.utils;
-				char[] buf = ThreadMem.alloc!(char[])(1024*1024);
-				scope(exit) ThreadMem.free(buf);
+				import core.stdc.stdlib : malloc, free;
+				char[] buf = (cast(char*)malloc(1024*1024))[0 .. 1024*1024];
+				scope(exit) free(buf.ptr);
 				sink.buf = buf[];
 				uint n;
 				try n = formattedWrite(&sink, fmt, args);
 				catch (Exception e) {
-				writeln(e);
-			}
+					// writeln(e)
+				}
 				rawLog(/*mod, func,*/ file, line, level, cast(string)buf[0 .. sink.i]);
 
 				break;

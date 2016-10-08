@@ -460,30 +460,19 @@ public:
 	{
 		m_writeLock.lock();
 		scope(exit) m_writeLock.unlock();
-		auto cookie_local = FreeListObjectAlloc!Cookie.alloc();
-		scope(exit) FreeListObjectAlloc!Cookie.free(cookie_local);
-		parseSetCookieString(set_cookie, cookie_local, (CookiePair cookie) {
+		auto cookie_ref = new Cookie;
+		parseSetCookieString(set_cookie.idup, cookie_ref, (CookiePair cookie) {
 				if (cookie.value.domain is null || cookie.value.domain == "")
 					cookie.value.domain = host;
 				setCookie(cookie.name, cookie.value);
 			});
 	}
 	
-	this(Path path)
+	this()
 	{
 		m_writeLock = new RecursiveTaskMutex();
 				
 		cleanup();
-		//logDebug("Using cookie jar on file: %s", m_filePath.toNativeString());
-	}
-		
-	this(string path)
-	{
-		version(Posix)
-			if (!path.canFind('/') || path.startsWith("./"))
-				path = getcwd() ~ "/" ~ path;
-		
-		this(Path(path));
 	}
 	
 	CookiePair[] find(string domain = "*", string name = "*", string path = "/", bool secure = false, bool http_only = false)
@@ -494,7 +483,8 @@ public:
 	
 	void setCookie(string name, Cookie cookie)
 	{
-		m_cookies ~= CookiePair(name, cookie);
+		if (cookie !is null)
+			m_cookies ~= CookiePair(name, cookie);
 	}
 	
 	void remove(string domain = "*", string name = "*", string path = "/", bool secure = false, bool http_only = false)
@@ -526,9 +516,11 @@ public:
 		import std.array : Appender;
 		Appender!(CookiePair[]) cookies;
 		cookies.reserve(8);
-		foreach (cookie_pair; m_cookies)
-			if (predicate(cast()cookie_pair))
+		foreach (cookie_pair; m_cookies) {
+			if (predicate(cast()cookie_pair)) {
 				cookies ~= cast()cookie_pair;
+			}
+		}
 		
 		return cookies.data;
 	}
@@ -539,7 +531,7 @@ public:
 		Appender!(CookiePair[]) cookies;
 		cookies.reserve(m_cookies.length);
 		foreach (cookie_pair; m_cookies) {
-			if (predicate(cookie_pair))
+			if (!predicate(cookie_pair))
 				cookies ~= cookie_pair;
 		}
 		m_cookies = cookies.data;

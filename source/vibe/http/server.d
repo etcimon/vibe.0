@@ -1730,7 +1730,8 @@ class HTTP2HandlerContext
 		bool keep_alive = false;
 		HTTP2HandlerContext h2ctx = this;
 		enforce(context !is null);
-		.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, h2ctx, keep_alive);
+		if (stream !is null)
+			.handleRequest(tcpConn, tlsStream, stream, listenInfo, listenInfo.vhosts > 0, context, h2ctx, keep_alive);
 	}
 }
 

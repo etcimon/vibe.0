@@ -333,18 +333,18 @@ private:
 
 	ubyte[] onRead(ubyte[] buf) 
 	{
+		import vibe.core.log : logError;
 		import std.datetime : seconds;
 		mixin(STrace);
 		ubyte[] ret;
 		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
 			enforceEx!TimeoutException(m_tcp_conn.waitForData(30.seconds), "Handshake could not be handled");
+		size_t len = std.algorithm.min(m_tcp_conn.leastSize(), buf.length);
+		if (len == 0) return null;
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
 			ret = buffered.readBuf(buf);
 			return ret;
 		}
-		
-		size_t len = std.algorithm.min(m_tcp_conn.leastSize(), buf.length);
-		if (len == 0) return null;
 		m_reader = Task.getThis();
 		scope(exit) m_reader = Task();
 		m_tcp_conn.read(buf[0 .. len]);
