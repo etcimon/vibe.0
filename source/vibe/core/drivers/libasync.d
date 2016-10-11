@@ -887,16 +887,14 @@ final class LibasyncManualEvent : ManualEvent {
 	private {
 		shared(int) m_emitCount = 0;
 		shared(int) m_threadCount = 0;
-		long m_spacing;
-		shared(size_t) m_instance;
-		long m_spacing2;
+		shared(uint) m_instance;
 		Vector!(void*, Malloc) ms_signals;
 		Vector!(Task, Malloc) m_localWaiters;
 		Thread m_owner;
 		core.sync.mutex.Mutex m_mutex;
 		
-		@property size_t instanceID() { return atomicLoad(m_instance); }
-		@property void instanceID(size_t instance) { atomicStore(m_instance, instance); }
+		@property uint instanceID() { return atomicLoad(m_instance); }
+		@property void instanceID(uint instance) { atomicStore(m_instance, instance); }
 	}
 
 	this(LibasyncDriver driver)
@@ -984,7 +982,7 @@ final class LibasyncManualEvent : ManualEvent {
 		auto task = Task.getThis();
 
 		bool signal_exists;
-		size_t instance = instanceID;
+		uint instance = instanceID;
 		if (s_eventWaiters.length <= instance) 
 			expandWaiters();
 
@@ -1006,7 +1004,7 @@ final class LibasyncManualEvent : ManualEvent {
 		assert(amOwner(), "Releasing non-acquired signal.");
 
 		import std.algorithm : countUntil;
-		size_t instance = instanceID;
+		uint instance = instanceID;
 		auto taskList = s_eventWaiters[instance][];
 		auto idx = taskList[].countUntil!((a, b) => a == b)(Task.getThis());
 		logTrace("Release event ID#%d", instance);
@@ -1023,7 +1021,7 @@ final class LibasyncManualEvent : ManualEvent {
 	bool amOwner()
 	{
 		import std.algorithm : countUntil;
-		size_t instance = instanceID;
+		uint instance = instanceID;
 		if (s_eventWaiters.length <= instance) return false;
 		auto taskList = s_eventWaiters[instance][];
 		if (taskList.length == 0) return false;
@@ -1090,7 +1088,7 @@ final class LibasyncManualEvent : ManualEvent {
 	}
 
 	private void expandWaiters() {
-		size_t maxID;
+		uint maxID;
 		synchronized(gs_mutex) maxID = gs_maxID;
 		s_eventWaiters.reserve(maxID);
 		logTrace("gs_maxID: %d", maxID);
@@ -1113,7 +1111,7 @@ final class LibasyncManualEvent : ManualEvent {
 		logTrace("Got signal in onSignal");
 		try {
 			auto core = getDriverCore();
-			size_t instance = instanceID;
+			uint instance = instanceID;
 			logTrace("Got context: %d", instance);
 			foreach (Task task; s_eventWaiters[instance][]) {
 				logTrace("Task Found");
@@ -2369,17 +2367,17 @@ final class LibasyncUDPConnection : UDPConnection {
 /* The following is used for LibasyncManualEvent */
 
 Vector!(memutils.vector.Array!(Task, ThreadMem), ThreadMem) s_eventWaiters; // Task list in the current thread per instance ID
-__gshared Vector!(size_t, Malloc) gs_availID;
-__gshared size_t gs_maxID;
+__gshared Vector!(uint, Malloc) gs_availID;
+__gshared uint gs_maxID;
 __gshared core.sync.mutex.Mutex gs_mutex;
 
-private size_t generateID() {
-	size_t idx;
+private uint generateID() {
+	uint idx;
 	import std.algorithm : max;
 	try {
-		size_t getIdx() {
+		uint getIdx() {
 			if (!gs_availID.empty) {
-				immutable size_t ret = gs_availID.back;
+				immutable uint ret = gs_availID.back;
 				gs_availID.removeBack();
 				return ret;
 			}
@@ -2402,7 +2400,7 @@ private size_t generateID() {
 	return idx;
 }
 
-void recycleID(size_t id) {
+void recycleID(uint id) {
 	try {
 		synchronized(gs_mutex) gs_availID ~= id;
 	}

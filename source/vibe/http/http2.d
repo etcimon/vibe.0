@@ -435,7 +435,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
+			version(X86_64)
+				enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
@@ -2420,10 +2421,10 @@ override:
 		return true;
 	}
 	
-	bool onInvalidFrame(in Frame frame, FrameError error_code)
+	bool onInvalidFrame(in Frame frame, FrameError error_code, string reason)
 	{
 		import vibe.core.log : logError;
-		logError("HTTP/2 onInvalidFrame: %s %s %s", error_code.to!string, frame.hd.type == 0x01 ? frame.headers.hfa[0].name ~ "=" ~ frame.headers.hfa[0].value : frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString());
+		logError("HTTP/2 onInvalidFrame: %s %s %s %s", error_code.to!string, frame.hd.type == 0x01 ? frame.headers.hfa[0].name ~ "=" ~ frame.headers.hfa[0].value : frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString(), reason);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 
 		if (error_code == FrameError.PROTOCOL_ERROR)
