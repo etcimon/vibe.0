@@ -883,6 +883,7 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 
 }
 
+align(8)
 final class LibasyncManualEvent : ManualEvent {
 	private {
 		shared(int) m_emitCount = 0;
@@ -893,8 +894,8 @@ final class LibasyncManualEvent : ManualEvent {
 		Thread m_owner;
 		core.sync.mutex.Mutex m_mutex;
 		
-		@property uint instanceID() { return atomicLoad(m_instance); }
-		@property void instanceID(uint instance) { atomicStore(m_instance, instance); }
+		@property uint instanceID() { synchronized(m_mutex) return m_instance; }
+		@property void instanceID(uint instance) { synchronized(m_mutex) m_instance = instance; }
 	}
 
 	this(LibasyncDriver driver)

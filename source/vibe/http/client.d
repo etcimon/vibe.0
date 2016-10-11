@@ -441,7 +441,14 @@ final class HTTPClient {
 						m_conn.tcp = null;
 						import vibe.stream.botan : BotanTLSStream;
 						if (auto botan_stream = cast(BotanTLSStream)m_conn.tlsStream)
-							botan_stream.processException();
+						{
+							try botan_stream.processException();
+							catch (TimeoutException t) {
+								logTrace("TimeoutException");
+								continue;
+							}
+						}
+
 					}
 					else try {
 						if (m_settings.http2.pingInterval != Duration.zero) {
@@ -479,7 +486,7 @@ final class HTTPClient {
 					}
 				}
 			}
-			while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 2);
+			while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 3);
 		}
 		enforce(m_conn.tcp !is null, "Connection failed");
 	}

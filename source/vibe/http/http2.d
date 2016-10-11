@@ -423,7 +423,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		acquireReader();
 		scope(exit) releaseReader();
 
-		SysTime ref_time = Clock.currTime();
+		SysTime ref_time = Clock.currTime(UTC());
 		while (!m_active)
 		{
 			enforceEx!ConnectionClosedException(connected);
@@ -435,8 +435,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			version(X86_64)
-				enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
+			enforceEx!TimeoutException((Clock.currTime(UTC()) - ref_time) < 20.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
