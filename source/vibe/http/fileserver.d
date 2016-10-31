@@ -165,7 +165,7 @@ class HTTPFileServerSettings {
 	}
 
 	deprecated("Use .options and HTTPFileServerOption.failIfNotFound instead.")
-	@property bool failIfNotFound() const { return options & HTTPFileServerOption.failIfNotFound; }
+	@property bool failIfNotFound() const { return (options & HTTPFileServerOption.failIfNotFound) == HTTPFileServerOption.failIfNotFound; }
 
 	deprecated("Use .options and HTTPFileServerOption.failIfNotFound instead.")
 	@property void failIfNotFound(bool val) {

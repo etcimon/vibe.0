@@ -1039,7 +1039,7 @@ public:
 	override Vector!string allowedCiphers() const
 	{
 		return Vector!string([
-				"SEED"
+				"SEED",
 				"3DES",
 				"RC4"
 			]);
