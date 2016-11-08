@@ -9,6 +9,7 @@
 */
 module vibe.db.redis.idioms;
 
+import std.datetime;
 import vibe.db.redis.redis;
 import vibe.db.redis.types;
 

@@ -42,6 +42,7 @@ import std.conv : to;
 import std.exception;
 import std.format;
 import std.algorithm;
+static import vibe.core.log;
 
 alias B64 = Base64Impl!('-', '_', Base64.NoPadding);
 
@@ -346,9 +347,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 		}
 		catch (Exception th) {
-			//import vibe.core.log : logError;
-			//import std.stdio : writeln;
-			import vibe.core.log : logError;
 			vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
 		} 
 	}
@@ -1496,8 +1494,6 @@ final class HTTP2Session
 		if (m_tcpConn !is null) { 
 			try onClose(); 
 			catch (Exception th) {
-				//import std.stdio : writeln;
-				import vibe.core.log : logError;
 				vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
 			} 
 		}
@@ -1748,7 +1744,7 @@ private:
 		if (cast(size_t)cast(void*)this in s_http2Registry) 
 			s_http2Registry.remove(cast(size_t)cast(void*)this);
 		if (!m_tcpConn) return;
-		try if (!isServer) m_tcpConn.close(); catch {}
+		try if (!isServer) m_tcpConn.close(); catch(Throwable) {}
 		m_tcpConn = null;
 		foreach(HTTP2Stream stream; m_pushResponses) 
 			if (stream.m_connected) 

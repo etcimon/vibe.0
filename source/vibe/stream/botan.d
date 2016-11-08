@@ -8,6 +8,7 @@ import botan.constants;
 import botan.cert.x509.x509cert;
 import botan.cert.x509.certstor;
 import botan.cert.x509.x509path;
+import botan.math.bigint.bigint: BigInt;
 import botan.tls.blocking;
 import botan.tls.channel;
 import botan.tls.credentials_manager;
@@ -333,6 +334,7 @@ private:
 
 	ubyte[] onRead(ubyte[] buf) 
 	{
+		static import std.algorithm;
 		import vibe.core.log : logError;
 		import std.datetime : seconds;
 		mixin(STrace);

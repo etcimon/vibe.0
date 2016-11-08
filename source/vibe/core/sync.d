@@ -56,7 +56,7 @@ struct ScopedMutexLock
 	~this()
 	{
 		if( m_locked )
-			try m_mutex.unlock(); catch {}
+			try m_mutex.unlock(); catch(Throwable) {}
 	}
 	
 	@property bool locked() const { return m_locked; }

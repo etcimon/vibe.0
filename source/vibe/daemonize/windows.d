@@ -11,6 +11,7 @@ version(Windows):
 
 import core.sys.windows.windows;
 import core.thread;
+import core.time;
 import std.datetime;
 import std.string;
 import std.typetuple;
@@ -510,10 +511,10 @@ template buildDaemon(alias DaemonInfo)
 			else
 			{                
 				auto status = maybeStatus.get;
-				auto stamp = Clock.currSystemTick;
+				auto stamp = Clock.currTime(UTC());
 				while(status.dwCurrentState != SERVICE_RUNNING)
 				{
-					if(stamp + cast(TickDuration)30.dur!"seconds" < Clock.currSystemTick) 
+					if(stamp + 30.seconds < Clock.currTime(UTC())) 
 						throw new DaemonException("Cannot start service! Timeout");
 					if(status.dwWin32ExitCode != 0)
 						throw new DaemonException(text("Failed to start service! Service error code: ", status.dwWin32ExitCode));

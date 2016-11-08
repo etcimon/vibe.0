@@ -108,6 +108,7 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 
 		//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 		while( !input.empty ){
+			import std.algorithm : min;
 			size_t chunk = min(input.leastSize, buffer.length);
 			enforce(chunk > 0, "leastSize returned zero for non-empty stream.");
 			//logTrace("read pipe chunk %d", chunk);

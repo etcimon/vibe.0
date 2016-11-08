@@ -109,7 +109,7 @@ final class LibasyncDriver : EventDriver {
 				gs_maxID = 32;
 			}
 		}
-		catch {
+		catch (Throwable) {
 			assert(false, "Couldn't reserve necessary space for available Manual Events");
 		}
 
@@ -514,7 +514,7 @@ final class LibasyncDriver : EventDriver {
 		try processTimers();
 		catch (Exception e) {
 			logError("Failed to process timers: %s", e.msg);
-			try logDiagnostic("Full error: %s", e.toString().sanitize); catch {}
+			try logDiagnostic("Full error: %s", e.toString().sanitize); catch(Throwable) {}
 		}
 	}
 }
@@ -581,7 +581,7 @@ final class LibasyncFileStream : FileStream {
 	
 	~this()
 	{
-		try close(); catch {}
+		try close(); catch (Throwable) {}
 	}
 
 	@property Path path() const { return m_path; }
@@ -915,7 +915,7 @@ final class LibasyncManualEvent : ManualEvent {
 					signal = null;
 				}
 			}
-		} catch {}
+		} catch (Throwable) {}
 	}
 
 	void emitLocal()
@@ -2214,7 +2214,7 @@ final class LibasyncUDPConnection : UDPConnection {
 	}
 
 	~this() {
-		if (socket && socket.socket > 0) try close(); catch {}
+		if (socket && socket.socket > 0) try close(); catch (Throwable) {}
 	}
 
 	@property string bindAddress() const {

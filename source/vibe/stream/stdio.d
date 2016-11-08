@@ -13,6 +13,7 @@ import vibe.stream.taskpipe;
 
 import std.stdio;
 import core.thread;
+import std.algorithm : min;
 
 import std.exception;
 
