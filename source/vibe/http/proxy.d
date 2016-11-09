@@ -190,21 +190,24 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		logTrace("Proxy requestHTTP");
 		int failed;
 		bool success;
+		Exception ex;
 		do {
 			try {
 				requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
 				success = true;
 			}
-			catch (Throwable e) {
+			catch (Exception e) {
 				if (!can_retry) throw e;
-				else
-					logError("Proxy error: %s", e.toString());
+				else {
+					ex = e;
+				}
 			}
 			import std.datetime : msecs;
 			sleep(500.msecs);
 
 		} while(!success && ++failed < 3);
-		throw new Exception("Proxy error");
+		if (!success)
+			throw ex;
 	}
 
 	return &handleRequest;
