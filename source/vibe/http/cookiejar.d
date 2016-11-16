@@ -394,10 +394,51 @@ public:
 
 class MemoryCookieJar : CookieJar
 {
+	import vibe.core.file : openFile, removeFile, Path;
+	import memutils.unique:Unique;
 private:
 	CookiePair[] m_cookies;
 	RecursiveTaskMutex m_writeLock;
+
+	static void deflateFile(Path src, Path dst) {
+		import vibe.stream.zlib : GzipOutputStream;
+		Unique!FileStream f = openFile(src, FileMode.read);
+		Unique!FileStream f2 = openFile(dst, FileMode.createTrunc);
+		Unique!GzipOutputStream deflate = new GzipOutputStream(*f2);
+		deflate.write(*f);
+		deflate.finalize();
+	}
+	static void inflateFile(Path src, Path dst) {
+		import vibe.stream.zlib : GzipInputStream;
+		Unique!FileStream f = openFile(src, FileMode.read);
+		Unique!FileStream f2 = openFile(dst, FileMode.createTrunc);
+		Unique!GzipInputStream inflate = new GzipInputStream(*f);
+		f2.write(*inflate);
+		f2.finalize();
+	}
 public:
+	static MemoryCookieJar loadFromGzip(Path cj) {
+		MemoryCookieJar ret = new MemoryCookieJar;
+		Path cj2 = Path(cj.toString() ~ ".1");
+		inflateFile(cj, cj2);
+		Unique!FileCookieJar filecj = new FileCookieJar(cj2);
+		ret.m_cookies = filecj.readCookies((CookiePair cookie) {
+				return true;
+			});
+		removeFile(cj2);
+		return ret;
+	}
+
+	void saveToGzip(Path cj) {
+		Path cj2 = Path(cj.toString() ~ ".1");
+		Unique!FileCookieJar filecj = new FileCookieJar(cj2);
+		foreach(CookiePair cp; m_cookies) {
+			filecj.setCookie(cp.name, cp.value);
+		}
+		deflateFile(cj2, cj);
+		removeFile(cj2);
+	}
+
 	void get(string host, string path, bool secure, void delegate(string) send_to) const
 	{
 		logTrace("Get cookies (concat) for host: %s path: %s secure: %s", host, path, secure);
@@ -408,7 +449,7 @@ public:
 		bool flag;
 		
 		auto ret = readCookies( (CookiePair cookie) {
-				if (search.match(cookie)) {
+				if (search.match(cookie) && cookie.value.value.length > 0) {
 					//logDebug("Search matched cookie: %s", cookie.name);
 					if (flag) {
 						app ~= "; ";
