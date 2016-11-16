@@ -427,7 +427,8 @@ final class HTTPClient {
 			int j;
 			do {
 				if (i > 0) sleep(500.msecs);
-				m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
+				try m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
+				catch (ConnectionClosedException e) { continue; }
 				if (m_conn.tlsContext) {
 					try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, m_conn.tcp.remoteAddress);
 					catch (Exception e) {
