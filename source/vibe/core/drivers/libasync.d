@@ -907,7 +907,11 @@ final class LibasyncManualEvent : ManualEvent {
 	~this()
 	{
 		try {
-			recycleID(instanceID + 1);
+			uint instance_id;
+			if (gc_inFinalizer())
+				instance_id = cast(uint)m_instance;
+			else instance_id = instanceID;
+			recycleID(instance_id + 1);
 
 			foreach (ref signal; ms_signals[]) {
 				if (signal) {

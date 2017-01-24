@@ -1705,7 +1705,8 @@ struct Row
 	T peek(T)(int index)
 		if (isSomeString!T)
 	{
-		return sqlite3_column_text(statement, internalIndex(index)).to!T;
+		import std.string : fromStringz;
+		return cast(T) (sqlite3_column_text(statement, internalIndex(index)).fromStringz.dup);
 	}
 	
 	/// ditto
@@ -1938,6 +1939,7 @@ The data retrived from a column, stored internally as a $(D Variant).
 +/
 struct ColumnData
 {
+	import std.traits;
 	private Variant variant;
 	
 	/++

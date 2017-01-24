@@ -306,11 +306,10 @@ final class HTTPClient {
 	}
 
 	/*shared*/ ~this() {
-		if (g_exiting) return;
+		if (g_exiting || gc_inFinalizer()) return;
 		// fixme: will be called from the GC, ie. from any thread
 		if (master) {
 			disconnect(false, "dtor", true);
-
         }
 		else if (!master && m_http2Context) {
 			disconnect(true, "dtor", true);
@@ -366,7 +365,7 @@ final class HTTPClient {
 	private void setupTLS()
 	{
 		mixin(Trace);
-		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https"))
+		if (m_conn.forceTLS)
 			return;
 		m_conn.forceTLS = true;
 
@@ -405,9 +404,13 @@ final class HTTPClient {
 			proxyAddr.port = m_settings.proxyURL.port;
 			// we connect to the proxy directly
 			m_conn.tcp = connectTCP(proxyAddr);
-			if (m_settings.proxyURL.schema == "https" && !m_conn.forceTLS)
-				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_settings.proxyURL.host, peerAddr);
-			else if (m_conn.forceTLS) {
+			if (m_settings.proxyURL.schema == "https" || m_conn.forceTLS) {
+				if (!m_conn.tlsContext)
+				{
+					bool force_tls = m_conn.forceTLS;
+					setupTLS();
+					m_conn.forceTLS = force_tls;
+				}
 				import std.base64 : Base64;
 				//logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
 				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
@@ -416,7 +419,8 @@ final class HTTPClient {
 				m_conn.tcp.write("\r\n\r\n");
 				auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
 				//logTrace("Got connect response: %s", cast(string)payload);
-				m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
+				if (m_conn.forceTLS)
+					m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
 				//logTrace("TLS Stream created");
 			}
 		}
@@ -1613,7 +1617,8 @@ class HTTPClientConnection {
 
     ~this() {
 		if (g_exiting) return;
-        keepAliveTimeout = Duration.zero;
+		keepAliveTimeout = Duration.zero;
+		if (gc_inFinalizer()) return;
         if (tlsStream && tlsStream.connected) {
             tlsStream.notifyClose();
             tlsStream.destroy();
