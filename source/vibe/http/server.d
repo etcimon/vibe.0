@@ -1561,11 +1561,13 @@ __gshared Thread g_ctor;
 
 static ~this() {
 	if (Thread.getThis() != g_ctor) return;
-	bool[void*] dtor_called;
+	import memutils.hashmap;
+	import memutils.utils;
+	HashMap!(void*, bool, Malloc) dtor_called;
 	foreach (ctx; g_contexts) { 
 		if (ctx.settings && ctx.settings.tlsContext !is null)
 		{
-			dtor_called[cast(const(void)*)ctx.settings.tlsContext] = true;
+			dtor_called[cast(void*)&ctx.settings.tlsContext] = true;
 			ctx.settings.tlsContext.destroy();
 		}
 		if (ctx.settings)
@@ -1576,7 +1578,7 @@ static ~this() {
 	g_contexts = null;
 	foreach (listener; g_listeners) {
 		if (listener.tlsContext) {
-			if ((cast(const(void)*)listener.tlsContext) !in dtor_called) {
+			if (dtor_called.get(cast(void*)&listener.tlsContext)) {
 				listener.tlsContext.destroy(); 
 			}
 		}
