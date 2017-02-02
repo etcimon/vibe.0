@@ -416,11 +416,6 @@ public:
 		m_credentials = credentials;
 		m_is_datagram = is_datagram;
 
-		if (is_datagram)
-			m_offer_version = TLSProtocolVersion.DTLS_V12;
-		else
-			m_offer_version = TLSProtocolVersion.TLS_V12;
-
 		m_rng = new AutoSeededRNG;
 		if (!session_manager)
 			session_manager = new TLSSessionManagerInMemory(*m_rng);
@@ -435,6 +430,12 @@ public:
 			policy = cast(TLSPolicy)gs_default_policy;
 		}
 		m_policy = policy;
+
+		if (is_datagram)
+			m_offer_version = policy.latestSupportedVersion(true);
+		else
+			m_offer_version = policy.latestSupportedVersion(false);
+
 	}
 
 	/// The kind of TLS context (client/server)
