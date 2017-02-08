@@ -1733,12 +1733,6 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				break;
 			case TCPEvent.CLOSE:
 				m_closed = false;
-				try onRead();
-				catch (Exception e) ex = e;
-				if (m_settings.reader.isWaiting) 
-					getDriverCore().resumeTask(m_settings.reader.task, ex);
-
-				m_closed = false;
 				onClose();
 				if (m_settings.onConnect)
 					m_settings.onConnect(this);
