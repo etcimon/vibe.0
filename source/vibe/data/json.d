@@ -1092,6 +1092,9 @@ Json parseJson(R)(ref R range, int* line = null, string filename = null)
 		case '\"':
 			ret = skipJsonString(range);
 			break;
+		case '\'':
+			ret = skipJsonString(range);
+			break;
 		case '[':
 			Appender!(Json[]) arr;
 			range.popFront();
@@ -2014,19 +2017,22 @@ private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
 }
 import std.string : toLower;
 /// private
-private string jsonUnescape(R)(ref R range)
+private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false)(ref R range)
 {
 	auto ret = appender!string();
 	while(!range.empty){
 		auto ch = range.front;
 		switch( ch ){
-			case '"': return ret.data;
+			static if (!single_quoted && !unquoted) { case '"': return ret.data; }
+			static if (single_quoted) { case '\'': return ret.data; }
+				static if (unquoted) { case ':': return ret.data; } // handles only unquoted names for javascript objects
 			case '\\':
 				range.popFront();
 				enforceJson(!range.empty, "Unterminated string escape sequence.");
 				switch(range.front){
 					default: enforceJson(false, "Invalid string escape sequence after: " ~ ret.data); break;
-					case '"': ret.put('\"'); range.popFront(); break;
+						static if (!single_quoted && !unquoted) { case '"': ret.put('\"'); range.popFront(); break; }
+						static if (single_quoted) { case '\'': ret.put('\''); range.popFront(); break; }
 					case '\\': ret.put('\\'); range.popFront(); break;
 					case '/': ret.put('/'); range.popFront(); break;
 					case 'b': ret.put('\b'); range.popFront(); break;
@@ -2140,12 +2146,21 @@ private string skipNumber(R)(ref R s, out bool is_float, out bool is_long_overfl
 /// private
 private string skipJsonString(R)(ref R s, int* line = null)
 {
+	typeof(s.front) chr;
 	// TODO: count or disallow any newlines inside of the string
-	enforceJson(!s.empty && s.front == '"', "Expected '\"' to start string.");
-	s.popFront();
-	string ret = jsonUnescape(s);
-	enforceJson(!s.empty && s.front == '"', "Expected '\"' to terminate string.");
-	s.popFront();
+	if (!s.empty && (s.front == '"' || s.front == '\'')) {
+		chr = s.front;
+		s.popFront();
+	} else chr = ':';
+	string ret;
+	if (chr == ':')
+		ret = jsonUnescape!(typeof(s), false, true)(s);
+	else if (chr == '"')
+		ret = jsonUnescape!(typeof(s), false, false)(s);
+	else if (chr == '\'')
+		ret = jsonUnescape!(typeof(s), true, false)(s);
+	if (!s.empty && (s.front == '"' || s.front == '\''))
+		s.popFront();
 	return ret;
 }
 

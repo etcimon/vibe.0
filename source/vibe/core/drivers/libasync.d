@@ -961,17 +961,21 @@ final class LibasyncManualEvent : ManualEvent {
 	void emit()
 	{
 		assert(m_owner is Thread.init);
-		scope (failure) assert(false); // synchronized is not nothrow on DMD 2.066 and below and Array is not nothrow at all
-		logTrace("Emitting signal");
-		atomicOp!"+="(m_emitCount, 1);
-		synchronized (m_mutex) {
-			logTrace("Looping signals. found: %d", ms_signals.length);
-			foreach (ref signal; ms_signals[]) {
-				auto evloop = getEventLoop();
-				logTrace("Got event loop: %s", cast(void*) evloop);
-				shared AsyncSignal sig = cast(shared AsyncSignal) signal;
-				if (!sig.trigger(evloop)) logTrace("Failed to trigger ManualEvent: %s", sig.error);
+		try {
+			logTrace("Emitting signal");
+			atomicOp!"+="(m_emitCount, 1);
+			synchronized (m_mutex) {
+				logTrace("Looping signals. found: %d", ms_signals.length);
+				foreach (ref signal; ms_signals[]) {
+					auto evloop = getEventLoop();
+					logTrace("Got event loop: %s", cast(void*) evloop);
+					shared AsyncSignal sig = cast(shared AsyncSignal) signal;
+					if (!sig.trigger(evloop)) logTrace("Failed to trigger ManualEvent: %s", sig.error);
+				}
 			}
+		} catch(Throwable thr) {
+			logDebug("emit failed: %s", thr.toString());
+			assert(false);
 		}
 	}
 	

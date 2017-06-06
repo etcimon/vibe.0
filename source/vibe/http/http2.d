@@ -2419,12 +2419,13 @@ override:
 	bool onInvalidFrame(in Frame frame, FrameError error_code, string reason)
 	{
 		import vibe.core.log : logError;
-		logError("HTTP/2 onInvalidFrame: %s %s %s %s", error_code.to!string, frame.hd.type == 0x01 ? frame.headers.hfa[0].name ~ "=" ~ frame.headers.hfa[0].value : frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString(), reason);
+		logError("HTTP/2 onInvalidFrame: %s %s %s %s", error_code.to!string, frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString(), reason);
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 
 		if (error_code == FrameError.PROTOCOL_ERROR)
 			m_session.remoteStop(error_code, "Remotely Closed");
 		else stream.notifyClose(error_code);
+
 		return true;
 	}
 	

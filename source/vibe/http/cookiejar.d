@@ -708,8 +708,8 @@ void parseSetCookieString(string set_cookie_str, ref Cookie cookie, void delegat
 		scope(exit) i++;
 		if (part.length <= 1)
 			continue;
-		if (i > 0 && part[0] == ' ')
-			part = part[1 .. $]; // remove whitespace
+		import std.string : strip;
+		part = part.strip(); // remove whitespace
 		int idx = cast(int)part.countUntil!"a is '='"();
 		if (i == 0) {
 			auto pair = parseNameValue(part, idx);
@@ -718,7 +718,6 @@ void parseSetCookieString(string set_cookie_str, ref Cookie cookie, void delegat
 			logTrace("name: %s => Value: %s", name, cookie.value);
 			continue;
 		}
-		
 		parseAttributeValue(part, idx, cookie);
 	}
 	
@@ -753,7 +752,7 @@ void parseAttributeValue(string part, int idx, ref Cookie cookie) {
 				cookie.httpOnly = true;
 			}
 			break;
-		case 4: 
+		case 4:
 			// Path
 			if (icmp2(part[0 .. 4], "Path") != 0 && part.length < 6) { logError("Cookie Path parse failed, got %s", part); break; }
 			cookie.path = part[5 .. $];
