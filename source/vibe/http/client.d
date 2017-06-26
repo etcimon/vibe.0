@@ -21,6 +21,7 @@ import vibe.stream.counting;
 import vibe.stream.tls;
 import vibe.stream.operations;
 import vibe.stream.zlib;
+import vibe.stream.brotli;
 import vibe.utils.array;
 import vibe.utils.memory;
 import vibe.utils.string : icmp2;
@@ -1229,6 +1230,7 @@ final class HTTPClientResponse : HTTPResponse {
 		FreeListRef!ChunkedInputStream m_chunkedInputStream;
 		FreeListRef!GzipInputStream m_gzipInputStream;
 		FreeListRef!DeflateInputStream m_deflateInputStream;
+		FreeListRef!BrotliInputStream m_brotliInputStream;
 		FreeListRef!EndCallbackInputStream m_endCallback;
 
 		InputStream m_bodyReader;
@@ -1481,7 +1483,11 @@ final class HTTPClientResponse : HTTPResponse {
 		}
 
 		bool handleCompression(string val) {
-			if (icmp2(val, "deflate") == 0){
+			if (icmp2(val, "br") == 0){
+				m_brotliInputStream = FreeListRef!BrotliInputStream(m_bodyReader);
+				m_bodyReader = m_brotliInputStream;
+				return true;
+			} else if (icmp2(val, "deflate") == 0){
 				m_deflateInputStream = FreeListRef!DeflateInputStream(m_bodyReader);
 				m_bodyReader = m_deflateInputStream;
 				return true;
