@@ -498,10 +498,24 @@ template buildDaemon(alias DaemonInfo)
 			
 			auto service = getService(manager, SERVICE_START);
 			scope(exit) CloseServiceHandle(service);
+
+			if(!StartServiceW(service, 0, null)) {
+				bool is_failed = true;
+				import core.sys.windows.windows : ERROR_SERVICE_DISABLED, ChangeServiceConfigW, SERVICE_NO_CHANGE;
+				if (GetLastError() == ERROR_SERVICE_DISABLED) {
+					CloseServiceHandle(service);
+
+					service = getService(manager, SERVICE_START | SERVICE_CHANGE_CONFIG);
+					is_failed = false;
+					ChangeServiceConfigW(service,  SERVICE_NO_CHANGE, SERVICE_AUTO_START, SERVICE_NO_CHANGE, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+					if (!StartServiceW(service, 0, null))
+						is_failed = true;
+				}
+
+				if (is_failed)
+					throw new DaemonException(text("Failed to start service! ", getLastErrorDescr));
 			
-			if(!StartServiceW(service, 0, null))
-				throw new DaemonException(text("Failed to start service! ", getLastErrorDescr));
-			
+			}
 			
 			auto maybeStatus = queryServiceStatus();
 			if(maybeStatus.isNull)
@@ -816,7 +830,6 @@ private extern(System)
 		LPWSTR lpServiceStartName,
 		LPWSTR lpPassword
 		);
-	
 	// dwStartType
 	enum SERVICE_AUTO_START = 0x00000002;
 	enum SERVICE_BOOT_START = 0x00000000;
@@ -842,7 +855,7 @@ private extern(System)
 	enum SERVICE_ERROR_NORMAL = 0x00000001;
 	enum SERVICE_ERROR_SEVERE = 0x00000002;
 	
-	bool CloseServiceHandle(SC_HANDLE hSCOjbect);
+	version(LDC){}else bool CloseServiceHandle(SC_HANDLE hSCOjbect);
 	
 	SC_HANDLE OpenServiceW(
 		SC_HANDLE hSCManager,
