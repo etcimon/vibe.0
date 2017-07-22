@@ -1021,28 +1021,22 @@ final class HTTPServerResponse : HTTPResponse {
 	void writeRawBody(RandomAccessStream stream)
 	{
 		logDebug("Write raw body RAS");
-		OutputStream writer = bodyWriter();
+		writeHeader();
+		auto writer = topStream;
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (auto null_writer = cast(NullOutputStream) writer) 
-			return;
 		auto bytes = stream.size - stream.tell();
 		topStream.write(stream);
-		m_bodyStream.counting.increment(bytes);
 	}
 	/// ditto
 	void writeRawBody(InputStream stream, size_t num_bytes = 0)
 	{
 		logDebug("Write raw body: %d", num_bytes);
-		OutputStream writer = bodyWriter();
+		writeHeader();
+		auto writer = topStream;
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (auto null_writer = cast(NullOutputStream) writer) {
-			null_writer.write(stream, num_bytes);
-			return;
-		}
-		if (num_bytes > 0) {
+		if (num_bytes > 0) 
 			topStream.write(stream, num_bytes);
-			m_bodyStream.counting.increment(num_bytes);
-		} else m_bodyStream.counting.write(stream, num_bytes);
+
 	}
 	/// ditto
 	void writeRawBody(RandomAccessStream stream, int status)

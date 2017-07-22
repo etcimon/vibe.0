@@ -31,6 +31,7 @@ struct URL {
 		string m_password;
 		string m_queryString;
 		string m_anchor;
+		string m_ip;
 	}
 
 	/// Constructs a new URL object from its components.
@@ -112,6 +113,9 @@ struct URL {
 	{
 		return URL(url_string);
 	}
+
+	@property void ip(string ip_) { m_ip = ip_; }
+	@property string ip() { return m_ip; }
 
 	/// The schema/protocol part of the URL
 	@property string schema() const { return m_schema; }

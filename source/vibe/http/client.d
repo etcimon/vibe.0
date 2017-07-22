@@ -73,7 +73,7 @@ HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequ
 	enforce(url.host.length > 0, "URL must contain a host name.");
 	bool use_tls = url.schema == "https";
 
-	auto cli = connectHTTP(url.host, url.port, use_tls, settings);
+	auto cli = connectHTTP(url.host, url.port, use_tls, settings, url.ip);
 	auto res = cli.request((req){
 			// When sending through a proxy, full URL to the resource must be on the first line of the request
 
@@ -113,7 +113,7 @@ void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) reque
 	enforce(url.host.length > 0, "URL must contain a host name.");
 	bool use_tls = url.schema == "https";
 
-	auto cli = connectHTTP(url.host, url.port, use_tls, settings);
+	auto cli = connectHTTP(url.host, url.port, use_tls, settings, url.ip);
 
 	cli.request((scope req) {
 		// When sending through a proxy, full URL to the resource must be on the first line of the request		
@@ -165,7 +165,7 @@ unittest {
 	usually requestHTTP should be used for making requests instead of manually using a
 	HTTPClient to do so.
 */
-auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientSettings settings = null)
+auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientSettings settings = null, string ip_ = null)
 {
 	if (!settings) settings = defaultSettings();
 	static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
@@ -185,7 +185,7 @@ auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientS
 				auto ret = new HTTPClient;
 				ret.master = true;
 				ret.m_owner = Thread.getThis();
-				ret.connect(host, port, use_tls, settings);
+				ret.connect(host, port, use_tls, settings, ip_);
 				return ret;
 			});
 		if (s_connections.full)	s_connections.popFront();
@@ -318,6 +318,9 @@ final class HTTPClient {
 
 	}
 
+	@property void ip(string ip_) { m_conn.ip = ip_; }
+	@property string ip() { return m_conn.ip; }
+
 	/** Get the current settings for the HTTP client. **/
 	@property const(HTTPClientSettings) settings() const {
 		return m_settings;
@@ -347,7 +350,7 @@ final class HTTPClient {
 
 		This method may only be called if any previous connection has been closed.
 	*/
-	void connect(string server, ushort port = 80, bool use_tls = false, HTTPClientSettings settings = defaultSettings)
+	void connect(string server, ushort port = 80, bool use_tls = false, HTTPClientSettings settings = defaultSettings, string ip_ = null)
 	in { assert(!isHTTP2Started && (!m_conn || !m_conn.tcp || !m_conn.tcp.connected) && port != 0, "Cannot establish a new connection on a connected client. Use disconnect() before, or reconnect()."); }
 	body {
 		mixin(Trace);
@@ -356,6 +359,7 @@ final class HTTPClient {
 		m_conn = new HTTPClientConnection();
 		m_conn.server = server;
 		m_conn.port = port;
+		m_conn.ip = ip_;
         m_state.master = true;
 		if (use_tls)
 			setupTLS();
@@ -401,7 +405,7 @@ final class HTTPClient {
 		m_state.responding = false;
 		if (m_settings.proxyURL.schema !is null){
 			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
-			NetworkAddress peerAddr = resolveHost(m_conn.server);
+			NetworkAddress peerAddr = resolveHost(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server);
 			proxyAddr.port = m_settings.proxyURL.port;
 			// we connect to the proxy directly
 			m_conn.tcp = connectTCP(proxyAddr);
@@ -432,7 +436,7 @@ final class HTTPClient {
 			int j;
 			do {
 				if (i > 0) sleep(500.msecs);
-				try m_conn.tcp = connectTCP(m_conn.server, m_conn.port);
+				try m_conn.tcp = connectTCP(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server, m_conn.port);
 				catch (ConnectionClosedException e) { continue; }
 				if (m_conn.tlsContext) {
 					try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, m_conn.tcp.remoteAddress);
@@ -1610,6 +1614,7 @@ final class HTTPClientResponse : HTTPResponse {
 private:
 
 class HTTPClientConnection {
+	string ip; // override resolver
 	string server;
 	ushort port;
 	bool forceTLS;

@@ -63,6 +63,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 	url.schema = settings.secure?"https":"http";
 	url.host = settings.destinationHost;
 	url.port = settings.destinationPort;
+	url.ip = settings.destinationIP;
 	bool can_retry = true;
 	void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
@@ -84,10 +85,12 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			creq.headers["Host"] = settings.destinationHost;
 			if (settings.avoidCompressedRequests && "Accept-Encoding" in creq.headers)
 				creq.headers.remove("Accept-Encoding");
-			if (auto pfh = "X-Forwarded-Host" !in creq.headers) creq.headers["X-Forwarded-Host"] = req.headers["Host"];
-			if (auto pfp = "X-Forwarded-Proto" !in creq.headers) creq.headers["X-Forwarded-Proto"] = req.tls ? "https" : "http";
-			if (auto pff = "X-Forwarded-For" in req.headers) creq.headers["X-Forwarded-For"] = *pff ~ ", " ~ req.peer;
-			else creq.headers["X-Forwarded-For"] = req.peer;
+			if (!settings.anonymous) {
+				if (auto pfh = "X-Forwarded-Host" !in creq.headers) creq.headers["X-Forwarded-Host"] = req.headers["Host"];
+				if (auto pfp = "X-Forwarded-Proto" !in creq.headers) creq.headers["X-Forwarded-Proto"] = req.tls ? "https" : "http";
+				if (auto pff = "X-Forwarded-For" in req.headers) creq.headers["X-Forwarded-For"] = *pff ~ ", " ~ req.peer;
+				else creq.headers["X-Forwarded-For"] = req.peer;
+			}
 			import vibe.data.json;
 			if (!req.bodyReader.empty) {
 				can_retry = false;
@@ -225,6 +228,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(string destination_host, ushort d
 	Provides advanced configuration facilities for reverse proxy servers.
 */
 final class HTTPReverseProxySettings {
+	string destinationIP;
 	/// The destination host to forward requests to
 	string destinationHost;
 	/// The destination port to forward requests to
@@ -233,6 +237,7 @@ final class HTTPReverseProxySettings {
 	bool avoidCompressedRequests;
 	bool secure;
 	bool originSecure;
+	bool anonymous;
 	InetHeaderMap defaultHeaders;
 	InetHeaderMap defaultResponseHeaders;
 	HTTPClientSettings clientSettings;
