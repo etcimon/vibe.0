@@ -112,7 +112,7 @@ XmlNode readDocument(string src, bool preserveWS=false)
 	try {
 		root.addChildren(src, preserveWS);
 	} catch (XmlError e) {
-		logLine("Caught exception from input string:\n" ~ pointcpy ~ "\n");
+		debug(xml)logLine("Caught exception from input string:\n" ~ pointcpy ~ "\n");
 		throw e;
 	}
 	return root;
@@ -1322,7 +1322,7 @@ class XmlDocument : XmlNode {
 		try {
 			addChildren(constring, preserveWS);
 		} catch (XmlError e) {
-			logLine("Caught exception from input string:\n" ~ pointcpy ~ "\n");
+			debug(xml) logLine("Caught exception from input string:\n" ~ pointcpy ~ "\n");
 			throw e;
 		}
 	}
