@@ -403,101 +403,104 @@ final class HTTPClient {
 		}
 		m_state.requesting = false;
 		m_state.responding = false;
-		if (m_settings.proxyURL.schema !is null){
-			NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
-			NetworkAddress peerAddr = resolveHost(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server);
-			proxyAddr.port = m_settings.proxyURL.port;
-			// we connect to the proxy directly
-			m_conn.tcp = connectTCP(proxyAddr);
-			if (m_settings.proxyURL.schema == "https" || m_conn.forceTLS) {
-				if (!m_conn.tlsContext)
-				{
-					bool force_tls = m_conn.forceTLS;
-					setupTLS();
-					m_conn.forceTLS = force_tls;
+		NetworkAddress  peerAddr;
+		int i;
+		int j;
+		do {
+			if (i > 0) sleep(500.msecs);
+			if (m_settings.proxyURL.schema !is null){
+				NetworkAddress proxyAddr = resolveHost(m_settings.proxyURL.host);
+				peerAddr = resolveHost(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server);
+				proxyAddr.port = m_settings.proxyURL.port;
+				// we connect to the proxy directly
+				m_conn.tcp = connectTCP(proxyAddr);
+				if (m_settings.proxyURL.schema == "https" || m_conn.forceTLS) {
+					if (!m_conn.tlsContext)
+					{
+						bool force_tls = m_conn.forceTLS;
+						setupTLS();
+						m_conn.forceTLS = force_tls;
+					}
+					import std.base64 : Base64;
+					logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
+					m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
+					if (m_settings.proxyURL.username)
+						m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
+					m_conn.tcp.write("\r\n\r\n");
+					auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
+					logTrace("Got connect response: %s", cast(string)payload);
 				}
-				import std.base64 : Base64;
-				//logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
-				m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
-				if (m_settings.proxyURL.username)
-					m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
-				m_conn.tcp.write("\r\n\r\n");
-				auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
-				//logTrace("Got connect response: %s", cast(string)payload);
-				if (m_conn.forceTLS)
-					m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
-				//logTrace("TLS Stream created");
 			}
-		}
-		else // connect to the requested server/port
-		{
-			logTrace("Connect without proxy");
-			int i;
-			int j;
-			do {
-				if (i > 0) sleep(500.msecs);
+			else // connect to the requested server/port
+			{
+				logTrace("Connect without proxy");
 				try m_conn.tcp = connectTCP(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server, m_conn.port);
 				catch (ConnectionClosedException e) { continue; }
-				if (m_conn.tlsContext) {
-					try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, m_conn.tcp.remoteAddress);
-					catch (Exception e) {
-						import std.algorithm : countUntil;
-						enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
-						throw e;
+				peerAddr = m_conn.tcp.remoteAddress;
+
+			}
+			if ((m_settings.proxyURL.schema is null && m_conn.tlsContext) || (m_settings.proxyURL.schema !is null && m_conn.forceTLS)) {
+				try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
+				catch (Exception e) {
+					import std.algorithm : countUntil;
+					enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
+					throw e;
+				}
+				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+				if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
+					if (m_conn.tcp) m_conn.tcp.close();
+					m_conn.tcp = null;
+					import vibe.stream.botan : BotanTLSStream;
+					if (auto botan_stream = cast(BotanTLSStream)m_conn.tlsStream)
+					{
+						try botan_stream.processException();
+						catch (TimeoutException t) {
+							logTrace("TimeoutException");
+							continue;
+						}
 					}
-					logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
-					if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
-						if (m_conn.tcp) m_conn.tcp.close();
+
+				}
+				else try {
+					if (m_settings.http2.pingInterval != Duration.zero) {
+						m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
+					}
+					
+					// alpn http/2 connection
+					if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
+						logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+						HTTP2Settings local_settings = m_settings.http2.settings;
+						enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
+						m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
+
+						m_http2Context.worker = runTask(&runHTTP2Worker, false);
+						//yield();
+						logTrace("Worker started, continuing");
+						m_http2Context.isValidated = true;
+						m_http2Context.isSupported = true;
+					}
+					// pre-verified http/2 cleartext connection
+					else if (canUpgradeHTTP2 && m_http2Context.isSupported) {
+						logTrace("Upgrading HTTP/2");
+						HTTP2Settings local_settings = m_settings.http2.settings;
+						m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, null, local_settings, &onRemoteSettings);
+						m_http2Context.worker = runTask(&runHTTP2Worker, false);
+						m_http2Context.isValidated = true;
+						m_http2Context.isSupported = true;
+					}
+				} catch (Exception e) {
+					m_conn.tlsStream.close();
+					if (m_conn.tcp && m_conn.tcp.connected) {
+						m_conn.tcp.close();
 						m_conn.tcp = null;
-						import vibe.stream.botan : BotanTLSStream;
-						if (auto botan_stream = cast(BotanTLSStream)m_conn.tlsStream)
-						{
-							try botan_stream.processException();
-							catch (TimeoutException t) {
-								logTrace("TimeoutException");
-								continue;
-							}
-						}
-
-					}
-					else try {
-						if (m_settings.http2.pingInterval != Duration.zero) {
-							m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
-						}
-						
-						// alpn http/2 connection
-						if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
-							logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
-							HTTP2Settings local_settings = m_settings.http2.settings;
-							enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
-							m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
-
-							m_http2Context.worker = runTask(&runHTTP2Worker, false);
-							//yield();
-							logTrace("Worker started, continuing");
-							m_http2Context.isValidated = true;
-							m_http2Context.isSupported = true;
-						}
-						// pre-verified http/2 cleartext connection
-						else if (canUpgradeHTTP2 && m_http2Context.isSupported) {
-							logTrace("Upgrading HTTP/2");
-							HTTP2Settings local_settings = m_settings.http2.settings;
-							m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, null, local_settings, &onRemoteSettings);
-							m_http2Context.worker = runTask(&runHTTP2Worker, false);
-							m_http2Context.isValidated = true;
-							m_http2Context.isSupported = true;
-						}
-					} catch (Exception e) {
-						m_conn.tlsStream.close();
-						if (m_conn.tcp && m_conn.tcp.connected) {
-							m_conn.tcp.close();
-							m_conn.tcp = null;
-						}
 					}
 				}
+
+				logTrace("TLS Stream created");
 			}
-			while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 3);
 		}
+		while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 3);
+
 		enforce(m_conn.tcp !is null, "Connection failed");
 	}
 
@@ -963,7 +966,7 @@ final class HTTPClientRequest : HTTPRequest {
 		headers["User-Agent"] = user_agent;
 
 		if (proxy.host !is null && (proxy.schema == "https" || (proxy.schema == "http" && !conn.forceTLS))){
-			headers["Proxy-Connection"] = "keep-alive";
+			//headers["Proxy-Connection"] = "keep-alive";
 
 			if (proxy.username.length && proxy.password.length) {
 				import std.base64;

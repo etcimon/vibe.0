@@ -524,8 +524,20 @@ public:
 	
 	void setCookie(string name, Cookie cookie)
 	{
-		if (cookie !is null)
+		if (cookie !is null) {
+			{
+				StrictCookieSearch search = StrictCookieSearch(name, cookie.domain, cookie.path, cookie.secure, cookie.httpOnly);
+				removeCookies(&search.match);
+			}
+			if (cookie.maxAge) {
+				cookie.expires = (Clock.currTime(UTC()) + dur!"seconds"(cookie.maxAge)).toRFC822DateTimeString();
+			}
+			else if (!cookie.maxAge && (!cookie.expires || cookie.expires == ""))
+			{
+				cookie.expires = "Thu, 01 Jan 1970 00:00:00 GMT";
+			}
 			m_cookies ~= CookiePair(name, cookie);
+		}
 	}
 	
 	void remove(string domain = "*", string name = "*", string path = "/", bool secure = false, bool http_only = false)
