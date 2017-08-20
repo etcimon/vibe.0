@@ -467,7 +467,7 @@ final class HTTPClient {
 					}
 					
 					// alpn http/2 connection
-					if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && m_conn.tlsStream.alpn[0 .. 2] == "h2")) {
+					if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && (m_conn.tlsStream.alpn[0 .. 2] == "h2" || m_conn.tlsStream.alpn[0 .. 2] == "sp"))) {
 						logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 						HTTP2Settings local_settings = m_settings.http2.settings;
 						enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
