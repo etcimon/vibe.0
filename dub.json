@@ -22,23 +22,9 @@
 	"mainSourceFile": "source/vibe/appmain.d",
 	"buildRequirements": ["requireBoundsCheck"],
 
-	"configurations": [
-		{
-			"name": "libasync_botan",
-			"dependencies": {
-			},
-			"versions": []
-		},
-		{
-			"name": "libasync_botan_win32",
-			"subConfigurations": { "libasync": "32mscoff", "botan":"32mscoff", "botan-math": "32mscoff", "libhttp2": "32mscoff", "memutils": "32mscoff"},
-			"dflags-windows-x86": ["-m32mscoff"],
-			"sourceFiles-windows-x86": ["lib/sqlite3_x86.lib"]
-		}
-	],
-    "libs-posix": ["sqlite3", "dl", "pthread"],
+	"libs-posix": ["sqlite3", "dl", "pthread"],
 	"sourceFiles-windows-x86_64": ["lib/sqlite3_x64.lib","lib/brotli-win64-x64/brotlicommon.lib","lib/brotli-win64-x64/brotlienc.lib","lib/brotli-win64-x64/brotlidec.lib"],
-	"sourceFiles-windows-x86": ["lib/brotli-win32-x86/brotlicommon.lib","lib/brotli-win32-x86/brotlienc.lib","lib/brotli-win32-x86/brotlidec.lib"],
+	"sourceFiles-windows-x86": ["lib/sqlite3_x86.lib","lib/brotli-win32-x86/brotlicommon.lib","lib/brotli-win32-x86/brotlienc.lib","lib/brotli-win32-x86/brotlidec.lib"],
 	"versions": ["Have_vibe_d", "EnableDebugger"],
 	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."]
 }

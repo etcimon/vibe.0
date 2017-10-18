@@ -1128,7 +1128,9 @@ private class CoreTask : TaskFiber {
 			}
 		} catch(UncaughtException th) {
 			logCritical("CoreTaskFiber was terminated unexpectedly: %s", th.msg);
-			debug logError("Full error: %s", th.toString().sanitize());
+			debug {
+				logError("Full error: %s", th.toString().sanitize());
+			}
 		}
 	}
 

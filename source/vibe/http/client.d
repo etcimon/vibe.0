@@ -423,6 +423,7 @@ final class HTTPClient {
 					}
 					import std.base64 : Base64;
 					logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
+					logTrace("CONNECT %s", m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
 					m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
 					if (m_settings.proxyURL.username)
 						m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
@@ -965,7 +966,7 @@ final class HTTPClientRequest : HTTPRequest {
 		else headers["Host"] = m_conn.server;
 		headers["User-Agent"] = user_agent;
 
-		if (proxy.host !is null && (proxy.schema == "https" || (proxy.schema == "http" && !conn.forceTLS))){
+		if (proxy.host !is null && (proxy.schema != "https" && (proxy.schema == "http" && !conn.forceTLS))){
 			//headers["Proxy-Connection"] = "keep-alive";
 
 			if (proxy.username.length && proxy.password.length) {
@@ -1141,7 +1142,7 @@ final class HTTPClientRequest : HTTPRequest {
 			
 		}
 		if (m_cookieJar !is null && "Cookie" !in headers)
-			m_cookieJar.get(headers["Host"], requestURL, tlsStream !is null, &cookieSinkConcatenate);
+			m_cookieJar.get(headers["Host"], (m_proxy != URL.init) ? URL.parse(requestURL).pathString : requestURL, tlsStream !is null, &cookieSinkConcatenate);
 		output.put("\r\n");
 		logTrace("Done with cookies");
 		logTrace("--------------------");
