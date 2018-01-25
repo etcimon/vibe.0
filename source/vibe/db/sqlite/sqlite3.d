@@ -1020,6 +1020,7 @@ private:
 		
 		~this()
 		{
+			if (!handle) return;
 			auto result = sqlite3_finalize(handle);
 			enforce(result == SQLITE_OK, new SqliteException(errmsg(handle), result));
 			handle = null;
@@ -1035,8 +1036,23 @@ private:
 	{
 		sqlite3_stmt* handle;
 		const(char*) ptail;
-		auto result = sqlite3_prepare_v2(dbHandle, sql.toStringz, sql.length.to!int,
+		import std.datetime : Clock, UTC, seconds, SysTime;
+		SysTime start_time = Clock.currTime(UTC());
+		int result;
+		do {
+			result = sqlite3_prepare_v2(dbHandle, sql.toStringz, sql.length.to!int,
 			&handle, null);
+			import core.thread;
+			import vibe.core.task;
+			if (result == SQLITE_LOCKED || result == SQLITE_BUSY) {
+				if (Task.getThis() == Task.init)
+					Thread.sleep(10.msecs);
+				else {
+					import vibe.core.core : sleep;
+					sleep(10.msecs);
+				} 
+			}
+		} while ((result == SQLITE_LOCKED || result == SQLITE_BUSY) && Clock.currTime(UTC()) - start_time < 5.seconds);
 		enforce(result == SQLITE_OK, new SqliteException(errmsg(dbHandle), result, sql));
 		p = Payload(handle);
 	}
@@ -1449,10 +1465,32 @@ private:
 	this(Statement statement)
 	{
 		p = Payload(statement);
-		if (!p.statement.empty)
-			p.state = sqlite3_step(p.statement.handle);
-		else
-			p.state = SQLITE_DONE;
+
+
+		import std.datetime : Clock, UTC, seconds, SysTime;
+		SysTime start_time = Clock.currTime(UTC());
+		int result;
+		do {
+
+			if (!p.statement.empty)
+				p.state = sqlite3_step(p.statement.handle);
+			else
+				p.state = SQLITE_DONE;
+
+			result = p.state;
+			import core.thread;
+			import vibe.core.task;
+			if (result == SQLITE_LOCKED || result == SQLITE_BUSY) {
+				if (Task.getThis() == Task.init)
+					Thread.sleep(10.msecs);
+				else {
+					import vibe.core.core : sleep;
+					sleep(10.msecs);
+				} 
+			}
+		} while ((result == SQLITE_LOCKED || result == SQLITE_BUSY) && Clock.currTime(UTC()) - start_time < 5.seconds);
+
+		
 		
 		enforce(p.state == SQLITE_ROW || p.state == SQLITE_DONE,
 			new SqliteException(errmsg(p.statement.handle), p.state));

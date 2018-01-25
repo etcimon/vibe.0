@@ -1292,7 +1292,7 @@ private:
 		}
 	}
 	
-	Message getMessage()
+	Message getMessage(bool skip = false)
 	{
 		stream.flush();
 		
@@ -1307,11 +1307,18 @@ private:
 		
 		len = bigEndianToNative!int(ubi) - 4;
 		
-		ubyte[] msg = new ubyte[len];
-		
-		stream.socket.read(msg);
-		
-		return Message(this, type, msg);
+		if (!skip) {
+			ubyte[] msg = new ubyte[len];
+			
+			stream.socket.read(msg);
+			
+			return Message(this, type, msg);
+		}
+		else {
+			for (int i; i < len; i++)
+				stream.socket.read(ub);
+			return Message(this, type, null);		
+		}
 	}
 	
 	void sendStartupMessage(const string[string] params)
@@ -1807,7 +1814,7 @@ private:
 		
 		do
 		{
-			msg = getMessage();
+			msg = getMessage(true);
 			
 			// TODO: process async notifications
 		}

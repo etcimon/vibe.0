@@ -622,7 +622,7 @@ struct StrictCookieSearch
 		if (domain != "*") {
 			if (cookie.value.domain.length <= 0) return false;
 
-			if (!cookie.value.domain.isCNameOf(domain))
+			if (!cookie.value.domain.isCNameOf(domain) && !domain.isCNameOf(cookie.value.domain))
 			{
 				logTrace("Domain predicate failed: %s != %s", domain, cookie.value.domain);
 				return false;

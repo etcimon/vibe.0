@@ -15,12 +15,12 @@
 	"dependencies": {
 		"libhttp2": { "version": "~>0.2.8" },
 		"botan": {"version": "~>1.12.5" },
-		"libasync": {"version": "~>0.7.9" }
+		"libasync": {"version": "~>0.8.2" }
 	},
 
 	"targetType": "library",
 	"mainSourceFile": "source/vibe/appmain.d",
-	"buildRequirements": ["requireBoundsCheck"],
+	"buildRequirements": ["requireBoundsCheck"], 
 
 	"libs-posix": ["sqlite3", "dl", "pthread"],
 	"sourceFiles-windows-x86_64": ["lib/sqlite3_x64.lib","lib/brotli-win64-x64/brotlicommon.lib","lib/brotli-win64-x64/brotlienc.lib","lib/brotli-win64-x64/brotlidec.lib"],
