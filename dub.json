@@ -22,7 +22,7 @@
 	"mainSourceFile": "source/vibe/appmain.d",
 	"buildRequirements": ["requireBoundsCheck"], 
 
-	"libs-posix": ["sqlite3", "dl", "pthread"],
+	"libs-posix": ["sqlite3", "dl", "pthread","brotlicommon","brotlidec","brotlienc"],
 	"sourceFiles-windows-x86_64": ["lib/sqlite3_x64.lib","lib/brotli-win64-x64/brotlicommon.lib","lib/brotli-win64-x64/brotlienc.lib","lib/brotli-win64-x64/brotlidec.lib"],
 	"sourceFiles-windows-x86": ["lib/sqlite3_x86.lib","lib/brotli-win32-x86/brotlicommon.lib","lib/brotli-win32-x86/brotlienc.lib","lib/brotli-win32-x86/brotlidec.lib"],
 	"versions": ["Have_vibe_d", "EnableDebugger"],
