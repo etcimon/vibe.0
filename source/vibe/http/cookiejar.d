@@ -245,14 +245,13 @@ public:
 			return CookiePair[].init;
 		}
 		Appender!(CookiePair[]) cookies;
-		ubyte[2048] buffer = void;
+		ubyte[8192] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
 		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) carry_over.reset(AppenderResetMode.freeData);
 		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, defaultAllocator());
 		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
 		
-		while (contents.length == 2048)
 		{
 			scope(exit) pool.reset();
 			contents = readFile(m_filePath, buffer);
@@ -317,7 +316,7 @@ public:
 		m_writeLock.lock();
 		scope(exit) m_writeLock.unlock();
 
-		ubyte[2048] buffer = void;
+		ubyte[8192] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
 		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) 
@@ -331,10 +330,10 @@ public:
 		AllocAppender!(ubyte[]) new_file_data = AllocAppender!(ubyte[])(defaultAllocator());
 		scope(exit) new_file_data.reset(AppenderResetMode.freeData);
 
-		while (contents.length == 2048)
 		{
 			scope(exit) pool.reset();
 			contents = readFile(m_filePath, buffer);
+			//logInfo("Read cookie file: %s", m_filePath);
 		
 			InputStream stream;
 			scope(exit) if (stream) FreeListObjectAlloc!MemoryStream.free(cast(MemoryStream)stream);
@@ -355,8 +354,11 @@ public:
 					break;
 				}
 				string cookie_str;
-				try
+				try {					
+					//logInfo("Get cookies readln");
 					cookie_str = cast(string) stream.readLine(4096, "\n", pool);
+					//logInfo("Got: %s", cookie_str);
+				}
 				catch(Exception e) {
 					carry_over.put(contents[total_read .. $]);
 					break;
