@@ -17,7 +17,7 @@ import core.stdc.stdlib;
 import core.stdc.string;
 import core.memory;
 import std.conv;
-import std.exception : enforceEx;
+import std.exception : enforce;
 import std.traits;
 import std.algorithm;
 

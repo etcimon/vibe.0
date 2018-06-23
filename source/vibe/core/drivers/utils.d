@@ -45,5 +45,5 @@ version (Windows) {
 
 T socketEnforce(T)(T value, lazy string msg = null, string file = __FILE__, size_t line = __LINE__)
 {
-	return enforceEx!SystemSocketException(value, msg, file, line);
+	return enforce!SystemSocketException(value, msg, file, line);
 }

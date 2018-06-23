@@ -14,7 +14,7 @@ import std.algorithm;
 import std.conv;
 import memutils.utils;
 import memutils.unique;
-import std.exception : enforceEx;
+import std.exception : enforce;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */

@@ -1173,8 +1173,8 @@ final class HTTPClientRequest : HTTPRequest {
 
 		// http/2
 		if (isHTTP2) {
-			import std.exception : enforceEx;
-			enforceEx!ConnectionClosedException(http2Stream !is null, "Connection closed");
+			import std.exception : enforce;
+			enforce!ConnectionClosedException(http2Stream !is null, "Connection closed");
 			httpVersion = HTTPVersion.HTTP_2;
 			if (auto pka = "Connection" in headers) {
 				headers.remove("Connection");
@@ -1289,10 +1289,10 @@ final class HTTPClientResponse : HTTPResponse {
 		if (!m_client.m_http2Context || !m_client.m_http2Context.isValidated || !m_client.m_http2Context.isSupported) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
 			logTrace("HTTP client reading status line");
-			enforceEx!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
-            enforceEx!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
+			enforce!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
+            enforce!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
             import std.algorithm : canFind;
-			enforceEx!ConnectionClosedException(client.topStream !is null, "Response stream not active");
+			enforce!ConnectionClosedException(client.topStream !is null, "Response stream not active");
 			const(ubyte)[] peek_data = client.topStream.peek();
 			if (peek_data.length > 0 && peek_data[0] != 'H')
 			{
@@ -1539,7 +1539,7 @@ final class HTTPClientResponse : HTTPResponse {
 		Reads the whole response body and tries to parse it as JSON.
 	*/
 	Json readJson(){
-		enforceEx!ConnectionClosedException(bodyReader !is null, "Empty json data");
+		enforce!ConnectionClosedException(bodyReader !is null, "Empty json data");
 		auto bdy = cast(string)bodyReader.readAll();
 		auto json = parseJson(bdy);
 

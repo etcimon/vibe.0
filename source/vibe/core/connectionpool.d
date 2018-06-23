@@ -121,7 +121,7 @@ struct LockedConnection(Connection) {
 
 	this(this)
 	{
-		enforceEx!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
+		enforce!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
 		if( m_conn ){
 			auto fthis = Task.getThis();
 			assert(fthis is m_task);
@@ -132,7 +132,7 @@ struct LockedConnection(Connection) {
 
 	~this()
 	{
-		enforceEx!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
+		enforce!CorruptionException(m_magic == 0xB1345AC2, "LockedConnection value corrupted.");
 		if( m_conn ){
 			auto fthis = Task.getThis();
 			assert(fthis is m_task, "Locked connection destroyed in foreign task.");

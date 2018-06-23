@@ -327,7 +327,7 @@ final class LibasyncDriver : EventDriver {
 			&& tcp_connection.m_tcpImpl.conn.status.code == Status.ASYNC && !tcp_connection.m_error && isTimerPending(tm)) 
 			getDriverCore().yieldForEvent();
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
-		enforceEx!ConnectionClosedException(tcp_connection.connected, "Could not connect");
+		enforce!ConnectionClosedException(tcp_connection.connected, "Could not connect");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
 		
 		if (Task.getThis() != Task()) 
@@ -1240,7 +1240,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			destroy(m_readBuffer);
 		}
 
-		enforceEx!ConnectionClosedException(leastSize() > 0, "Leastsize returned 0");
+		enforce!ConnectionClosedException(leastSize() > 0, "Leastsize returned 0");
 
 		swap(ret, m_slice);
 		logTrace("readBuf returned with buffered length: %d", ret.length);
@@ -1316,7 +1316,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
     private string m_peer_addr;
 
 	@property string peerAddress() const { 
-		enforceEx!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
+		enforce!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
 		
         if (!m_peer_addr)
             (cast()this).m_peer_addr = m_tcpImpl.conn.peer.toString();
@@ -1558,7 +1558,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private void checkConnected()
 	{
-		enforceEx!ConnectionClosedException(connected, "The remote peer has closed the connection.");
+		enforce!ConnectionClosedException(connected, "The remote peer has closed the connection.");
 		//logTrace("Check Connected");
 	}
 
@@ -1822,7 +1822,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		return m_readBuffer.empty;
 	}
 	
-	@property string path() const { enforceEx!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
+	@property string path() const { enforce!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
 
 	@property bool empty() { return leastSize == 0; }
 
@@ -2030,7 +2030,7 @@ private:
 	
 	void checkConnected()
 	{
-		enforceEx!ConnectionClosedException(connected, "The remote peer has closed the connection.");
+		enforce!ConnectionClosedException(connected, "The remote peer has closed the connection.");
 		//logTrace("Check Connected");
 	}
 		
@@ -2341,7 +2341,7 @@ final class LibasyncUDPConnection : UDPConnection {
 				enforce(socket.status.code == Status.ASYNC, "Error receiving UDP packet");
 				
 				if (timeout != Duration.max) {
-					enforceEx!TimeoutException(timeout > 0.seconds && m_driver.isTimerPending(tm), "UDP receive timeout.");
+					enforce!TimeoutException(timeout > 0.seconds && m_driver.isTimerPending(tm), "UDP receive timeout.");
 				}
 			}
 			getDriverCore().yieldForEvent();

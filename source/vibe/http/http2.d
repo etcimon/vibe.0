@@ -374,13 +374,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		SysTime ref_time = Clock.currTime();
 		while (!m_active)
 		{
-			enforceEx!ConnectionClosedException(connected);
+			enforce!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			m_rx.dataSignalRaised = false;
 			m_rx.signal.wait(20.seconds, m_rx.signal.emitCount);
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
+			enforce!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
 			processExceptions();
 		}
 		
@@ -424,7 +424,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		SysTime ref_time = Clock.currTime(UTC());
 		while (!m_active)
 		{
-			enforceEx!ConnectionClosedException(connected);
+			enforce!ConnectionClosedException(connected);
 			m_rx.waitingHeaders = true;
 			logDebug("Waiting for response headers");
 			m_rx.dataSignalRaised = false;
@@ -433,7 +433,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			//if (Clock.currTime() - ref_time >= 10.seconds) logDebug("FAILURE");
 			m_rx.dataSignalRaised = false;
 			m_rx.waitingHeaders = false;
-			enforceEx!TimeoutException((Clock.currTime(UTC()) - ref_time) < 20.seconds);
+			enforce!TimeoutException((Clock.currTime(UTC()) - ref_time) < 20.seconds);
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
@@ -867,7 +867,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				ub = ub[payload.length .. $];
 
 				if (ub.length > 0 && bufs.length == 0) { // we should wait for more data...
-					enforceEx!ConnectionClosedException(connected);
+					enforce!ConnectionClosedException(connected);
 					m_rx.waitingData = true;
 					m_rx.dataSignalRaised = false;
 					logDebug("HTTP/2: Waiting for more data in read()");
@@ -1128,10 +1128,10 @@ private:
 			if (m_session.m_rx.ex) {
 				throw m_session.m_rx.ex;
 			}
-			enforceEx!StreamExitException(!m_session.m_rx.error, "This stream has ended with GoAway error: " ~ m_session.m_rx.error.to!string);
+			enforce!StreamExitException(!m_session.m_rx.error, "This stream has ended with GoAway error: " ~ m_session.m_rx.error.to!string);
 		}
-		enforceEx!StreamExitException(connected && !m_rx.close, "The remote endpoint has closed this HTTP/2 stream.");
-		enforceEx!StreamExitException(!m_tx.halfClosed, "Cannot write on a finalized stream");
+		enforce!StreamExitException(connected && !m_rx.close, "The remote endpoint has closed this HTTP/2 stream.");
+		enforce!StreamExitException(!m_tx.halfClosed, "Cannot write on a finalized stream");
 
 	}
 
@@ -1510,7 +1510,7 @@ final class HTTP2Session
 
 	HTTP2Stream startRequest()
 	{
-		enforceEx!ConnectionClosedException(!m_closing && m_tcpConn);
+		enforce!ConnectionClosedException(!m_closing && m_tcpConn);
 		return new HTTP2Stream(this, -1, m_defaultChunkSize);
 	}
 

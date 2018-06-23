@@ -260,7 +260,7 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 	import std.traits : hasMember;
 	static if (hasMember!(Stream, "waitForData"))
 		if (max_wait > Duration.zero)
-			enforceEx!TimeoutException(stream.waitForData(max_wait));
+			enforce!TimeoutException(stream.waitForData(max_wait));
 	dst.reserve( max(reserve_bytes, min(max_bytes, stream.leastSize) ));
 
 	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
@@ -270,7 +270,7 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 	while (!stream.empty) {
 		static if (hasMember!(Stream, "waitForData"))
 			if (max_wait > Duration.zero)
-				enforceEx!TimeoutException(stream.waitForData(max_wait));
+				enforce!TimeoutException(stream.waitForData(max_wait));
 		size_t chunk = cast(size_t)min(stream.leastSize, buffer.length);
 		n += chunk;
 		enforce(!max_bytes || n <= max_bytes, "Input data too long!");

@@ -287,7 +287,7 @@ final class WebSocket {
 	void send(scope void delegate(scope OutgoingWebSocketMessage) sender, FrameOpcode frameOpcode = FrameOpcode.text)
 	{
 		m_writeMutex.performLocked!({
-			enforceEx!WebSocketException(!m_sentCloseFrame, "WebSocket connection already actively closed.");
+			enforce!WebSocketException(!m_sentCloseFrame, "WebSocket connection already actively closed.");
 			scope message = new OutgoingWebSocketMessage(m_conn, frameOpcode);
 			scope(exit) message.finalize();
 			sender(message);
@@ -324,7 +324,7 @@ final class WebSocket {
 	{
 		ubyte[] ret;
 		receive((scope message){
-			enforceEx!WebSocketException(!strict || message.frameOpcode == FrameOpcode.binary,
+			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.binary,
 				"Expected a binary message, got "~message.frameOpcode.to!string());
 			ret = message.readAll();
 		});
@@ -335,7 +335,7 @@ final class WebSocket {
 	{
 		string ret;
 		receive((scope message){
-			enforceEx!WebSocketException(!strict || message.frameOpcode == FrameOpcode.text,
+			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.text,
 				"Expected a text message, got "~message.frameOpcode.to!string());
 			ret = message.readAllUTF8();
 		});
@@ -350,7 +350,7 @@ final class WebSocket {
 	{
 		m_readMutex.performLocked!({
 			while (!m_nextMessage) {
-				enforceEx!WebSocketException(connected, "Connection closed while reading message.");
+				enforce!WebSocketException(connected, "Connection closed while reading message.");
 				m_readCondition.wait();
 			}
 			receiver(m_nextMessage);
@@ -510,8 +510,8 @@ final class IncomingWebSocketMessage : InputStream {
 	void read(ubyte[] dst)
 	{
 		while( dst.length > 0 ) {
-			enforceEx!WebSocketException( !empty , "cannot read from empty stream");
-			enforceEx!WebSocketException( leastSize > 0, "no data available" );
+			enforce!WebSocketException( !empty , "cannot read from empty stream");
+			enforce!WebSocketException( leastSize > 0, "no data available" );
 
 			import std.algorithm : min;
 			auto sz = cast(size_t)min(leastSize, dst.length);
@@ -599,7 +599,7 @@ struct Frame {
 		ubyte[2] data2;
 		ubyte[8] data8;
 		stream.read(data2);
-		//enforceEx!WebSocketException( (data[0] & 0x70) != 0, "reserved bits must be unset" );
+		//enforce!WebSocketException( (data[0] & 0x70) != 0, "reserved bits must be unset" );
 		frame.fin = (data2[0] & 0x80) == 0x80;
 		bool masked = (data2[1] & 0x80) == 0x80;
 		frame.opcode = cast(FrameOpcode)(data2[0] & 0xf);
@@ -620,7 +620,7 @@ struct Frame {
 		if( masked ) stream.read(maskingKey);
 
 		//payload
-		enforceEx!WebSocketException(length <= size_t.max);
+		enforce!WebSocketException(length <= size_t.max);
 		frame.payload = new ubyte[cast(size_t)length];
 		stream.read(frame.payload);
 

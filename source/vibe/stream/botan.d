@@ -340,7 +340,7 @@ private:
 		mixin(STrace);
 		ubyte[] ret;
 		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
-			enforceEx!TimeoutException(m_tcp_conn.waitForData(30.seconds), "Handshake could not be handled");
+			enforce!TimeoutException(m_tcp_conn.waitForData(30.seconds), "Handshake could not be handled");
 		size_t len = std.algorithm.min(m_tcp_conn.leastSize(), buf.length);
 		if (len == 0) return null;
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
