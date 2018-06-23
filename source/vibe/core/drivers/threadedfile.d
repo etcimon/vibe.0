@@ -320,10 +320,15 @@ final class ThreadedFileStream : FileStream {
 			//throw new Exception(format("Failed to open '%s' with %s: %d", pathstr, cast(int)mode, errno));
 			throw new Exception("Failed to open file '"~pathstr~"'.");
 		
-		this(m_fileDescriptor, path, mode);
+		load(m_fileDescriptor, path, mode);
 	}
 
 	this(int fd, Path path, FileMode mode)
+	{
+		load(fd, path, mode);
+	}
+
+	void load(int fd, Path path, FileMode mode)
 	{
 		assert(fd >= 0);
 		m_fileDescriptor = fd;
@@ -350,7 +355,7 @@ final class ThreadedFileStream : FileStream {
 		
 		logDebug("opened file %s with %d bytes as %d", path.toNativeString(), m_size, m_fileDescriptor);
 	}
-
+	
 	~this()
 	{
 		close();
