@@ -2415,6 +2415,8 @@ override:
 	{
 		import vibe.core.log : logError;
 		logError("HTTP/2 onInvalidFrame: %s %s %s %s", error_code.to!string, frame.hd.type.to!string, m_session.m_tcpConn.remoteAddress.toAddressString(), reason);
+		if (frame.hd.type == FrameType.SETTINGS)
+			logError("HTTP/2 Settings: %s", frame.settings.iva.to!string());
 		HTTP2Stream stream = getStream(frame.hd.stream_id);
 
 		if (error_code == FrameError.PROTOCOL_ERROR)

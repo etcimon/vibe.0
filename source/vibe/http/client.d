@@ -449,7 +449,6 @@ final class HTTPClient {
 				}
 				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 				if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
-					logTrace("TLS Stream not connected");
 					if (m_conn.tcp) m_conn.tcp.close();
 					m_conn.tcp = null;
 					import vibe.stream.botan : BotanTLSStream;
@@ -967,7 +966,7 @@ final class HTTPClientRequest : HTTPRequest {
 		else headers["Host"] = m_conn.server;
 		headers["User-Agent"] = user_agent;
 
-		if (proxy.host !is null && (proxy.schema != "https" && (proxy.schema == "http" && !conn.forceTLS))){
+		if (proxy.host !is null && (proxy.schema == "http" && !conn.forceTLS)){
 			//headers["Proxy-Connection"] = "keep-alive";
 
 			if (proxy.username.length && proxy.password.length) {

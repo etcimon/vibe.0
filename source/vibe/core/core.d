@@ -1127,9 +1127,11 @@ private class CoreTask : TaskFiber {
 				s_availableFibers.put(this);
 			}
 		} catch(UncaughtException th) {
+			char[10000] str;
 			logCritical("CoreTaskFiber was terminated unexpectedly: %s", th.msg);
 			debug {
-				logError("Full error: %s", th.toString().sanitize());
+				void delegate(const(char[])) del = delegate (const(char[]) str) { logError("Full error: %s", str); };
+				th.toString(del);
 			}
 		}
 	}
@@ -1251,7 +1253,7 @@ private class VibeDriverCore : DriverCore {
 			extrap();
 
 			assert(ctask.state == Fiber.State.TERM);
-			logError("Task terminated with unhandled exception: %s", th.msg);
+			logError("Task terminated with unhandled exception: %s", th.toString().sanitize());
 			logDebug("Full error: %s", th.toString().sanitize);
 
 			// always pass Errors on
@@ -1387,7 +1389,7 @@ alias TaskArgsVariant = VariantN!maxTaskParameterSize;
 /**************************************************************************************************/
 
 private {
-	static if ((void*).sizeof >= 8) enum defaultTaskStackSize = 16*1024*1024;
+	static if ((void*).sizeof >= 8) enum defaultTaskStackSize = 32*1024*1024;
 	else enum defaultTaskStackSize = 512*1024;
 	__gshared VibeDriverCore s_core;
 	__gshared size_t s_taskStackSize = defaultTaskStackSize;

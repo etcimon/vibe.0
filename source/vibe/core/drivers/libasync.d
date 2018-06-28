@@ -883,7 +883,7 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 
 }
 
-align(8)
+align(64)
 final class LibasyncManualEvent : ManualEvent {
 	private {
 		shared(int) m_emitCount = 0;

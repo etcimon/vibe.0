@@ -428,7 +428,7 @@ final class OpenSSLContext : SSLContext {
 
 
 		const(SSL_METHOD)* method;
-		c_long options = SSL_OP_NO_SSLv2|SSL_OP_NO_COMPRESSION|SSL_OP_SINGLE_DH_USE|SSL_OP_SINGLE_ECDH_USE|SSL_OP_ALLOW_NO_DHE_KEX|SSL_OP_NO_RENEGOTIATION;
+		c_long options = SSL_OP_NO_SSLv2|SSL_OP_NO_COMPRESSION|SSL_OP_SINGLE_DH_USE|SSL_OP_SINGLE_ECDH_USE|SSL_OP_ALLOW_NO_DHE_KEX|SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
 		final switch (kind) {
 			case TLSContextKind.client:
 				final switch (ver) {
@@ -467,13 +467,14 @@ final class OpenSSLContext : SSLContext {
 		m_ctx = SSL_CTX_new(method);
         SSL_CTX_set_options(m_ctx, options);
 		if (kind == TLSContextKind.server) {
-			setDHParams();
+			//setDHParams();
 			setECDHCurve();
 			guessSessionIDContext();
 		}
 
 		setCipherList();
         setGroupsList();
+        setSigAlgoList();
 		maxCertChainLength = 9;
 		if (kind == TLSContextKind.client) peerValidationMode = TLSPeerValidationMode.trustedCert;
 		else peerValidationMode = TLSPeerValidationMode.none;
@@ -649,7 +650,7 @@ final class OpenSSLContext : SSLContext {
 	{
 		if (list is null)
 			SSL_CTX_set_cipher_list(m_ctx,
-				"ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS\0".ptr);
+				"ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS");
 		else
 			SSL_CTX_set_cipher_list(m_ctx, toStringz(list));
 	}
@@ -657,9 +658,18 @@ final class OpenSSLContext : SSLContext {
     void setGroupsList(string list = null) 
     {        
 		if (list is null)
-            SSL_CTX_set1_groups_list!()(m_ctx, "P-256+SHA256:RSA-PSS+SHA256\0".ptr);
+            SSL_CTX_set1_groups_list!()(m_ctx, "X25519:P-256");
         else 
             SSL_CTX_set1_groups_list!()(m_ctx, toStringz(list));
+    }
+
+
+    void setSigAlgoList(string list = null) 
+    {        
+		if (list is null)
+            SSL_CTX_set1_sigalgs_list!()(m_ctx, "ECDSA+SHA256:RSA-PSS+SHA256");
+        else 
+            SSL_CTX_set1_sigalgs_list!()(m_ctx, toStringz(list));
     }
 
 	/** Make up a context ID to assign to the SSL context.
@@ -685,8 +695,9 @@ final class OpenSSLContext : SSLContext {
 	 * pem_file = Path to a PEM file containing the DH parameters. Calling
 	 *    this function without argument will restore the default.
 	 */
+     
 	void setDHParams(string pem_file=null)
-	{
+	{/*
 		DH* dh;
 		scope(exit) DH_free(dh);
 
@@ -703,7 +714,7 @@ final class OpenSSLContext : SSLContext {
 			dh = enforce(PEM_read_DHparams(f, null, null, null), "Failed to read dhparams file "~pem_file);
 		}
 
-		SSL_CTX_set_tmp_dh(m_ctx, dh);
+		SSL_CTX_set_tmp_dh(m_ctx, dh);*/
 	}
 
 	/** Set the elliptic curve to use for ECDH cipher.
@@ -874,6 +885,12 @@ void setupOpenSSL()
 	logDebug("Initializing OpenSSL...");
     OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, null);
 	OPENSSL_init_ssl(0, null);
+    
+    EVP_add_cipher(EVP_aes_128_gcm());
+    EVP_add_cipher(EVP_aes_256_gcm());
+    EVP_add_cipher(EVP_chacha20_poly1305());
+    EVP_add_digest(EVP_sha256());
+    EVP_add_digest(EVP_sha384());
 
 	enforce(RAND_poll(), "Fatal: failed to initialize random number generator entropy (RAND_poll).");
 	logDebug("... done.");
