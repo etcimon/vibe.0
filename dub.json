@@ -15,15 +15,16 @@
 	"dependencies": {
 		"libhttp2": { "version": "~>0.2.8" },
 		"botan": {"version": "~>1.12.5" },
-		"libasync": {"version": "~>0.8.2" }
+		"libasync": {"version": "~>0.8.2" },
+		"openssl": {"version": ">=1.1.6+1.0.1g" }
 	},
 
 	"targetType": "library",
 	"mainSourceFile": "source/vibe/appmain.d",
 	"buildRequirements": ["requireBoundsCheck"], 
-	"libs-posix": ["sqlite3", "dl", "pthread","brotlicommon","brotlidec","brotlienc"],
-	"libs-windows-x86_64": ["../vibe.0/lib/sqlite3_x64","../vibe.0/lib/brotli-win64-x64/brotlicommon","../vibe.0/lib/brotli-win64-x64/brotlienc","../vibe.0/lib/brotli-win64-x64/brotlidec"],
-	"libs-windows-x86": ["../vibe.0/lib/sqlite3_x86","../vibe.0/lib/brotli-win32-x86/brotlicommon","../vibe.0/lib/brotli-win32-x86/brotlienc","../vibe.0/lib/brotli-win32-x86/brotlidec"],
+	"libs-posix": ["sqlite3", "dl", "pthread","brotlicommon","brotlidec","brotlienc", "ssl", "crypto"],
+	"libs-windows-x86_64": ["../vibe.0/lib/openssl-win64-x64/libssl","../vibe.0/lib/openssl-win64-x64/libcrypto","../vibe.0/lib/sqlite3_x64","../vibe.0/lib/brotli-win64-x64/brotlicommon","../vibe.0/lib/brotli-win64-x64/brotlienc","../vibe.0/lib/brotli-win64-x64/brotlidec"],
+	"libs-windows-x86": ["../vibe.0/lib/openssl-win32-x86/libssl","../vibe.0/lib/openssl-win32-x86/libcrypto","../vibe.0/lib/sqlite3_x86","../vibe.0/lib/brotli-win32-x86/brotlicommon","../vibe.0/lib/brotli-win32-x86/brotlienc","../vibe.0/lib/brotli-win32-x86/brotlidec"],
 	"versions": ["Have_vibe_d", "EnableDebugger"],
 	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."]
 }

@@ -76,16 +76,24 @@ unittest {
 			or on the server end of the TLS tunnel
 		ver = The TLS protocol used for negotiating the tunnel
 */
-TLSContext createTLSContext(TLSContextKind kind, TLSVersion ver = TLSVersion.any)
+TLSContext createTLSContext(TLSContextKind kind, TLSVersion ver = TLSVersion.any) @trusted
 {
+	if (ver == TLSVersion.tls1_3) {
+		static TLSContext createOpenSSLContext(TLSContextKind kind, TLSVersion ver) {
+			import vibe.stream.openssl;
+			return new OpenSSLContext(kind, ver);
+		}
+		if (!gs_tlsContextFactory)
+			setTLSContextFactory(&createOpenSSLContext);
+	} else {
+		static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
+			import vibe.stream.botan;
+			return new BotanTLSContext(kind);
+		}
 
-	static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
-		import vibe.stream.botan;
-		return new BotanTLSContext(kind);
+		if (!gs_tlsContextFactory)
+			setTLSContextFactory(&createBotanContext);
 	}
-	if (!gs_tlsContextFactory)
-		setTLSContextFactory(&createBotanContext);
-
 	assert(gs_tlsContextFactory !is null, "No TLS context factory registered.");
 	return gs_tlsContextFactory(kind, ver);
 }
@@ -300,8 +308,11 @@ enum TLSContextKind {
 
 enum TLSVersion {
 	any, /// Accept SSLv3 or TLSv1.0 and greater
-	ssl3, /// Accept only SSLv3
-	tls1, /// Accept only TLSv1.0
+	ssl3, /// Accept min. ssl3
+	tls1, /// Accept minimum TLSv1.0
+	tls1_1,
+	tls1_2,
+	tls1_3,
 	dtls1, /// Use DTLSv1.0
 	ssl23 = any, /// Deprecated compatibility alias
 }

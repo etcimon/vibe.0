@@ -1,6 +1,6 @@
 *.[oa]
 *.so
-*.lib
+#*.lib
 *.dll
 .*.sw*
 

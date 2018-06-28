@@ -449,6 +449,7 @@ final class HTTPClient {
 				}
 				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 				if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
+					logTrace("TLS Stream not connected");
 					if (m_conn.tcp) m_conn.tcp.close();
 					m_conn.tcp = null;
 					import vibe.stream.botan : BotanTLSStream;

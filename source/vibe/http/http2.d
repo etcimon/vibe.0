@@ -1852,14 +1852,9 @@ private:
 				if (auto conn = cast(Buffered) m_tlsStream)
 					buf = conn.readBuf(m_rx.buffer[offset .. $]);
 				else {
-					buf = null;
-					// 1 byte read to trigger retrieval of TCP data within the TLS stream
-					buf = m_rx.buffer[offset .. offset + 1];
-					m_tlsStream.read(buf);
-					// receive the rest if any available
-					size_t len = std.algorithm.min(m_tlsStream.dataAvailableForRead(), m_rx.buffer.length - offset);
+					size_t len = std.algorithm.min(m_tlsStream.leastSize(), m_rx.buffer.length - offset);
 					if (len > 0)
-						buf = m_rx.buffer[offset + 1 .. offset + 1 + len];
+						buf = m_rx.buffer[offset .. offset + len];
 					m_tlsStream.read(buf);
 
 				}
