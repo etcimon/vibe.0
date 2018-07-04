@@ -1973,10 +1973,10 @@ private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
 				static if (escape_unicode) {
 					if (ch > 0x20 && ch < 0x80) dst.put(ch);
 					else {
-						import std.utf : decode;
+						import std.utf : decode,UseReplacementDchar;
 						char[13] buf;
 						int len;
-						dchar codepoint = decode(s, pos);
+						dchar codepoint = decode!(UseReplacementDchar.Yes)(s, pos);
 						import std.c.stdio : sprintf;
 						/* codepoint is in BMP */
 						if(codepoint < 0x10000)
