@@ -1976,7 +1976,7 @@ private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
 						import std.utf : decode,UseReplacementDchar;
 						char[13] buf;
 						int len;
-						dchar codepoint = decode!(UseReplacementDchar.Yes)(s, pos);
+						dchar codepoint = decode!(UseReplacementDchar.yes)(s, pos);
 						import std.c.stdio : sprintf;
 						/* codepoint is in BMP */
 						if(codepoint < 0x10000)
