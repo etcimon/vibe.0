@@ -1481,10 +1481,11 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			}
 			checkConnected();
 			offset += conn.send(bytes[offset .. $]);
-			
-			if (conn.hasError) {
+			if (conn.status.code == Status.RETRY)
+				continue;
+			else if (conn.hasError && conn.status.code != Status.RETRY) {
 				throw new ConnectionClosedException(conn.error);
-			}
+			} 
 			first = false;
 		} while (offset != len);
 	}
@@ -1566,7 +1567,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		//logTrace("TryReadBuf with m_buffer: %s", m_buffer.length);
 		if (m_buffer) {
 			ubyte[] buf = m_buffer[m_slice.length .. $];
-			uint ret = conn.recv(buf);
+			uint ret;
+			RETRY: ret = conn.recv(buf);
+			if (conn.status.code == Status.RETRY) goto RETRY;
 			//logTrace("Received: %s", buf[0 .. ret]);
 			// check for overflow
 			if (ret == buf.length) {
@@ -1958,7 +1961,9 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 			checkConnected();
 			offset += conn.send(bytes[offset .. $]);
 			
-			if (conn.hasError) {
+			if (conn.status.code == Status.RETRY)
+				continue;
+			else if (conn.hasError) {
 				throw new ConnectionClosedException(conn.error);
 			}
 			first = false;
@@ -2296,6 +2301,8 @@ final class LibasyncUDPConnection : UDPConnection {
 			}
 			if (socket.status.code == Status.ASYNC) { 
 				getDriverCore().yieldForEvent();
+			} else if (socket.status.code == Status.RETRY) {
+				continue;
 			}
 			
 			else break;
@@ -2340,6 +2347,8 @@ final class LibasyncUDPConnection : UDPConnection {
 				if( peer_address ) *peer_address = from;
 				return buf[0 .. ret];
 			}
+			else if (socket.status.code == Status.RETRY)
+				continue;
 			else if( socket.status.code != Status.OK ){
 				auto err = socket.status.text;
 				logDebug("UDP recv err: %s", err);
