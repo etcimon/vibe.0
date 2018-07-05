@@ -1475,15 +1475,16 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		size_t offset;
 		size_t len = bytes.length;
 		m_bytesSend += len;
+		int retry_limit;
 		do {
 			if (!first) {
 				getDriverCore().yieldForEvent();
 			}
 			checkConnected();
 			offset += conn.send(bytes[offset .. $]);
-			if (conn.status.code == Status.RETRY)
+			if (conn.status.code == Status.RETRY && ++retry_limit < 100)
 				continue;
-			else if (conn.hasError && conn.status.code != Status.RETRY) {
+			else if (conn.hasError) {
 				throw new ConnectionClosedException(conn.error);
 			} 
 			first = false;
@@ -1568,8 +1569,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (m_buffer) {
 			ubyte[] buf = m_buffer[m_slice.length .. $];
 			uint ret;
+			int retry_limit;
 			RETRY: ret = conn.recv(buf);
-			if (conn.status.code == Status.RETRY) goto RETRY;
+			if (conn.status.code == Status.RETRY &&  && ++retry_limit < 100) goto RETRY;
 			//logTrace("Received: %s", buf[0 .. ret]);
 			// check for overflow
 			if (ret == buf.length) {
@@ -1609,6 +1611,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		logTrace("OnRead with %s", m_readBuffer.freeSpace);
 
 
+		int retry_limit;
 		while( m_readBuffer.freeSpace > 0 ) {
 			ubyte[] dst = m_readBuffer.peekDst();
 			assert(dst.length <= int.max);
@@ -1631,7 +1634,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
 			}
-			else if (conn.status.code == Status.RETRY) {
+			else if (conn.status.code == Status.RETRY && ++retry_limit < 100) {
 				continue;
 			}
 			else if (conn.status.code == Status.ABORT) {
@@ -1954,6 +1957,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		bool first = true;
 		size_t offset;
 		size_t len = bytes.length;
+		int retry_limit;
 		do {
 			if (!first) {
 				getDriverCore().yieldForEvent();
@@ -1961,7 +1965,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 			checkConnected();
 			offset += conn.send(bytes[offset .. $]);
 			
-			if (conn.status.code == Status.RETRY)
+			if (conn.status.code == Status.RETRY && ++retry_limit < 100)
 				continue;
 			else if (conn.hasError) {
 				throw new ConnectionClosedException(conn.error);
@@ -2046,7 +2050,7 @@ private:
 		m_mustRecv = true; // assume we didn't receive everything
 
 		logTrace("OnRead with %s", m_readBuffer.freeSpace);
-				
+		int retry_limit;
 		while( m_readBuffer.freeSpace > 0 ) {
 			ubyte[] dst = m_readBuffer.peekDst();
 			assert(dst.length <= int.max);
@@ -2068,7 +2072,7 @@ private:
 			if (conn.status.code == Status.ASYNC) {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
-			} else if (conn.status.code == Status.RETRY)
+			} else if (conn.status.code == Status.RETRY && ++retry_limit < 100)
 				continue;
 			else if (conn.status.code == Status.ABORT) {
 				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
@@ -2341,13 +2345,14 @@ final class LibasyncUDPConnection : UDPConnection {
 		if( buf.length == 0 ) buf.length = 65507;
 		NetworkAddress from;
 		from.family = localAddress.family;
+		int retry_limit;
 		while(true){
 			auto ret = socket.recvFrom(buf, from);
 			if( ret > 0 ){
 				if( peer_address ) *peer_address = from;
 				return buf[0 .. ret];
 			}
-			else if (socket.status.code == Status.RETRY)
+			else if (socket.status.code == Status.RETRY && ++retry_limit < 100)
 				continue;
 			else if( socket.status.code != Status.OK ){
 				auto err = socket.status.text;
