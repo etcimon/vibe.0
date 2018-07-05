@@ -1628,6 +1628,9 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
 			}
+			else if (conn.status.code == Status.RETRY) {
+				continue;
+			}
 			else if (conn.status.code == Status.ABORT) {
 				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
 			}
@@ -2060,7 +2063,8 @@ private:
 			if (conn.status.code == Status.ASYNC) {
 				m_mustRecv = false; // we'll have to wait
 				break; // the kernel's buffer is empty
-			}
+			} else if (conn.status.code == Status.RETRY)
+				continue;
 			else if (conn.status.code == Status.ABORT) {
 				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
 			}
@@ -2293,6 +2297,7 @@ final class LibasyncUDPConnection : UDPConnection {
 			if (socket.status.code == Status.ASYNC) { 
 				getDriverCore().yieldForEvent();
 			}
+			
 			else break;
 		}
 
