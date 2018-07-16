@@ -1571,7 +1571,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			uint ret;
 			int retry_limit;
 			RETRY: ret = conn.recv(buf);
-			if (conn.status.code == Status.RETRY &&  && ++retry_limit < 100) goto RETRY;
+			if (conn.status.code == Status.RETRY && ++retry_limit < 100) goto RETRY;
 			//logTrace("Received: %s", buf[0 .. ret]);
 			// check for overflow
 			if (ret == buf.length) {
