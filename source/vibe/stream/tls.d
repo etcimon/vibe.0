@@ -256,6 +256,14 @@ interface TLSContext {
 	*/
 	void setCipherList(string list = null);
 
+	/** Set the list of ciphersuite specifications to use for TLS 1.3 tunnels.
+
+		The list must be a colon separated list of cipher
+		specifications as accepted by OpenSSL. Calling this function
+		without argument will restore the default.
+	*/
+	void setCipherSuites(string list = null);
+
 	/** Set params to use for DH cipher.
 	 *
 	 * By default the 2048-bit prime from RFC 3526 is used.

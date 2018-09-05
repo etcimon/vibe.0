@@ -554,6 +554,7 @@ public:
 	}
 
 	void setCipherList(string list = null) { assert(false, "Incompatible interface method requested"); }
+	void setCipherSuites(string list = null) { assert(false, "Incompatible interface method requested"); }
 	
 	/** Set params to use for DH cipher.
 	 *

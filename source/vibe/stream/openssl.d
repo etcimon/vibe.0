@@ -473,6 +473,7 @@ final class OpenSSLContext : SSLContext {
 		}
 
 		setCipherList();
+		setCipherSuites();
         setGroupsList();
         setSigAlgoList();
 		maxCertChainLength = 9;
@@ -653,6 +654,15 @@ final class OpenSSLContext : SSLContext {
 				"ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS");
 		else
 			SSL_CTX_set_cipher_list(m_ctx, toStringz(list));
+	}
+
+	void setCipherSuites(string list = null)
+	{
+		if (list is null)
+			SSL_CTX_set_ciphersuites(m_ctx,
+				"TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256");
+		else
+			SSL_CTX_set_ciphersuites(m_ctx, toStringz(list));
 	}
 
     void setGroupsList(string list = null) 
