@@ -1325,7 +1325,9 @@ final class HTTPClientResponse : HTTPResponse {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
 			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
-			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); return; }
+			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Connection Closed during header read"); throw cc; }
+			catch (TimeoutException e) { logTrace("Connection was timed out"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); throw e; }
+			
 			this.statusPhrase = httpStatusText(this.statusCode);
 		}
 		else {

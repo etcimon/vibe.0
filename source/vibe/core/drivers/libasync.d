@@ -1106,7 +1106,7 @@ final class LibasyncManualEvent : ManualEvent {
 		if (maxID <= s_eventWaiters.length)
 		{
 			logError("Expanding from %d to %d for maxID: %d, m_instance: %d", s_eventWaiters.length, s_eventWaiters.capacity, maxID, instanceID);
-			assert(0);
+			throw new Exception("Broken ManualEvent");
 		}
 		foreach (i; s_ev_len .. s_ev_cap) {
 			Vector!(Task, ThreadMem) waiter_tasks;
@@ -2395,7 +2395,8 @@ final class LibasyncUDPConnection : UDPConnection {
 /* The following is used for LibasyncManualEvent */
 
 Vector!(memutils.vector.Array!(Task, ThreadMem), ThreadMem) s_eventWaiters; // Task list in the current thread per instance ID
-__gshared Vector!(uint, Malloc) gs_availID;
+version(Win32) __gshared Vector!(uint, AppMem) gs_availID;
+else __gshared Vector!(uint, Malloc) gs_availID;
 __gshared uint gs_maxID;
 __gshared core.sync.mutex.Mutex gs_mutex;
 

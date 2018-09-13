@@ -630,6 +630,9 @@ final class OpenSSLContext : SSLContext {
 		auto newctx = cast(OpenSSLContext)ctx.m_sniCallback(servername.to!string);
 		if (!newctx) return SSL_TLSEXT_ERR_NOACK;
 		SSL_set_SSL_CTX(s, newctx.m_ctx);
+		
+		enum SSL_OP_ENABLE_MIDDLEBOX_COMPAT = 0x00100000U;
+		SSL_clear_options(s, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
 		return SSL_TLSEXT_ERR_OK;
 	}
 
