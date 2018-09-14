@@ -1429,7 +1429,7 @@ final class HTTPClientResponse : HTTPResponse {
 
 	~this()
 	{
-		debug if (m_client && m_client.m_state.responding) { import std.stdio; writefln("WARNING: HTTPClientResponse not fully processed before being finalized"); }
+		version(VibeNoDebug) {} else debug if (m_client && m_client.m_state.responding) { import std.stdio; writefln("WARNING: HTTPClientResponse not fully processed before being finalized"); }
 		try if (m_client && m_client.m_state.responding) finalize(); catch(Throwable) {}
 	}
 

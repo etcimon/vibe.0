@@ -193,7 +193,7 @@ final class OpenSSLStream : TLSStream, Buffered
 		return m_tcpConn.waitForData(timeout);
 	}
 	
-	@property bool connected() const {         
+	@property bool connected() const { 
 		auto ret = SSL_peek(cast(ssl_st*)m_tls, cast(void*)m_peekBuffer.ptr, 1);
         return m_tls !is null && m_tcpConn.connected && ret != 0; 
     }

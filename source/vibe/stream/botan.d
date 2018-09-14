@@ -383,14 +383,6 @@ private:
 	void delegate(scope TLSStream) m_before_handshake;
 	void delegate(scope TLSStream) m_after_handshake;
 
-	~this() {
-		if (m_owner != Thread.getThis()) return;
-		m_credentials.destroy();
-		if (m_policy !is gs_default_policy) m_policy.destroy();
-		m_offer_version.destroy();
-		//m_session_manager.destroy();
-	}
-
 	void onBeforeHandshake(scope TLSStream tls_stream) {
 		if (m_before_handshake)
 			m_before_handshake(tls_stream);

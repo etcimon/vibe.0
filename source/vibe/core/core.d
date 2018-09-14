@@ -1389,7 +1389,7 @@ alias TaskArgsVariant = VariantN!maxTaskParameterSize;
 /**************************************************************************************************/
 
 private {
-	static if ((void*).sizeof >= 8) enum defaultTaskStackSize = 32*1024*1024;
+	static if ((void*).sizeof >= 8) enum defaultTaskStackSize = 1024*1024;
 	else enum defaultTaskStackSize = 512*1024;
 	__gshared VibeDriverCore s_core;
 	__gshared size_t s_taskStackSize = defaultTaskStackSize;
