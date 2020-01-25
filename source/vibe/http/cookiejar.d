@@ -11,7 +11,7 @@ import vibe.core.log;
 import vibe.http.common;
 import vibe.utils.memory;
 import vibe.utils.array;
-import vibe.utils.dictionarylist : icmp2;
+import vibe.utils.string : icmp2;
 import vibe.core.file;
 import vibe.inet.message;
 import vibe.stream.memory;

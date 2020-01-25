@@ -520,7 +520,7 @@ private template FilterToType(alias PRED, T...) {
 }
 private template isRedisType(alias F) { import std.algorithm; enum isRedisType = !__traits(identifier, F).among("_id", "id") && is(typeof(&toRedis!(typeof(F)))); }
 private template isNonRedisType(alias F) { enum isNonRedisType = !isRedisType!F; }
-static assert(isRedisType!(int.init) && isRedisType!(string.init));
+//static assert(isRedisType!(int.init) && isRedisType!(string.init));
 
 private auto toTuple(size_t N, T)(T[N] values)
 {

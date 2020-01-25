@@ -538,7 +538,7 @@ final class SyslogLogger : Logger {
 	///
 	private enum NILVALUE = "-";
 	///
-	private enum BOM = x"EFBBBF";
+	private enum BOM = std.conv.hexString!"EFBBBF";
 
 	/**
 		Construct a SyslogLogger.
