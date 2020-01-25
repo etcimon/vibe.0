@@ -14,8 +14,8 @@
 
 	"dependencies": {
 		"libhttp2": { "version": "~>1.0.0" },
-		"botan": {"version": "~>1.12.5" },
-		"libasync": {"version": "~>0.8.2" },
+		"botan": {"version": "~>1.12.11" },
+		"libasync": {"version": "~>0.8.5" },
 		"openssl": {"version": "~>2.0.1+1.1.0h" }
 	},
 

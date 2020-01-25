@@ -1081,7 +1081,7 @@ private nothrow extern(C)
 		return 1;
 	}
 
-	int onBioRead(BIO *b, char *outb, size_t outlen, size_t* read_bytes)
+	int onBioRead(BIO *b, char *outb, int outlen)
 	{
 		auto stream = cast(OpenSSLStream)b.ptr;
 
@@ -1096,7 +1096,7 @@ private nothrow extern(C)
 		return cast(int)outlen;
 	}
 
-	int onBioWrite(BIO *b, const(char) *inb, size_t inlen, size_t* written)
+	int onBioWrite(BIO *b, const(char) *inb, int inlen)
 	{
 		auto stream = cast(OpenSSLStream)b.ptr;
 		try {
@@ -1105,7 +1105,6 @@ private nothrow extern(C)
 			stream.m_exceptions ~= e;
 			return -1;
 		}
-        *written = inlen;
 		return cast(int)inlen;
 	}
 
@@ -1142,8 +1141,7 @@ private nothrow extern(C)
 
 	int onBioPuts(BIO *b, const(char) *s)
 	{
-        size_t written;
-		return onBioWrite(b, s, cast(size_t)strlen(s), &written);
+		return onBioWrite(b, s, cast(size_t)strlen(s));
 	}
 
 }
@@ -1152,14 +1150,27 @@ private:
 
 BIO_METHOD s_bio_methods = {
 	57, "SslStream",&onBioWrite,
-	null,&onBioRead,
-    null,
+	&onBioRead,
 	&onBioPuts,
 	null, // &onBioGets
 	&onBioCtrl,
 	&onBioNew,
 	&onBioFree,
 	null, // &onBioCallbackCtrl
-};
+};/*
+struct bio_method_st {
+	int type;
+	const(char)* name;
+	ExternC!(int function(BIO*, const(char)*, int)) bwrite;
+	ExternC!(int function(BIO*, char*, int)) bread;
+	ExternC!(int function(BIO*, const(char)*)) bputs;
+	ExternC!(int function(BIO*, char*, int)) bgets;
+	ExternC!(c_long function(BIO*, int, c_long, void*)) ctrl;
+	ExternC!(int function(BIO*)) create;
+	ExternC!(int function(BIO*)) destroy;
+        ExternC!(c_long function(BIO*, int, bio_info_cb*)) callback_ctrl;
+	}
+alias bio_method_st BIO_METHOD;*/
+
 
 static int gs_userDataIdx = -1;
