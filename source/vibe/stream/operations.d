@@ -16,7 +16,9 @@ import vibe.utils.memory;
 
 import std.algorithm;
 import std.array;
-import std.datetime;
+import std.datetime.date;
+import std.datetime.interval;
+import std.datetime.stopwatch;
 import std.exception;
 import std.range : isOutputRange;
 import std.typecons;

@@ -5127,7 +5127,7 @@ class Table : Element {
 			return position;
 		}
 		
-		foreach(int i, rowElement; rows) {
+		foreach(size_t i, rowElement; rows) {
 			auto row = cast(TableRow) rowElement;
 			assert(row !is null);
 			assert(i < ret.length);
@@ -5144,7 +5144,7 @@ class Table : Element {
 				foreach(int j; 0 .. cell.colspan) {
 					foreach(int k; 0 .. cell.rowspan)
 						// if the first row, always append.
-						insertCell(k + i, k == 0 ? -1 : position, cell);
+						insertCell(cast(int)(k + i), k == 0 ? -1 : position, cell);
 					position++;
 				}
 			}

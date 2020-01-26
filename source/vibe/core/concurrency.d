@@ -149,7 +149,10 @@ struct ScopedLock(T)
 	*/
 	@property inout(T) unsafeGet() inout nothrow { return m_ref; }
 
-	inout(T) opDot() inout nothrow { return m_ref; }
+	inout(T) fallthrough() inout nothrow { return m_ref; }
+
+	alias fallthrough this;
+
 	//pragma(msg, "In ScopedLock!("~T.stringof~")");
 	//pragma(msg, isolatedRefMethods!T());
 //	mixin(isolatedAggregateMethodsString!T());
@@ -765,8 +768,7 @@ private mixin template isolatedArrayMethods(T, bool mutableRef = true)
 	static if( mutableRef ){
 		@property void length(size_t value) pure { m_array.length = value; }
 
-
-		void opCatAssign(T item) pure
+		void opOpAssign(string op)(T item) pure if (op == "~") 
 		{
 			static if( isCopyable!T ) m_array ~= item;
 			else {
@@ -774,8 +776,8 @@ private mixin template isolatedArrayMethods(T, bool mutableRef = true)
 				m_array[$-1] = item;
 			}
 		}
-
-		void opCatAssign(IsolatedArray!T array) pure
+		
+		void opOpAssign(string op)(IsolatedArray!T array) pure if (op == "~") 
 		{
 			static if( isCopyable!T ) m_array ~= array.m_array;
 			else {

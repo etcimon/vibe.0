@@ -130,6 +130,8 @@ import std.uuid;
 import memutils.utils : ThreadMem;
 import memutils.vector;
 
+extern(C) bool gc_inFinalizer();
+
 /**
 Data row returned from database servers.
 
@@ -2199,7 +2201,7 @@ class PGParameters
 		
 		int[] oids = new int[params.length];
 		
-		foreach (int i, key; keys)
+		foreach (size_t i, key; keys)
 		{
 			oids[i] = params[key].type;
 		}
@@ -2631,6 +2633,11 @@ class PostgresDB {
 	
 	private PGConnection createConnection()
 	{
-		return new PGConnection(m_params);
+		auto pgconn = new PGConnection(m_params);
+		if (auto ptr = "statement_timeout" in m_params) {
+			auto stmt = scoped!PGCommand(pgconn, "SET statement_timeout = " ~ (*ptr));
+			stmt.executeNonQuery();
+		}
+		return pgconn;
 	}
 }

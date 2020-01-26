@@ -15,7 +15,8 @@ import vibe.core.stream;
 
 import std.exception;
 import std.string;
-import std.datetime : StopWatch;
+import std.datetime.stopwatch : StopWatch;
+import std.datetime;
 import memutils.utils;
 import memutils.unique;
 
@@ -121,7 +122,7 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 				ulong diff = conn.received - bytes_start;
 				sw.stop();
 				import std.algorithm : max;
-				ulong msecs = max(1, cast(ulong)sw.peek().msecs);
+				ulong msecs = max(1, cast(ulong)sw.peek().total!"msecs");
 				poll_speed(cast(ulong) ((diff/msecs) * 8));
 			}
 			fil.write(buffer[0 .. chunk]);

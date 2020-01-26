@@ -10,7 +10,7 @@
 */
 module vibe.utils.memory;
 
-import vibe.core.log;
+//import vibe.core.log;
 
 import core.exception : OutOfMemoryError;
 import core.stdc.stdlib;
@@ -630,7 +630,7 @@ template FreeListObjectAlloc(T, bool USE_GC = true, bool INIT = true)
 				static if (is(TR == T*)) .destroy(*objc);//typeid(T).destroy(cast(void*)obj);
 				else .destroy(objc);
 			} catch (Exception e) {
-				logError("%s", e.toString());
+				//logError("%s", e.toString());
 			}
 		}
 		static if( hasIndirections!T ) GC.removeRange(cast(void*)obj);
