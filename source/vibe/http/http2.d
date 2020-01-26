@@ -13,11 +13,13 @@ import vibe.core.driver;
 import vibe.core.trace;
 import vibe.utils.memory;
 import vibe.utils.dictionarylist;
+import vibe.utils.string;
 import vibe.inet.message;
 import vibe.inet.url;
 import vibe.http.status;
 import vibe.http.common;
 import vibe.utils.array;
+import vibe.utils.string;
 import vibe.stream.memory;
 import vibe.stream.wrapper;
 //import vibe.core.log;
@@ -36,6 +38,7 @@ import memutils.vector;
 import memutils.utils;
 
 import core.thread : Thread;
+import core.stdc.stdio;
 import std.base64;
 import std.datetime;
 import std.conv : to;
@@ -255,7 +258,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 
 			void freeHeaders() {
-				import vibe.utils.dictionarylist : icmp2;
 				if (headers) { // When the headers are outbound, strings are references only except cookies
 					foreach (HeaderField hf; headers) {
 						if (icmp2(hf.name, "Cookie") == 0) Mem.free(hf.value);
@@ -368,7 +370,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	body
 	{
 		mixin(Trace);
-		import vibe.utils.dictionarylist : icmp2;
 		acquireReader();
 		scope(exit) releaseReader();
 		SysTime ref_time = Clock.currTime();
@@ -456,7 +457,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	void writeHeader(in HTTPStatus status, const ref InetHeaderMap header, ref Cookie[string] cookies)
 	in { enforce(m_session); assert(m_session.isServer); }
 	body {
-		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
@@ -472,7 +472,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 		}
 		char[] status_str = Mem.alloc!(char[])(3);
-		import std.c.stdio : sprintf;
 		sprintf(status_str.ptr, "%d\0", cast(int)status);
 		// write status code
 		headers ~= HeaderField(":status", cast(string) status_str);
@@ -516,7 +515,6 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	void writeHeader(in string path, in string scheme, in HTTPMethod method, const ref InetHeaderMap header, in CookieStore cookie_jar, bool concatenate_cookies)
 	in { enforce(m_session); assert(!m_session.isServer); }
 	body {
-		import vibe.utils.dictionarylist : icmp2;
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
@@ -1266,7 +1264,8 @@ struct HTTP2Settings {
 		iva[4].value = maxHeadersListSize;
 		
 		Settings settings = Settings(FrameFlags.NONE, iva);
-		import libhttp2.constants : FRAME_HDLEN;
+		//import libhttp2.constants : FRAME_HDLEN;
+		const FRAME_HDLEN = 9;
 		Buffers bufs = Mem.alloc!Buffers(2048, 1, FRAME_HDLEN + 1);
 		scope(exit) {
 			bufs.free();

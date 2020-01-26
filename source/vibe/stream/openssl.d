@@ -7,6 +7,7 @@
 */
 module vibe.stream.openssl;
 
+pragma(msg, "***********You must use OpenSSL from https://github.com/etcimon/openssl due to bio_method_st updates in 1.1.x*************");
 import vibe.core.log;
 import vibe.core.net;
 import vibe.core.stream;
@@ -1035,7 +1036,7 @@ private nothrow extern(C)
 
 		string alpn;
 
-		try { alpn = ctx.m_alpnCallback(alpn_list.data); } catch { }
+		try { alpn = ctx.m_alpnCallback(alpn_list.data); } catch(Throwable e) {}
 		if (alpn) {
 			i = 0;
 			while (i < inlen)

@@ -284,6 +284,8 @@ unittest {
 unittest {
 	import vibe.data.json;
 	import vibe.data.serialization;
+	import std.string;
+	import std.array : appender;
 
 	static assert(isCustomSerializable!(DictionaryList!int));
 

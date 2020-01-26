@@ -12,7 +12,7 @@ module vibe.db.redis.types;
 import core.time : Duration, msecs, seconds;
 import std.datetime : SysTime;
 import vibe.db.redis.redis;
-
+import std.conv;
 
 /** Returns a handle to a string type value.
 */

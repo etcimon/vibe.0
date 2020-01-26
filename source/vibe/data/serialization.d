@@ -94,7 +94,7 @@ import vibe.internal.meta.traits;
 import vibe.internal.meta.uda;
 
 import std.array : Appender, appender;
-import std.conv : to;
+import std.conv;
 import std.exception : enforce;
 import std.traits;
 import std.typetuple;
@@ -136,8 +136,8 @@ unittest {
 	test.text = "Hello";
 
 	Json serialized = serialize!JsonSerializer(test);
-	assert(serialized.value.get!int == 12);
-	assert(serialized.text.get!string == "Hello");
+	assert(serialized["value"].get!int == 12);
+	assert(serialized["text"].get!string == "Hello");
 }
 
 unittest {
@@ -240,8 +240,8 @@ unittest {
 	}
 
 	Json serialized = Json.emptyObject;
-	serialized.value = 12;
-	serialized.text = "Hello";
+	serialized["value"] = 12;
+	serialized["text"] = "Hello";
 
 	Test test = deserialize!(JsonSerializer, Test)(serialized);
 	assert(test.value == 12);

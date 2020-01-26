@@ -216,8 +216,12 @@ unittest {
 	import vibe.inet.message;
 	import std.datetime;
 	void testSmtp(string host, ushort port){
+		
+        version (Posix) alias getTimeZone = PosixTimeZone.getTimeZone;
+        else version (Windows) alias getTimeZone = WindowsTimeZone.getTimeZone;
+
 		Mail email = new Mail;
-		email.headers["Date"] = Clock.currTime(TimeZone.getTimeZone("America/New_York")).toRFC822DateTimeString(); // uses UFCS
+		email.headers["Date"] = Clock.currTime(getTimeZone("America/New_York")).toRFC822DateTimeString(); // uses UFCS
 		email.headers["Sender"] = "Domain.com Contact Form <no-reply@domain.com>";
 		email.headers["From"] = "John Doe <joe@doe.com>";
 		email.headers["To"] = "Customer Support <support@domain.com>";

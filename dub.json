@@ -26,5 +26,7 @@
 	"libs-windows-x86_64": ["../vibe.0/lib/openssl-win64-x64/libssl","../vibe.0/lib/openssl-win64-x64/libcrypto","../vibe.0/lib/sqlite3_x64","../vibe.0/lib/brotli-win64-x64/brotlicommon","../vibe.0/lib/brotli-win64-x64/brotlienc","../vibe.0/lib/brotli-win64-x64/brotlidec"],
 	"libs-windows-x86": ["../vibe.0/lib/openssl-win32-x86/libssl","../vibe.0/lib/openssl-win32-x86/libcrypto","../vibe.0/lib/sqlite3_x86","../vibe.0/lib/brotli-win32-x86/brotlicommon","../vibe.0/lib/brotli-win32-x86/brotlienc","../vibe.0/lib/brotli-win32-x86/brotlidec"],
 	"versions": ["Have_vibe_d", "EnableDebugger"],
-	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."]
+	"-ddoxFilterArgs": ["--unittest-examples", "--min-protection=Protected", "--ex", "vibe.core.drivers.", "--ex", "vibe.internal."],
+	"libs-windows": ["psapi", "Crypt32"],
+	"lflags-windows": ["/verbose:lib", "/nodefaultlib:msvcrt", "/nodefaultlib:vcruntime"]
 }

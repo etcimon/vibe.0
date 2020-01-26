@@ -1454,8 +1454,8 @@ unittest {
 	s.a = 2;
 
 	auto j = serializeToJson(s);
-	assert(j.a.type == Json.Type.int_);
-	assert(j.b.type == Json.Type.null_);
+	assert(j["a"].type == Json.Type.int_);
+	assert(j["b"].type == Json.Type.null_);
 
 	auto t = deserializeJson!S(j);
 	assert(!t.a.isNull() && t.a == 2);
@@ -1867,10 +1867,10 @@ void writeJsonString(R, bool pretty = false)(ref R dst, in Json json, size_t lev
 
 unittest {
 	auto a = Json.emptyObject;
-	a.a = Json.emptyArray;
-	a.b = Json.emptyArray;
-	a.b ~= Json(1);
-	a.b ~= Json.emptyObject;
+	a["a"] = Json.emptyArray;
+	a["b"] = Json.emptyArray;
+	a["b"] ~= Json(1);
+	a["b"] ~= Json.emptyObject;
 
 	assert(a.toString() == `{"a":[],"b":[1,{}]}` || a.toString() == `{"b":[1,{}],"a":[]}`);
 	assert(a.toPrettyString() ==
@@ -1977,7 +1977,7 @@ private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
 						char[13] buf;
 						int len;
 						dchar codepoint = decode!(UseReplacementDchar.yes)(s, pos);
-						import std.c.stdio : sprintf;
+						import core.stdc.stdio : sprintf;
 						/* codepoint is in BMP */
 						if(codepoint < 0x10000)
 						{

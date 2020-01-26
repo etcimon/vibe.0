@@ -24,7 +24,7 @@ import std.array;
 import std.conv;
 import std.exception;
 import std.range;
-import std.string;
+import std.string : format, toStringz, strip;
 import std.traits;
 import std.typecons;
 import std.typetuple;
@@ -1977,7 +1977,6 @@ The data retrived from a column, stored internally as a $(D Variant).
 +/
 struct ColumnData
 {
-	import std.traits;
 	private Variant variant;
 	
 	/++

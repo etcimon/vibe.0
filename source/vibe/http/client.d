@@ -567,7 +567,7 @@ final class HTTPClient {
 			// the event loop may take time, so make sure no other streams get started
 			m_http2Context.closing = true;
 
-			import libhttp2.frame : FrameError;
+			import libhttp2.types : FrameError;
 			if (m_state.http2Stream && m_state.http2Stream.connected) {
 				if (notify)
 					m_state.http2Stream.notifyClose();

@@ -145,7 +145,7 @@ HTTPServerRequestDelegateS serveCapture() {
 				res.bodyWriter.write(format("\n[%s]\n%s\n", keyword, str));
 			}
 			catch (Exception e) {
-				try logError("%s", e.toString()); catch {}
+				try logError("%s", e.toString()); catch(Throwable e) {}
 			}
 		};
 		settings.finalize = () nothrow { 
@@ -153,7 +153,7 @@ HTTPServerRequestDelegateS serveCapture() {
 			try {
 				ev.emit(); 
 			}
-			catch (Exception e) { try logError("%s", e.toString()); catch {} }
+			catch (Exception e) { try logError("%s", e.toString()); catch(Throwable e) {} }
 		};
 
 		TaskDebugger.startCapturing(settings);
@@ -181,5 +181,5 @@ void setupDebugger(URLRouter router) nothrow {
 		router.get("/debugger/allocations/", serveAllocations());
 		router.get("/debugger/task_manager/", serveTaskManager());
 		router.post("/debugger/capture/", serveCapture());
-	} catch (Exception e) { try logError("%s", e.toString()); catch {} }
+	} catch (Exception e) { try logError("%s", e.toString()); catch(Throwable e) {} }
 }

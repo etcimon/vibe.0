@@ -1,6 +1,8 @@
 ﻿module vibe.core.trace;
 
 import std.stdio;
+import std.algorithm : canFind;
+
 /// Appends provided string for a breadcrumbs-style naming of the active Task
 string Name(string name)() {
 	version(VibeNoDebug) {
@@ -36,6 +38,7 @@ public import vibe.core.task;
 
 // Trace is provided by vibe.core.core
 public import vibe.core.core : Trace;
+import vibe.core.log;
 import memutils.hashmap;
 import memutils.rbtree;
 import memutils.utils;
@@ -69,7 +72,7 @@ nothrow static:
 				}
 			}
 			return ret.move;
-		} catch (Exception e) { try writeln("Couldn't get call stack"); catch {} }
+		} catch (Exception e) { try writeln("Couldn't get call stack"); catch(Throwable e) {} }
 		return Vector!string(["No call stack"]);
 	}
 
@@ -122,7 +125,7 @@ nothrow static:
 			ptr.breadcrumbs ~= bcrumb;
 			tryCapture(*ptr);
 		}
-		catch (Exception e) { try writeln("Error: ", e.msg); catch {} }
+		catch (Exception e) { try writeln("Error: ", e.msg); catch(Throwable e) {} }
 	}
 
 	string[] getBreadcrumbs(Task t = Task.getThis()) {
@@ -192,7 +195,7 @@ nothrow static:
 			auto settings = s_captureSettings.getValuesAt(cmp);
 			import std.range : front;
 			settings.front.detachAll();
-		} catch (Exception e) { try writeln(e.toString()); catch {} }
+		} catch (Exception e) { try writeln(e.toString()); catch(Throwable e) {} }
 		// removes the filter, detaches all attached tasks
 	}
 
@@ -346,12 +349,11 @@ void taskEventCallback(TaskEvent ev, Task t) nothrow {
 			}
 		}
 	} catch (Exception e) {
-		import vibe.core.log : logError;
 		vibe.core.log.logError("Trace error: %s", e.msg);
 	}
 }
 
-void removeFromArray(T)(ref Vector!T arr, ref T t) {
+void removeFromArray(ref Vector!CaptureSettings arr, CaptureSettings t) {
 	// remove from the list
 	size_t idx;
 	if (arr.length == 0) return;
@@ -362,7 +364,25 @@ void removeFromArray(T)(ref Vector!T arr, ref T t) {
 		}
 	}
 	
-	Vector!T tmp = Vector!T(arr[0 .. idx]);
+	auto tmp = Vector!CaptureSettings(arr[0 .. idx]);
+	if (arr.length - 1 > idx)
+		tmp ~= arr[idx .. $];
+	arr.swap(tmp);
+	
+}
+
+void removeFromArray(T,U)(ref Vector!T arr, ref U t) {
+	// remove from the list
+	size_t idx;
+	if (arr.length == 0) return;
+	foreach (i, val; arr[]) {
+		if (val is t) {
+			idx = i;
+			break;
+		}
+	}
+	
+	auto tmp = Vector(arr[0 .. idx]);
 	if (arr.length - 1 > idx)
 		tmp ~= arr[idx .. $];
 	arr.swap(tmp);

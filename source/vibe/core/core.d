@@ -917,6 +917,12 @@ struct TaskLocal(T)
 
 	void opAssign(T value) { this.storage = value; }
 
+
+	@property ref T storage() const 
+	{
+		return (cast()this).storage();
+	}
+	
 	@property ref T storage()
 	{
 		auto fiber = CoreTask.getThis();
