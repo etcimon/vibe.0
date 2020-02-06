@@ -3,7 +3,8 @@
 	"description": "Basic Redis usage example.",
 	"authors": [ "Sönke Ludwig" ],
 	"dependencies": {
-		"vibe-d": {"version": "~master", "path": "../../"}
+		"vibe-0": {"version": "~master", "path": "../../"}
 	},
-	"versions": ["VibeCustomMain"]
+	"versions": ["VibeCustomMain", "DisableDebugger", "VibeNoDebug"],
+	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }

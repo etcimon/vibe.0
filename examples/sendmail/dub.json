@@ -3,7 +3,8 @@
 	"description": "Sends a mail (be sure to adjust addresses before running).",
 	"authors": [ "Sönke Ludwig" ],
 	"dependencies": {
-		"vibe-d": {"version": "~master", "path": "../../"}
+		"vibe-0": {"version": "~master", "path": "../../"}
 	},
-	"versions": ["VibeCustomMain"]
+	"versions": ["VibeCustomMain", "DisableDebugger", "VibeNoDebug"],
+	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }

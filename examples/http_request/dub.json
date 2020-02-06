@@ -3,7 +3,8 @@
 	"description": "Performs a custom HTTP request.",
 	"authors": [ "Sönke Ludwig" ],
 	"dependencies": {
-		"vibe-d": {"path": "../../"}
+		"vibe-0": {"path": "../../"}
 	},
-	"versions": ["VibeDefaultMain"]
+	"versions": ["VibeDefaultMain", "DisableDebugger", "VibeNoDebug"],
+	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }

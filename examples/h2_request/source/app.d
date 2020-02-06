@@ -5,7 +5,7 @@ import std.stdio;
 import vibe.http.client;
 import vibe.stream.operations : readAllUTF8;
 import std.datetime;
-import std.datetime : StopWatch;
+import std.datetime.stopwatch : StopWatch;
 import core.thread;
 import vibe.stream.botan;
 import vibe.stream.openssl;
@@ -19,6 +19,8 @@ void main()
 	settings.http2.settings.enablePush = false;
 	settings.http2.disable = false;
 	settings.http2.alpn = ["h2", "http/1.1"];
+	//settings.tlsContext = new OpenSSLContext(TLSContextKind.client, TLSVersion.tls1_3);
+	//settings.tlsContext.setCipherList("AES128+GCM+SHA256:AES256+GCM+SHA384:CHACHA20+SHA256");
 	settings.maxRedirects = 2;
 	settings.defaultKeepAliveTimeout = 3.seconds;
 	string result;
@@ -49,7 +51,7 @@ void main()
 							logInfo("Header: %s: %s", k, v);
 						result = res.bodyReader.readAllUTF8(true);
 						sw.stop();
-						auto sw_msecs = sw.peek().msecs;
+						auto sw_msecs = sw.peek().total!"msecs";
 						logDebug("Finished reading result in %s ms", sw_msecs);
 						logDebug("Result str: %s", result);
 						Thread.sleep(30.msecs);

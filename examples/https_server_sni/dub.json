@@ -3,7 +3,8 @@
 	"description": "Uses SNI to serve multiple virtual hosts in a single HTTPS port.",
 	"authors": [ "Sönke Ludwig" ],
 	"dependencies": {
-		"vibe-d": {"version": "~master", "path": "../../"}
+		"vibe-0": {"version": "~master", "path": "../../"}
 	},
-	"versions": ["VibeDefaultMain"]
+	"versions": ["VibeDefaultMain", "DisableDebugger", "VibeNoDebug"],
+	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }
