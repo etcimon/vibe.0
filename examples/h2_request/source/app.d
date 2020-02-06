@@ -5,23 +5,22 @@ import std.stdio;
 import vibe.http.client;
 import vibe.stream.operations : readAllUTF8;
 import std.datetime;
+import std.datetime : StopWatch;
 import core.thread;
 import vibe.stream.botan;
 import vibe.stream.openssl;
 import vibe.stream.tls;
 void main()
 {
-	setLogLevel(LogLevel.trace);
+	setLogLevel(LogLevel.debug_);
 	FileCookieJar cookies = new FileCookieJar("hello.cookies");
 	HTTPClientSettings settings = new HTTPClientSettings;
 	settings.cookieJar = cookies;
-	settings.http2.settings.enablePush = true;
+	settings.http2.settings.enablePush = false;
 	settings.http2.disable = false;
-	settings.http2.alpn = ["h2", "h2-fb", "http/1.1"];
+	settings.http2.alpn = ["h2", "http/1.1"];
 	settings.maxRedirects = 2;
 	settings.defaultKeepAliveTimeout = 3.seconds;
-	settings.tlsContext = new OpenSSLContext(TLSContextKind.client, TLSVersion.tls1_3);
-	settings.tlsContext.setCipherList("AES128+GCM+SHA256:AES256+GCM+SHA384:CHACHA20+SHA256");
 	string result;
 
 	void secondTask() {
@@ -29,7 +28,7 @@ void main()
 			{
 				StopWatch sw;
 				sw.start();
-				requestHTTP("https://www.google.com",
+				requestHTTP("https://httpbin.org/ip",
 					(scope req) {
 						
 						logDebug("Callback called with Request");

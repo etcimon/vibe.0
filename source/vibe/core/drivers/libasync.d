@@ -1088,6 +1088,7 @@ final class LibasyncManualEvent : ManualEvent {
 		import std.algorithm : countUntil;
 		synchronized(m_mutex) {
 			auto idx = ms_signals[].countUntil!((void* a, LibasyncManualEvent b) { return ((cast(shared AsyncSignal) a).owner == Thread.getThis() && this is b);})(this);
+			if (idx > ms_signals.length) return;
 			auto vec = ms_signals[0 .. idx];
 			if (idx != ms_signals.length-1)
 				vec ~= ms_signals[idx + 1 .. $];

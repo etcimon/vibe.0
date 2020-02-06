@@ -5,7 +5,6 @@
 	"dependencies": {
 		"vibe-0": {"path": "../../"}
 	},
-	"libs": ["C:\\OpenSSL-Win32\\lib\\libssl","C:\\OpenSSL-Win32\\lib\\libcrypto"],
 	"versions": ["VibeCustomMain", "DisableDebugger", "VibeNoDebug"],
 	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }
