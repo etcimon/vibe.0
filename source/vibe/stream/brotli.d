@@ -9,7 +9,6 @@ module vibe.stream.brotli;
 
 import vibe.core.stream;
 import vibe.utils.array;
-import vibe.utils.memory;
 import memutils.circularbuffer;
 
 import std.algorithm;

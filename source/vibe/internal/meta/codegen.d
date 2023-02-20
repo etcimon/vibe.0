@@ -57,15 +57,15 @@ template getSymbols(T)
 	private template Implementation(T)
 	{
 		static if (isAggregateType!T || is(T == enum)) {
-			alias Implementation = TypeTuple!T;
+			alias Implementation = TypeTuple!(UnConst!T);
 		}
 		else static if (isStaticArray!T || isArray!T) {
-			alias Implementation = Implementation!(typeof(T.init[0]));
+			alias Implementation = Implementation!(UnConst!(typeof(T.init[0])));
 		}
 		else static if (isAssociativeArray!T) {
 			alias Implementation = TypeTuple!(
-				Implementation!(ValueType!T),
-				Implementation!(KeyType!T)
+				Implementation!(UnConst!(ValueType!T)),
+				Implementation!(UnConst!(KeyType!T))
 			);
 		}
 		else static if (isPointer!T) {
@@ -76,6 +76,14 @@ template getSymbols(T)
 	}
 
 	alias getSymbols = NoDuplicates!(Implementation!T);
+}
+
+private template UnConst(T) {
+	static if (is(T U == const(U))) {
+		alias UnConst = U;
+	} else static if (is(T V == immutable(V))) {
+		alias UnConst = V;
+	} else alias UnConst = T;
 }
 
 ///

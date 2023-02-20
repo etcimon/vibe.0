@@ -105,14 +105,14 @@ final class Win32FileStream : FileStream {
 			null);
 		
 		auto errorcode = GetLastError();
-		enforce(m_handle != INVALID_HANDLE_VALUE, "Failed to open "~path.toNativeString()~": "~to!string(errorcode) ~ " Mode: " ~ mode.to!string);
+		enforce(m_handle != INVALID_HANDLE_VALUE, format("Failed to open %s: %s Mode: %d", path.nodes, errorcode, mode));
 		if(mode == FileMode.createTrunc && errorcode == ERROR_ALREADY_EXISTS)
 		{
 			// truncate file
 			// TODO: seek to start pos?
 			BOOL ret = SetEndOfFile(m_handle);
 			errorcode = GetLastError();
-			enforce(ret, "Failed to call SetFileEndPos for path "~path.toNativeString()~", Error: " ~ to!string(errorcode));
+			enforce(ret, format("Failed to call SetFileEndPos for path %s, Error: %d", path.nodes, errorcode));
 		}
 		long size;
 		auto succeeded = GetFileSizeEx(m_handle, &size);
@@ -419,7 +419,7 @@ final class ThreadedFileStream : FileStream {
 		while (bytes.length > 0) {
 			auto sz = min(bytes.length, 64*1024);
 			auto ret = .write(m_fileDescriptor, bytes.ptr, cast(int)sz);
-			enforce(ret == sz, "Failed to write data to disk."~to!string(sz)~" "~to!string(errno)~" "~to!string(ret)~" "~to!string(m_fileDescriptor));
+			enforce(ret == sz, format("Failed to write data to disk. sz: %d errno: %d ret: %d fd: %d", sz, errno, ret, m_fileDescriptor));
 			bytes = bytes[sz .. $];
 			m_ptr += sz;
 		}

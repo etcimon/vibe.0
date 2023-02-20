@@ -8,8 +8,7 @@
 module vibe.stream.memory;
 
 import vibe.core.stream;
-import vibe.utils.array;
-import vibe.utils.memory;
+import memutils.vector;
 
 import std.algorithm;
 import std.array;
@@ -20,31 +19,24 @@ import std.typecons;
 /** OutputStream that collects the written data in memory and allows to query it
 	as a byte array.
 */
-final class MemoryOutputStream : OutputStream {
+final class MemoryOutputStream(ALLOC = PoolStack) : OutputStream {
 	private {
-		AllocAppender!(ubyte[]) m_destination;
+		Vector!(ubyte, ALLOC) m_destination;
 	}
-
-	this(Allocator alloc = defaultAllocator())
-	{
-		m_destination = AllocAppender!(ubyte[])(alloc);
-	}
-
-	~this() { m_destination.reset(AppenderResetMode.freeData); }
 
 	/// An array with all data written to the stream so far.
-	@property ubyte[] data() { return m_destination.data(); }
-
+	@property ubyte[] data() { return m_destination[]; }
+	
 	/// Resets the stream to its initial state containing no data.
 	void reset()
 	{
-		m_destination.reset();
+		m_destination.clear();
 	}
 
 	/// Resets the stream to its initial state containing no data.
 	void clear()
 	{
-		m_destination.reset(AppenderResetMode.freeData);
+		m_destination.clear();
 	}
 
 	/// Reserves space for data - useful for optimization.

@@ -35,8 +35,6 @@ import memutils.vector;
 import memutils.circularbuffer;
 
 import vibe.core.drivers.timerqueue;
-import libasync.internals.memory;
-import vibe.utils.array : FixedRingBuffer;
 import std.stdio : File;
 
 private __gshared EventLoop gs_evLoop;
@@ -256,7 +254,7 @@ final class LibasyncDriver : EventDriver {
 				}
 			}
 
-			DNSCallback* cb = FreeListObjectAlloc!DNSCallback.alloc();
+			DNSCallback* cb = ThreadMem.alloc!DNSCallback();
 			cb.waiter = Task.getThis();
 			cb.address = &ret;
 			cb.finished = &done;
@@ -271,10 +269,10 @@ final class LibasyncDriver : EventDriver {
 				getDriverCore.yieldForEvent();
 			if (dns.status.code != Status.OK)
 				throw new Exception(dns.status.text);
-			enforce(ret != NetworkAddress.init, "Failed to resolve host: " ~ host);
+			enforce(ret != NetworkAddress.init, format("Failed to resolve host: %s", host));
 			assert(ret.family != 0);
 			logTrace("Async resolved address %s", ret.toString());
-			FreeListObjectAlloc!DNSCallback.free(cb);
+			ThreadMem.free(cb);
 
 			if (ret.family == 0)
 				ret.family = family;
@@ -322,7 +320,7 @@ final class LibasyncDriver : EventDriver {
 		m_timers.getUserData(tm).owner = Task.getThis();
 		rearmTimer(tm, 30.seconds, false);
 
-		enforce(conn.run(&tcp_connection.handler), "An error occured while starting a new connection: " ~ conn.error);
+		enforce(conn.run(&tcp_connection.handler), format("An error occured while starting a new connection: %s", conn.error));
 		while (!tcp_connection.connected && tcp_connection.m_tcpImpl.conn !is null 
 			&& tcp_connection.m_tcpImpl.conn.status.code == Status.ASYNC && !tcp_connection.m_error && isTimerPending(tm)) 
 			getDriverCore().yieldForEvent();
@@ -352,7 +350,7 @@ final class LibasyncDriver : EventDriver {
 		}
 		uds_connection.m_udsImpl.conn = conn;
 		conn.peer = addr;
-		enforce(conn.run(&uds_connection.handler), "An error occured while starting a new UDS connection: " ~ conn.error);
+		enforce(conn.run(&uds_connection.handler), format("An error occured while starting a new UDS connection: %s", conn.error));
 		getDriverCore().yieldForEvent();
 		enforce(!uds_connection.m_error, uds_connection.m_error);
 		
@@ -407,7 +405,7 @@ final class LibasyncDriver : EventDriver {
 		}
 	}
 	
-	bool isTimerPending(size_t timer_id) nothrow { return m_timerEvent !is null && m_timers.isPending(timer_id); }
+	bool isTimerPending(size_t timer_id) { return m_timerEvent !is null && m_timers.isPending(timer_id); }
 	
 	void rearmTimer(size_t timer_id, Duration dur, bool periodic)
 	{
@@ -501,7 +499,7 @@ final class LibasyncDriver : EventDriver {
 		else {
 			logTrace("rearming the same timer instance for %d ms", dur.total!"msecs");
 			bool success = m_timerEvent.rearm(dur);
-			assert(success, "Failed to rearm timer for: " ~ dur.total!"msecs".to!string ~ "ms :" ~ m_timerEvent.status.text ~ ": " ~ m_timerEvent.error);
+			assert(success, format("Failed to rearm timer for: %d ms : %s: %s", dur.total!"msecs", m_timerEvent.status.text, m_timerEvent.error));
 		}
 		//logTrace("Rescheduled timer event for %s seconds in thread '%s' :: task '%s'", dur.total!"usecs" * 1e-6, Thread.getThis().name, Task.getThis());
 	}
@@ -637,7 +635,7 @@ final class LibasyncFileStream : FileStream {
 		}
 		m_finished = false;
 		enforce(dst.length <= leastSize);
-		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to read data from disk: " ~ m_impl.error);
+		enforce(m_impl.read(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), format("Failed to read data from disk: %s", m_impl.error));
 
 		if (!m_finished) {
 			acquire();
@@ -649,7 +647,7 @@ final class LibasyncFileStream : FileStream {
 		if (m_ex) throw m_ex;
 
 		m_offset += dst.length;
-		assert(m_impl.offset == m_offset, "Incoherent offset returned from file reader: " ~ m_offset.to!string ~ "B assumed but the implementation is at: " ~ m_impl.offset.to!string ~ "B");
+		assert(m_impl.offset == m_offset, format("Incoherent offset returned from file reader: %d B assumed but the implementation is at: %d B", m_offset, m_impl.offset.to!string));
 	}
 	
 	alias Stream.write write;
@@ -669,9 +667,9 @@ final class LibasyncFileStream : FileStream {
 		m_finished = false;
 
 		if (m_mode == FileMode.append)
-			enforce(m_impl.append(m_path.toNativeString(), cast(shared ubyte[]) bytes, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
+			enforce(m_impl.append(m_path.toNativeString(), cast(shared ubyte[]) bytes, true, truncate_if_exists), format("Failed to write data to disk: %s", m_impl.error));
 		else
-			enforce(m_impl.write(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), "Failed to write data to disk: " ~ m_impl.error);
+			enforce(m_impl.write(m_path.toNativeString(), bytes, m_offset, true, truncate_if_exists), format("Failed to write data to disk: %s", m_impl.error));
 
 		if (!m_finished) {
 			acquire();
@@ -841,8 +839,8 @@ final class LibasyncDirectoryWatcher : DirectoryWatcher {
 
 	private void handler() {
 		import std.stdio;
-		DWChangeInfo[] changes = allocArray!DWChangeInfo(manualAllocator(), 128);
-		scope(exit) freeArray(manualAllocator(), changes);
+		DWChangeInfo[] changes = ThreadMem.alloc!(DWChangeInfo[])(128);
+		scope(exit) ThreadMem.free(changes);
 		Exception ex;
 		try {
 			uint cnt;
@@ -1157,7 +1155,7 @@ final class LibasyncTCPListener : TCPListener {
 					listener.noDelay = true;
 				listener.local = ctxt2.m_local;
 
-				enforce(listener.run(&ctxt2.initConnection), "Failed to start listening to local socket: " ~ listener.error);
+				enforce(listener.run(&ctxt2.initConnection), format("Failed to start listening to local socket: %s", listener.error));
 				ctxt2.socket = listener.socket;
 				ctxt2.m_listeners ~= listener;
 			}
@@ -1251,7 +1249,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	this(AsyncTCPConnection conn, void delegate(TCPConnection) cb)
 	in { assert(conn !is null); }
-	body {
+	do {
 		s_totalConnections++;
 		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
@@ -1541,7 +1539,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	void acquireWriter() { 
 		if (Task.getThis() == Task()) return;
 		logTrace("%s", "Acquire Writer");
-		assert(!amWriteOwner(), "Failed to acquire writer in task: " ~ Task.getThis().fiber.to!string ~ ", it was busy with: " ~ m_settings.writer.task.to!string);
+		assert(!amWriteOwner(), "Failed to acquire writer in task, it was busy");
 		m_settings.writer.task = Task.getThis(); 
 		m_settings.writer.isWaiting = true;
 	}
@@ -1646,7 +1644,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 				auto err = conn.error;
 
 				logTrace("receive error %s %s", err, conn.status.code);
-				throw new Exception("Socket error: " ~ conn.status.code.to!string);
+				throw new Exception(format("Socket error: %d", conn.status.code));
 			}
 			else {
 				m_mustRecv = false;
@@ -1799,7 +1797,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 			
 	this(AsyncUDSConnection conn, void delegate(UDSConnection) cb)
 	in { assert(conn !is null); }
-	body {
+	do {
 		m_settings.onConnect = cb;
 		m_readBuffer.capacity = 32*1024;
 	}
@@ -2023,7 +2021,7 @@ private:
 	void acquireWriter() { 
 		if (Task.getThis() == Task()) return;
 		logTrace("%s", "Acquire Writer");
-		assert(!amWriteOwner(), "Failed to acquire writer in task: " ~ Task.getThis().fiber.to!string ~ ", it was busy with: " ~ m_settings.writer.task.to!string);
+		assert(!amWriteOwner(), "Failed to acquire writer in task, it was busy");
 		m_settings.writer.task = Task.getThis();
 		m_settings.writer.isWaiting = true;
 	}
@@ -2231,7 +2229,7 @@ final class LibasyncUDPConnection : UDPConnection {
 
 	this(AsyncUDPSocket conn)
 	in { assert(conn !is null); }
-	body {
+	do {
 		m_udpImpl = conn;
 	}
 
@@ -2423,7 +2421,7 @@ private uint generateID() {
 			}
 		}
 	} catch (Exception e) {
-		assert(false, "Failed to generate necessary ID for Manual Event waiters: " ~ e.msg);
+		assert(false, format("Failed to generate necessary ID for Manual Event waiters: %s", e.msg));
 	}
 	
 	return idx;
@@ -2434,6 +2432,6 @@ void recycleID(uint id) {
 		synchronized(gs_mutex) gs_availID ~= id;
 	}
 	catch (Exception e) {
-		assert(false, "Error destroying Manual Event ID: " ~ id.to!string ~ " [" ~ e.msg ~ "]");
+		assert(false, format("Error destroying Manual Event ID: %d [%s]", id, e.msg));
 	}
 }

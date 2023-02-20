@@ -16,8 +16,6 @@ import vibe.core.net;
 import vibe.core.stream;
 import vibe.core.sync;
 
-import vibe.utils.dictionarylist;
-
 import std.algorithm;
 import std.array;
 import std.conv;
@@ -27,6 +25,10 @@ import std.string;
 import core.stdc.string : strlen;
 import core.sync.mutex;
 import core.thread;
+
+import memutils.utils;
+import memutils.dictionarylist;
+import memutils.refcounted;
 
 /// A simple TLS client
 unittest {
@@ -142,9 +144,8 @@ auto createTLSStreamFL(Stream underlying, TLSContext ctx, TLSStreamState state, 
 	// will have to semantically analyse it and subsequently will import the TLS
 	// implementation headers.
 
-	import vibe.utils.memory;
 	import vibe.stream.botan;
-	return FreeListRef!BotanTLSStream(cast(TCPConnection) underlying, cast(BotanTLSContext) ctx, state, peer_name, peer_address);
+	return RefCounted!BotanTLSStream(cast(TCPConnection) underlying, cast(BotanTLSContext) ctx, state, peer_name, peer_address);
 
 }
 
@@ -409,7 +410,7 @@ struct TLSCertificateInformation {
 		Maps fields to their values. For example, typical fields on a
 		certificate will be 'commonName', 'countryName', 'emailAddress', etc.
 	*/
-	DictionaryList!(string, false) subjectName;
+	DictionaryListRef!(string, string, ThreadMem, false) subjectName;
 }
 
 struct TLSPeerValidationData {

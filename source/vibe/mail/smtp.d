@@ -137,7 +137,7 @@ void sendMail(SMTPClientSettings settings, Mail mail)
 			auto sidx = ln.indexOf(' ');
 			auto didx = ln.indexOf('-');
 			if( sidx > 0 && (didx < 0 || didx > sidx) ){
-				enforce(ln[0 .. sidx] == "250", "Server not ready (response "~ln[0 .. sidx]~")");
+				enforce(ln[0 .. sidx] == "250", format("Server not ready (response %s)",ln[0 .. sidx]));
 				break;
 			}
 		}
@@ -182,7 +182,7 @@ void sendMail(SMTPClientSettings settings, Mail mail)
 
 	static immutable rcpt_headers = ["To", "Cc", "Bcc"];
 	foreach (h; rcpt_headers) {
-		mail.headers.getAll(h, (v) {
+		mail.headers.getValuesAt(h, (v) {
 			foreach (a; v.splitter(',').map!(a => a.strip)) {
 				conn.write("RCPT TO:"~addressMailPart(a)~"\r\n");
 				expectStatus(conn, SMTPStatus.success, "RCPT TO");
@@ -249,7 +249,7 @@ private void expectStatus(InputStream conn, int expected_status, string in_respo
 	} while (dsh >= 0 && dsh < sp);
 
 	auto status = to!int(ln[0 .. sp]);
-	enforce(status == expected_status, "Expected status "~to!string(expected_status)~" in response to "~in_response_to~", got "~to!string(status)~": "~ln[sp .. $]);
+	enforce(status == expected_status, format("Expected status %d in response to %d got %d: %s",expected_status, in_response_to, status, ln[sp .. $]));
 }
 
 private int recvStatus(InputStream conn)
@@ -265,6 +265,6 @@ private string addressMailPart(string str)
 	auto idx = str.indexOf('<');
 	if( idx < 0 ) return "<"~ str ~">";
 	str = str[idx .. $];
-	enforce(str[$-1] == '>', "Malformed email address field: '"~str~"'.");
+	enforce(str[$-1] == '>', format("Malformed email address field: '%s'.", str));
 	return str;
 }

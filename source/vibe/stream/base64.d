@@ -10,6 +10,7 @@ module vibe.stream.base64;
 import vibe.core.stream;
 
 import std.base64;
+import memutils.scoped;
 
 
 /**
@@ -158,7 +159,7 @@ unittest {
 	void test(in ubyte[] data, string encoded, ulong bytes_per_line = 57)
 	{
 		import vibe.stream.memory;
-		auto encstr = new MemoryOutputStream;
+		auto encstr = new MemoryOutputStream!PoolStack;
 		auto bostr = new Base64OutputStream(encstr, bytes_per_line);
 		bostr.write(data);
 		assert(encstr.data == encoded);

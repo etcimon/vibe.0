@@ -7,8 +7,6 @@
 */
 module vibe.core.stream;
 
-import vibe.utils.memory : FreeListRef;
-
 import core.time;
 import std.algorithm;
 import std.conv;

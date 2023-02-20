@@ -14,6 +14,7 @@ import std.exception;
 import core.time;
 import memutils.utils;
 import memutils.unique;
+import memutils.scoped;
 
 
 /**
@@ -245,7 +246,7 @@ struct StreamOutputRange {
 unittest {
 	static long writeLength(ARGS...)(ARGS args) {
 		import vibe.stream.memory;
-		auto dst = new MemoryOutputStream;
+		auto dst = new MemoryOutputStream!PoolStack;
 		{
 			auto rng = StreamOutputRange(dst);
 			foreach (a; args) rng.put(a);

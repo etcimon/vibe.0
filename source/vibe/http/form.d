@@ -164,11 +164,11 @@ struct StringLengthCountingRange {
   */
 deprecated FormDataLoadResult loadFormData(T)(HTTPServerRequest req, ref T load_to, string name="") if(is(T == struct) || isDynamicArray!T)
 {
-	FormFields form = req.method == HTTPMethod.GET ? req.query : req.form;
+	FormFields* form = req.method == HTTPMethod.GET ? &req.query : &req.form;
 	if (form.length == 0)
 		return FormDataLoadResult(0, 0);
 	Error error;
-	int count = loadFormDataRecursive(form, load_to, name, error, No.strict);
+	int count = loadFormDataRecursive(*form, load_to, name, error, No.strict);
 	if (error.message) { // Only serious errors are reported, so let's throw.
 		throw new Exception(error.message);
 	}
@@ -199,7 +199,7 @@ struct Error {
 }
 
 /// private
-private int loadFormDataRecursive(StructType)(FormFields form, ref StructType load_to, string name, ref Error error, Flag!"strict" strict) if(is(StructType == struct)) {
+private int loadFormDataRecursive(StructType)(ref FormFields form, ref StructType load_to, string name, ref Error error, Flag!"strict" strict) if(is(StructType == struct)) {
 	int count=0;
 	int try_count=0;
 	foreach(elem; __traits(allMembers, typeof(load_to))) {
@@ -216,7 +216,7 @@ private int loadFormDataRecursive(StructType)(FormFields form, ref StructType lo
 }
 
 /// private
-private int loadFormDataRecursive(ArrayType)(FormFields form, ref ArrayType load_to, string name, ref Error error, Flag!"strict" strict) if(isDynamicArray!ArrayType && !is(ArrayType == string)) {
+private int loadFormDataRecursive(ArrayType)(ref FormFields form, ref ArrayType load_to, string name, ref Error error, Flag!"strict" strict) if(isDynamicArray!ArrayType && !is(ArrayType == string)) {
 	int count=0;
 	int i=0;
 	immutable arr_length=load_to.length;
@@ -244,7 +244,7 @@ private int loadFormDataRecursive(ArrayType)(FormFields form, ref ArrayType load
 	return count;
 }
 
-private int loadFormDataRecursive(T)(FormFields form, ref T load_to, string name, ref Error error, Flag!"strict" strict) if(!is(T == struct) && (!isDynamicArray!T || is(T == string))) {
+private int loadFormDataRecursive(T)(ref FormFields form, ref T load_to, string name, ref Error error, Flag!"strict" strict) if(!is(T == struct) && (!isDynamicArray!T || is(T == string))) {
 	static if( __traits(compiles, load_to=to!T("some_string"))) {
 		if(strict)
 			error.missing_parameters~=name;
@@ -255,7 +255,7 @@ private int loadFormDataRecursive(T)(FormFields form, ref T load_to, string name
 	return 0;
 }
 /// private
-private int applyArrayElement(ArrayType)(FormFields form, ref ArrayType load_to, string name, int index, ref Error error, Flag!"strict" strict) if(isDynamicArray!ArrayType) {
+private int applyArrayElement(ArrayType)(ref FormFields form, ref ArrayType load_to, string name, int index, ref Error error, Flag!"strict" strict) if(isDynamicArray!ArrayType) {
 	string[] backup=error.missing_parameters;
 	int count=loadFormDataRecursiveSingle(form, load_to[index], name~to!string(index), error, strict);
 	if(!count) { // Nothing found, index does not exist.
@@ -265,7 +265,7 @@ private int applyArrayElement(ArrayType)(FormFields form, ref ArrayType load_to,
 }
 
 /// private
-private int loadFormDataRecursiveSingle(T)(FormFields form, ref T elem, string fname, ref Error error, Flag!"strict" strict) {
+private int loadFormDataRecursiveSingle(T)(ref FormFields form, ref T elem, string fname, ref Error error, Flag!"strict" strict) {
 	static if( (!isDynamicArray!T || __traits(compiles, {char b=elem[0];})) && __traits(compiles, elem=to!T("some_string"))) {
 		auto found_item=fname in form;
 		if(found_item) {

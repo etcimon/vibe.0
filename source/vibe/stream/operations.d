@@ -12,7 +12,6 @@ public import vibe.core.stream;
 import vibe.core.log;
 import vibe.core.core;
 import vibe.stream.memory;
-import vibe.utils.memory;
 
 import std.algorithm;
 import std.array;
@@ -24,6 +23,7 @@ import std.range : isOutputRange;
 import std.typecons;
 import memutils.utils;
 import memutils.unique;
+import memutils.scoped;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -36,9 +36,9 @@ import memutils.unique;
 		An exception if either the stream end was hit without hitting a newline first, or
 		if more than max_bytes have been read from the stream.
 */
-ubyte[] readLine()(InputStream stream, size_t max_bytes = size_t.max, string linesep = "\r\n", Allocator alloc = defaultAllocator()) /*@ufcs*/
+ubyte[] readLine(ALLOC = PoolStack)(InputStream stream, size_t max_bytes = size_t.max, string linesep = "\r\n") /*@ufcs*/
 {
-	return readUntil(stream, cast(const(ubyte)[])linesep, max_bytes, alloc);
+	return readUntil!ALLOC(stream, cast(const(ubyte)[])linesep, max_bytes);
 }
 /// ditto
 void readLine()(InputStream stream, OutputStream dst, size_t max_bytes = size_t.max, string linesep = "\r\n")
@@ -90,9 +90,9 @@ void readLine(R)(InputStream stream, ref R dst, size_t max_bytes = size_t.max, s
 		O(n+m) in typical cases, with n being the length of the scanned input
 		string and m the length of the marker.
 */
-ubyte[] readUntil()(InputStream stream, in ubyte[] end_marker, size_t max_bytes = size_t.max, Allocator alloc = defaultAllocator()) /*@ufcs*/
+ubyte[] readUntil(ALLOC = PoolStack)(InputStream stream, in ubyte[] end_marker, size_t max_bytes = size_t.max) /*@ufcs*/
 {
-	auto output = scoped!MemoryOutputStream(alloc);
+	auto output = scoped!(MemoryOutputStream!ALLOC)();
 	scope(exit) output.destroy();
 	output.reserve(max_bytes < 64 ? max_bytes : 64);
 	readUntil(stream, output, end_marker, max_bytes);
@@ -133,8 +133,8 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 	}
 
 	size_t nmatched = 0;
-	ubyte[] buf = allocArray!(ubyte, false)(manualAllocator(), 8192);
-	scope(exit) freeArray!(ubyte, false)(manualAllocator(), buf, false);
+	ubyte[] buf = ThreadMem.alloc!(ubyte[])(8192);
+	scope(exit) ThreadMem.free(buf);
 
 	ulong bytes_read = 0;
 

@@ -12,7 +12,6 @@ public import vibe.core.net;
 import vibe.core.connectionpool;
 import vibe.core.core;
 import vibe.core.log;
-import vibe.utils.memory : allocArray, freeArray, manualAllocator, defaultAllocator;
 import vibe.stream.operations;
 import std.conv;
 import std.exception;
@@ -21,6 +20,9 @@ import std.range : isInputRange, isOutputRange;
 import std.string;
 import std.traits;
 import std.utf;
+
+import memutils.refcounted;
+import memutils.utils;
 
 
 /**
@@ -588,9 +590,7 @@ import std.algorithm : canFind;
 import std.range : takeOne;
 import std.array : array;
 
-import vibe.utils.memory;
-
-alias RedisSubscriber = FreeListRef!RedisSubscriberImpl;
+alias RedisSubscriber = RefCounted!RedisSubscriberImpl;
 
 final class RedisSubscriberImpl {
 	private {
@@ -977,16 +977,16 @@ final class RedisSubscriberImpl {
 
 		void pubsub_handler() {
 			ConnectionStream conn = m_lockedConnection.conn;
-			ubyte[] newLine = allocArray!ubyte(manualAllocator(), 1);
-			scope(exit) freeArray(manualAllocator(), newLine);
+			ubyte[] newLine = ThreadMem.alloc!(ubyte[])(1);
+			scope(exit) ThreadMem.free(newLine);
 			logTrace("Pubsub handler");
 			void delegate() dropCRLF = {
 				conn.read(newLine);
 				conn.read(newLine);
 			};
 			size_t delegate() readArgs = {
-				char[] ucnt = allocArray!char(manualAllocator(), 8);
-				scope(exit) freeArray(manualAllocator(), ucnt);
+				char[] ucnt = ThreadMem.alloc!(char[])(8);
+				scope(exit) ThreadMem.free(ucnt);
 				ubyte num;
 				size_t i;
 				do {
@@ -1005,43 +1005,44 @@ final class RedisSubscriberImpl {
 			// find the number of arguments in the array
 			ubyte symbol;
 			conn.read((&symbol)[0 .. 1]);
-			enforce(symbol == '*', "Expected '*', got '" ~ symbol.to!string ~ "'");
+			import std.string: format;
+			enforce(symbol == '*', format("Expected '*', got '%s'", symbol));
 			size_t args = readArgs();
 			// get the number of characters in the first string (the command)
 			conn.read((&symbol)[0 .. 1]);
-			enforce(symbol == '$', "Expected '$', got '" ~ symbol.to!string ~ "'");
+			enforce(symbol == '$', format("Expected '$', got '%s'", symbol));
 			size_t cnt = readArgs();
-			ubyte[] cmd = allocArray!ubyte(manualAllocator(), cnt);
-			scope(exit) freeArray(manualAllocator(), cmd);
+			ubyte[] cmd = ThreadMem.alloc!(ubyte[])(cnt);
+			scope(exit) ThreadMem.free(cmd);
 			conn.read(cmd);
 			dropCRLF();
 			// find the channel
 			conn.read((&symbol)[0 .. 1]);
-			enforce(symbol == '$', "Expected '$', got '" ~ symbol.to!string ~ "'");
+			enforce(symbol == '$', format("Expected '$', got '%s'", symbol));
 			cnt = readArgs();
-			ubyte[] str = allocArray!ubyte(manualAllocator(), cnt);
+			ubyte[] str = ThreadMem.alloc!(ubyte[])(cnt);
 			conn.read(str);
 			dropCRLF();
 			string channel = cast(string) str.idup; // copy to GC to avoid bugs
-			freeArray(manualAllocator(), str);
+			ThreadMem.free(str);
 			logTrace("chan: %s", channel);
 
 			if (cmd == "message") { // find the message
 				conn.read((&symbol)[0 .. 1]);
-				enforce(symbol == '$', "Expected '$', got '" ~ symbol.to!string ~ "'");
+				enforce(symbol == '$', format("Expected '$', got '%s'", symbol));
 				cnt = readArgs();
-				str = allocArray!ubyte(manualAllocator(), cnt);
+				str = ThreadMem.alloc!(ubyte[])(cnt);
 				conn.read(str); // channel
 				string message = cast(string) str.idup; // copy to GC to avoid bugs
 				logTrace("msg: %s", message);
-				freeArray(manualAllocator(), str);
+				ThreadMem.free(str);
 				dropCRLF();
 				onMessage(channel, message);
 			}
 			else if (cmd == "subscribe" || cmd == "unsubscribe") { // find the remaining subscriptions
 				bool is_subscribe = (cmd == "subscribe");
 				conn.read((&symbol)[0 .. 1]);
-				enforce(symbol == ':', "Expected ':', got '" ~ symbol.to!string ~ "'");
+				enforce(symbol == ':', format("Expected ':', got '%s'", symbol));
 				cnt = readArgs(); // number of subscriptions
 				logTrace("subscriptions: %d", cnt);
 				if (is_subscribe)
@@ -1165,8 +1166,6 @@ final class RedisSubscriberImpl {
 /** Range interface to a single Redis reply.
 */
 struct RedisReply(T = ubyte[]) {
-	import vibe.utils.memory : FreeListRef;
-
 	static assert(isInputRange!RedisReply);
 
 	private {

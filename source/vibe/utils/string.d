@@ -9,9 +9,6 @@ module vibe.utils.string;
 
 public import std.string;
 
-import vibe.utils.array;
-import vibe.utils.memory;
-
 import std.algorithm;
 import std.array;
 import std.ascii;
@@ -20,6 +17,8 @@ import std.uni;
 import std.utf;
 import core.exception;
 
+import memutils.vector;
+import memutils.scoped;
 
 /**
 	Takes a string with possibly invalid UTF8 sequences and outputs a valid UTF8 string as near to
@@ -185,12 +184,12 @@ sizediff_t matchBracket(string str, bool nested = true)
     static assert(matchBracket("[foo]") == 4);
 }
 
-/// Same as std.string.format, just using an allocator.
-string formatAlloc(ARGS...)(Allocator alloc, string fmt, ARGS args)
+/// Same as std.string.format, just using the PoolStack.
+string formatAlloc(ARGS...)(string fmt, ARGS args)
 {
-	auto app = AllocAppender!string(alloc);
+	auto app = Vector!(char, PoolStack)();
 	formattedWrite(&app, fmt, args);
-	return app.data;
+	return cast(string)app[];
 }
 
 /// Special version of icmp() with optimization for ASCII characters

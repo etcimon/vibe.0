@@ -23,7 +23,6 @@ import vibe.stream.operations;
 import vibe.stream.zlib;
 import vibe.stream.brotli;
 import vibe.utils.array;
-import vibe.utils.memory;
 import vibe.utils.string : icmp2;
 import vibe.http.http2;
 import memutils.circularbuffer;
@@ -37,8 +36,11 @@ import std.encoding : sanitize;
 import std.exception;
 import std.format;
 import std.string;
-import std.typecons;
 import std.datetime;
+import std.typecons: tuple, Tuple, scoped;
+
+import memutils.scoped;
+import memutils.refcounted;
 
 static if (__VERSION__ >= 2071)
     extern (C) bool gc_inFinalizer();
@@ -60,46 +62,6 @@ static if (__VERSION__ >= 2071)
 	of the function it is recommended to put a $(D scope(exit)) right after the call in which
 	HTTPClientResponse.dropBody is called to avoid this.
 */
-HTTPClientResponse requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = null)
-{
-	if (!settings) settings = defaultSettings();
-	return requestHTTP(URL.parse(url), requester, settings);
-}
-/// ditto
-HTTPClientResponse requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester = null, HTTPClientSettings settings = null)
-{
-	if (!settings) settings = defaultSettings();
-	enforce(url.schema == "http" || url.schema == "https", "URL schema must be http(s).");
-	enforce(url.host.length > 0, "URL must contain a host name.");
-	bool use_tls = url.schema == "https";
-
-	auto cli = connectHTTP(url.host, url.port, use_tls, settings, url.ip);
-	auto res = cli.request((req){
-			// When sending through a proxy, full URL to the resource must be on the first line of the request
-
-			if (settings.proxyURL.schema !is null)
-				req.requestURL = url.toString();
-			else if (url.localURI.length) {
-				assert(url.path.absolute, "Request URL path must be absolute.");
-				req.requestURL = url.localURI;
-			}
-
-
-			if ("authorization" !in req.headers && url.username != "") {
-				import std.base64;
-				string pwstr = url.username ~ ":" ~ url.password;
-				req.headers["Authorization"] = "Basic " ~ cast(string)Base64.encode(cast(ubyte[])pwstr);
-			}
-			if (requester) requester(req);
-		});
-
-	// make sure the connection stays locked if the body still needs to be read
-	if( res.m_client && !res.m_client.isHTTP2Started ) res.lockedConnection = cli;
-
-	logTrace("Returning HTTPClientResponse for conn %s", cast(void*)res.lockedConnection.__conn);
-	return res;
-}
-/// ditto
 void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
 {
 	if (!settings) settings = defaultSettings();
@@ -146,9 +108,9 @@ unittest {
 
 	void test()
 	{
-		requestHTTP("http://www.example.org/",
+		requestHTTP("http://httpbin.org/ip",
 			(scope req) {
-				req.method = HTTPMethod.POST;
+				req.method = HTTPMethod.GET;
 				//req.writeJsonBody(["name": "My Name"]);
 			},
 			(scope res) {
@@ -156,6 +118,7 @@ unittest {
 			}
 		);
 	}
+	test();
 }
 
 /**
@@ -352,7 +315,7 @@ final class HTTPClient {
 	*/
 	void connect(string server, ushort port = 80, bool use_tls = false, HTTPClientSettings settings = defaultSettings, string ip_ = null)
 	in { assert(!isHTTP2Started && (!m_conn || !m_conn.tcp || !m_conn.tcp.connected) && port != 0, "Cannot establish a new connection on a connected client. Use disconnect() before, or reconnect()."); }
-	body {
+	do {
 		mixin(Trace);
 		m_settings = settings;
 		m_http2Context = new HTTP2ClientContext();
@@ -444,7 +407,7 @@ final class HTTPClient {
 				try m_conn.tlsStream = createTLSStream(m_conn.tcp, m_conn.tlsContext, TLSStreamState.connecting, m_conn.server, peerAddr);
 				catch (Exception e) {
 					import std.algorithm : countUntil;
-					enforce(e.msg.countUntil("HTTP/") == -1, "HTTP/" ~ cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n"));
+					enforce(e.msg.countUntil("HTTP/") == -1, format("HTTP/%s", cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n")));
 					throw e;
 				}
 				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
@@ -614,7 +577,8 @@ final class HTTPClient {
 	*/
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
-		mixin(Trace);
+		mixin(Trace);		
+		auto scoped = ScopedPool();
 		validateConnection();
 
 		do {
@@ -631,27 +595,6 @@ final class HTTPClient {
 
 		enforce(m_settings.maxRedirects == 0 || m_settings.maxRedirects > m_state.redirects, "Max redirect attempts exceeded.");
 	}
-
-	/// ditto
-	HTTPClientResponse request(scope void delegate(HTTPClientRequest) requester)
-	{
-		validateConnection();
-		bool keepalive;
-		HTTPClientResponse res;
-		do {
-			m_state.responding = false;
-			HTTPMethod req_method;
-			processRequest(requester, req_method, keepalive);
-			m_state.responding = true;
-			res = new HTTPClientResponse(this, req_method, keepalive, true);
-
-			handleRedirect();
-		} while(m_state.redirecting && m_settings.maxRedirects > m_state.redirects);
-
-		enforce(m_settings.maxRedirects == 0 || m_settings.maxRedirects > m_state.redirects, "Max redirect attempts exceeded.");
-		return res;
-	}
-
 
 private:
 	void validateConnection() {
@@ -712,8 +655,9 @@ private:
 		Duration latency = Duration.zero;
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
 											m_http2Context ? m_http2Context.latency : latency, keepalive, m_state.location, m_settings.cookieJar);
-				
+		PoolStack.freeze(1);
 		requester(req);
+		PoolStack.unfreeze(1);
 
 		// after requester, to make sure it doesn't get corrupted
 		if (canUpgradeHTTP2)
@@ -746,8 +690,11 @@ private:
 
 			if (!m_state.redirecting)
 			{
-				try // Response callback
+				try { // Response callback
+					PoolStack.freeze(1);
 					responder(res);
+					PoolStack.unfreeze(1);
+				}
 				catch (Exception e) {
 					logDebug("Error while handling response: %s", e.toString().sanitize());
 					disconnect(false, "Internal error");
@@ -1163,7 +1110,7 @@ final class HTTPClientRequest : HTTPRequest {
 		scope(success) {
 			auto headers_to_string = {
 				import vibe.stream.memory : MemoryOutputStream;
-				auto output = scoped!MemoryOutputStream(defaultAllocator());
+				auto output = scoped!(MemoryOutputStream!PoolStack)();
 				scope(exit) output.destroy();
 				writeHeader(output);
 				return cast(string)output.data;
@@ -1234,15 +1181,14 @@ final class HTTPClientResponse : HTTPResponse {
 		LockedConnection!HTTPClient lockedConnection;
 
 		// todo: move these to unions and manual allocations
-		FreeListRef!LimitedInputStream m_limitedInputStream;
-		FreeListRef!ChunkedInputStream m_chunkedInputStream;
-		FreeListRef!GzipInputStream m_gzipInputStream;
-		FreeListRef!DeflateInputStream m_deflateInputStream;
-		FreeListRef!BrotliInputStream m_brotliInputStream;
-		FreeListRef!EndCallbackInputStream m_endCallback;
+		RefCounted!LimitedInputStream m_limitedInputStream;
+		RefCounted!ChunkedInputStream m_chunkedInputStream;
+		RefCounted!GzipInputStream m_gzipInputStream;
+		RefCounted!DeflateInputStream m_deflateInputStream;
+		RefCounted!BrotliInputStream m_brotliInputStream;
+		RefCounted!EndCallbackInputStream m_endCallback;
 
 		InputStream m_bodyReader;
-		Allocator m_alloc;
 		bool m_keepAlive;
 		bool m_finalized;
 		bool m_is_owner;
@@ -1277,7 +1223,6 @@ final class HTTPClientResponse : HTTPResponse {
 	/// private
 	this(HTTPClient client, HTTPMethod req_method, ref bool keepalive, bool is_owner = false)
 	{
-		m_alloc = defaultAllocator();
 		m_client = client;
 		m_keepAlive = keepalive;
 		m_is_owner = is_owner;
@@ -1300,7 +1245,7 @@ final class HTTPClientResponse : HTTPResponse {
 				this.statusCode = HTTPStatus.internalServerError;
 				this.statusPhrase = "Internal Server Error";
 			} else {
-				string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n", m_alloc);
+				string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n");
 				logTrace("stln: %s", stln);
 				this.httpVersion = parseHTTPVersion(stln);
 
@@ -1314,7 +1259,7 @@ final class HTTPClientResponse : HTTPResponse {
 				}
 
 				// read headers until an empty line is hit
-				parseRFC5322Header(client.topStream, this.headers, HTTPClient.maxHeaderLineLength, m_alloc, false);
+				parseRFC5322Header(client.topStream, this.headers, HTTPClient.maxHeaderLineLength, false);
 
 				auto upgrade_hd = this.headers.get("Upgrade", "");
 				logTrace("Finalizing the upgrade process");
@@ -1324,7 +1269,7 @@ final class HTTPClientResponse : HTTPResponse {
 		else if (m_client.isHTTP2Started) {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
-			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers, m_alloc);
+			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers);
 			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Connection Closed during header read"); throw cc; }
 			catch (TimeoutException e) { logTrace("Connection was timed out"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); throw e; }
 			
@@ -1478,31 +1423,31 @@ final class HTTPClientResponse : HTTPResponse {
 		// prepare body the reader
 		if( auto pte = "Transfer-Encoding" in this.headers ){
 			if (icmp2(*pte, "chunked") == 0) {
-				m_chunkedInputStream = FreeListRef!ChunkedInputStream(m_client.topStream);
+				m_chunkedInputStream = RefCounted!ChunkedInputStream(m_client.topStream);
 				m_bodyReader = this.m_chunkedInputStream;
 			}
 			// todo: Handle Transfer-Encoding: gzip
 			//else if (!handleCompression(*pte))
-			else enforce(icmp2(*pte, "identity") == 0, "Unsuported Transfer-Encoding: "~*pte);
+			else enforce(icmp2(*pte, "identity") == 0, format("Unsuported Transfer-Encoding: %s", *pte));
 		} else if( auto pcl = "Content-Length" in this.headers ){
-			m_limitedInputStream = FreeListRef!LimitedInputStream(m_client.topStream, to!ulong(*pcl));
+			m_limitedInputStream = RefCounted!LimitedInputStream(m_client.topStream, to!ulong(*pcl));
 			m_bodyReader = m_limitedInputStream;
 		} else if (!isHTTP2) {
-			m_limitedInputStream = FreeListRef!LimitedInputStream(m_client.topStream, 0);
+			m_limitedInputStream = RefCounted!LimitedInputStream(m_client.topStream, 0);
 			m_bodyReader = m_limitedInputStream;
 		}
 
 		bool handleCompression(string val) {
 			if (icmp2(val, "br") == 0){
-				m_brotliInputStream = FreeListRef!BrotliInputStream(m_bodyReader);
+				m_brotliInputStream = RefCounted!BrotliInputStream(m_bodyReader);
 				m_bodyReader = m_brotliInputStream;
 				return true;
 			} else if (icmp2(val, "deflate") == 0){
-				m_deflateInputStream = FreeListRef!DeflateInputStream(m_bodyReader);
+				m_deflateInputStream = RefCounted!DeflateInputStream(m_bodyReader);
 				m_bodyReader = m_deflateInputStream;
 				return true;
 			} else if (icmp2(val, "gzip") == 0){
-				m_gzipInputStream = FreeListRef!GzipInputStream(m_bodyReader);
+				m_gzipInputStream = RefCounted!GzipInputStream(m_bodyReader);
 				m_bodyReader = m_gzipInputStream;
 				return true;
 			}
@@ -1514,7 +1459,7 @@ final class HTTPClientResponse : HTTPResponse {
 				enforce(icmp2(*pce, "identity") == 0, "Unsuported Content-Encoding: "~*pce);
 
 		// be sure to free resouces as soon as the response has been read
-		m_endCallback = FreeListRef!EndCallbackInputStream(m_bodyReader, &this.finalize);
+		m_endCallback = RefCounted!EndCallbackInputStream(m_bodyReader, &this.finalize);
 		m_bodyReader = m_endCallback;
 
 		return m_bodyReader;
@@ -1606,12 +1551,9 @@ final class HTTPClientResponse : HTTPResponse {
 		destroy(m_limitedInputStream);
 		if (!keepalive || cli.isHTTP2Started || (!cli.isHTTP2Started && headers.get("Connection") == "close")) 
 			cli.disconnect();
-		if (m_endCallback.get() !is null) m_endCallback.drop();
+		destroy(m_endCallback);
 		//destroy(m_bodyReader); this is endCallback, could end up making an infinite loop
 		if (m_is_owner) destroy(lockedConnection);
-		if (auto alloc = cast(PoolAllocator) m_alloc)
-			alloc.reset();
-		m_alloc = null;
 		m_keepAlive = false;
 		m_maxRequests = int.max;
 	}

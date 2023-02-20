@@ -13,7 +13,6 @@ import vibe.core.args;
 import vibe.core.concurrency;
 import vibe.core.log;
 import vibe.internal.newconcurrency;
-import vibe.utils.array;
 import std.algorithm;
 import std.conv;
 import std.encoding;
@@ -853,7 +852,7 @@ struct Timer {
 	*/
 	void rearm(Duration dur, bool periodic = false)
 		in { assert(dur > 0.seconds); }
-		body { m_driver.rearmTimer(m_id, dur, periodic); }
+		do { m_driver.rearmTimer(m_id, dur, periodic); }
 
 	/** Resets the timer and avoids any firing.
 	*/
@@ -1757,14 +1756,14 @@ version(Posix)
 	private int getUID(string name)
 	{
 		auto pw = getpwnam(name.toStringz());
-		enforce(pw !is null, "Unknown user name: "~name);
+		enforce(pw !is null, format("Unknown user name: %s", name));
 		return pw.pw_uid;
 	}
 
 	private int getGID(string name)
 	{
 		auto gr = getgrnam(name.toStringz());
-		enforce(gr !is null, "Unknown group name: "~name);
+		enforce(gr !is null, format("Unknown group name: %s", name));
 		return gr.gr_gid;
 	}
 } else version(Windows){

@@ -7,7 +7,7 @@
 */
 module vibe.core.drivers.timerqueue;
 
-import vibe.utils.hashmap;
+import memutils.hashmap;
 
 import std.datetime;
 

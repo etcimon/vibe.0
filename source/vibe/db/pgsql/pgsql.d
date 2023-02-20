@@ -1408,13 +1408,13 @@ private:
 		
 		foreach (param; params)
 		{
-			enforce(param.value.hasValue, new ParamException("Parameter $" ~ to!string(param.index) ~ " value is not initialized"));
+			enforce(param.value.hasValue, new ParamException(format("Parameter $%d value is not initialized", param.index)));
 			
 			void checkParam(T)(int len)
 			{
 				if (param.value != null)
 				{
-					enforce(param.value.convertsTo!T, new ParamException("Parameter's value is not convertible to " ~ T.stringof));
+					enforce(param.value.convertsTo!T, new ParamException(format("Parameter's value is not convertible to %s")));
 					paramsLen += len;
 				}
 			}

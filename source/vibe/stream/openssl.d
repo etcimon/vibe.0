@@ -24,6 +24,7 @@ import std.string;
 import core.stdc.string : strlen;
 import core.sync.mutex;
 import core.thread;
+import memutils.utils;
 
 /**************************************************************************************************/
 /* Public types                                                                                   */
@@ -163,7 +164,7 @@ final class OpenSSLStream : TLSStream, Buffered
 			auto longName = OBJ_nid2ln(OBJ_obj2nid(obj)).to!string;
 			auto valStr = cast(string)val.data[0 .. val.length];
 
-			m_peerCertificate.subjectName.addField(longName, valStr);
+			m_peerCertificate.subjectName.insert(longName, valStr);
 		}
 	}
 
@@ -378,12 +379,13 @@ final class OpenSSLStream : TLSStream, Buffered
 	private void setClientALPN(string[] alpn_list)
 	{
 		logDebug("SetClientALPN: ", alpn_list);
-		import vibe.utils.memory : allocArray, freeArray, manualAllocator;
 		ubyte[] alpn;
 		size_t len;
 		foreach (string alpn_val; alpn_list)
 			len += alpn_val.length + 1;
-		alpn = allocArray!ubyte(manualAllocator(), len);
+		alpn = ThreadMem.alloc!(ubyte[])(len);
+		scope(exit)
+			ThreadMem.free(alpn);
 		
 		size_t i;
 		foreach (string alpn_val; alpn_list)
@@ -396,7 +398,6 @@ final class OpenSSLStream : TLSStream, Buffered
 
 		SSL_set_alpn_protos(m_tls, cast(const char*) alpn.ptr, cast(uint) len);
 		
-		freeArray(manualAllocator(), alpn);
 	}
 }
 
@@ -535,12 +536,13 @@ final class OpenSSLContext : SSLContext {
 	/// Invoked by client to offer alpn
 	@property void setClientALPN(string[] alpn_list)
 	{
-		import vibe.utils.memory : allocArray, freeArray, manualAllocator;
 		ubyte[] alpn;
 		size_t len;
 		foreach (string alpn_value; alpn_list)
 			len += alpn_value.length + 1;
-		alpn = allocArray!ubyte(manualAllocator(), len);
+		alpn = ThreadMem.alloc!(ubyte[])(len);
+		scope(exit)
+			ThreadMem.free(alpn);
 
 		size_t i;
 		foreach (string alpn_value; alpn_list)
@@ -553,7 +555,6 @@ final class OpenSSLContext : SSLContext {
 
 		SSL_CTX_set_alpn_protos(m_ctx, cast(const char*) alpn.ptr, cast(uint) len);
 		
-		freeArray(manualAllocator(), alpn);
 	}
 
 	/** Specifies the validation level of remote peers.
@@ -1021,7 +1022,6 @@ private nothrow extern(C)
 	int chooser(SSL* ssl, const(char)** output, ubyte* outlen, const(char) *input, uint inlen, void* arg) {
 		logDebug("Got chooser input: %s", input[0 .. inlen]);
 		OpenSSLContext ctx = cast(OpenSSLContext) arg;
-		import vibe.utils.array : AllocAppender, AppenderResetMode;
 		size_t i;
 		size_t len;
 		Appender!(string[]) alpn_list;

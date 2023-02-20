@@ -13,6 +13,7 @@ import std.datetime;
 import std.typecons;
 import std.conv : parse, to;
 import std.exception;
+import std.format;
 
 /* RFC 6265 cookie dates
 	cookie-date     = *delimiter date-token-list *delimiter
@@ -168,7 +169,7 @@ SysTime parseCookieDate(string date_str)
 	
 	// We should have it now...
 	
-	enforce(year != -1 && month != -1 && day != -1, "Parser failure, got: " ~ year.to!string ~ "-" ~ month.to!string ~ "-" ~ day.to!string);
+	enforce(year != -1 && month != -1 && day != -1, format("Parser failure, got: %d-%d-%d", year, month, day));
 	
 	int to4DigitYear(int yr) {
 		if (yr < 70)

@@ -11,15 +11,18 @@ import vibe.core.log;
 import vibe.core.stream;
 import vibe.stream.operations;
 import vibe.utils.array;
-import vibe.utils.memory;
 import vibe.utils.string;
-import vibe.utils.dictionarylist;
 
 import std.conv;
 import std.datetime;
 import std.exception;
 import std.range;
 import std.string;
+
+import memutils.utils;
+import memutils.dictionarylist;
+import memutils.scoped;
+import memutils.vector;
 
 /**
 	Parses an internet header according to RFC5322 (with RFC822 compatibility).
@@ -31,7 +34,7 @@ import std.string;
 		alloc = Custom allocator to use for allocating strings
 		rfc822_compatible = Flag indicating that duplicate fields should be merged using a comma
 */
-void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_line_length = 1000, Allocator alloc = defaultAllocator(), bool rfc822_compatible = true)
+void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_line_length = 1000, bool rfc822_compatible = true)
 {
 	string hdr, hdrvalue;
 
@@ -43,12 +46,12 @@ void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_lin
 			} else {
 				dst[hdr] = hdrvalue;
 			}
-		} else dst.addField(hdr, hdrvalue);
+		} else dst.insert(hdr, hdrvalue);
 	}
 
 	string ln;
 	int i;
-	while ((ln = cast(string)input.readLine(max_line_length, "\r\n", alloc)).length > 0) {
+	while ((ln = cast(string)input.readLine(max_line_length, "\r\n")).length > 0) {
 		i++;
 		import vibe.core.log;
 		logDebug("%s", ln);
@@ -56,7 +59,7 @@ void parseRFC5322Header(InputStream input, ref InetHeaderMap dst, size_t max_lin
 			addPreviousHeader();
 
 			auto colonpos = ln.indexOf(':');
-			enforce(colonpos > 0 && colonpos < ln.length, "Header is missing ':' at " ~ colonpos.to!string ~ " ln " ~ i.to!string ~ ": " ~ ln);
+			enforce(colonpos > 0 && colonpos < ln.length, format("Header is missing ':' at %d ln %d: %s", colonpos, i, ln));
 			hdr = ln[0..colonpos].stripA();
 			hdrvalue = ln[colonpos+1..$].stripA();
 		} else {
@@ -121,7 +124,7 @@ void writeRFC822DateTimeString(R)(ref R dst, SysTime time)
 */
 string toRFC822TimeString(SysTime time)
 {
-	auto ret = new FixedAppender!(string, 14);
+	auto ret = alloc!(FixedAppender!(string, 14));
 	writeRFC822TimeString(ret, time);
 	return ret.data;
 }
@@ -131,7 +134,7 @@ string toRFC822TimeString(SysTime time)
 */
 string toRFC822DateString(SysTime time)
 {
-	auto ret = new FixedAppender!(string, 16);
+	auto ret = alloc!(FixedAppender!(string, 16));
 	writeRFC822DateString(ret, time);
 	return ret.data;
 }
@@ -141,7 +144,7 @@ string toRFC822DateString(SysTime time)
 */
 string toRFC822DateTimeString(SysTime time)
 {
-	auto ret = new FixedAppender!(string, 31);
+	auto ret = alloc!(FixedAppender!(string, 31));
 	writeRFC822DateTimeString(ret, time);
 	return ret.data;
 }
@@ -342,12 +345,12 @@ string decodeMessage(in ubyte[] message_body, string content_transfer_encoding)
 
 	This kind of map is used for MIME headers (e.g. for HTTP), where the case of the key strings
 	does not matter. Note that the map can contain fields with the same key multiple times if
-	addField is used for insertion. Insertion order is preserved.
+	insert is used for insertion. Insertion order is preserved.
 
 	Note that despite case not being relevant for matching keyse, iterating over the map will yield
 	the original case of the key that was put in.
 */
-alias InetHeaderMap = DictionaryList!(string, false);
+alias InetHeaderMap = DictionaryList!(string, string, ThreadMem, false);
 
 
 
@@ -357,7 +360,7 @@ alias InetHeaderMap = DictionaryList!(string, false);
 struct QuotedPrintable {
 	static ubyte[] decode(in char[] input, bool in_header = false)
 	{
-		auto ret = appender!(ubyte[])();
+		auto ret = Vector!(ubyte, PoolStack)();
 		for( size_t i = 0; i < input.length; i++ ){
 			if( input[i] == '=' ){
 				auto code = input[i+1 .. i+3];
@@ -367,7 +370,7 @@ struct QuotedPrintable {
 			} else if( in_header && input[i] == '_') ret.put(' ');
 			else ret.put(input[i]);
 		}
-		return ret.data();
+		return ret[];
 	}
 }
 

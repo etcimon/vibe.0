@@ -98,7 +98,7 @@ import std.conv;
 import std.exception : enforce;
 import std.traits;
 import std.typetuple;
-
+import std.format;
 
 /**
 	Serializes a value with the given serializer.
@@ -544,7 +544,7 @@ private T deserializeImpl(T, alias Policy, Serializer, ATTRIBUTES...)(ref Serial
 		}
 		foreach (i, mname; SerializableFields!T)
 			static if (!hasAttribute!(OptionalAttribute, __traits(getMember, T, mname)))
-				enforce(set[i], "Missing non-optional field '"~mname~"' of type '"~T.stringof~"'.");
+				enforce(set[i], format("Missing non-optional field '%s of type '%s'.", mname, T.stringof));
 		return ret;
 	} else static if (isPointer!T) {
 		if (deserializer.isNull()) return null;

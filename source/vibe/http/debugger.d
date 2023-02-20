@@ -8,7 +8,6 @@ import vibe.core.task;
 import vibe.http.router : HTTPServerRequestDelegateS, URLRouter;
 import vibe.http.server;
 import vibe.http.http2 : HTTP2Stream, HTTP2Session;
-import vibe.utils.memory : DebugAllocator, manualAllocator;
 import vibe.core.trace;
 import memutils.allocators;
 
@@ -25,7 +24,6 @@ void printSummary(scope HTTPServerResponse res)
 {
 	res.bodyWriter.write(format("Have %d HTTP/2 sessions running\n\n", HTTP2Session.totalSessions));
 	res.bodyWriter.write(format("Have %d HTTP/2 streams running\n\n", HTTP2Stream.totalStreams));
-	res.bodyWriter.write(format("Have %d bytes of data in manualAllocator()\n\n", (cast(DebugAllocator)manualAllocator()).bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in AppMem\n\n", getAllocator!NativeGC().bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in ThreadMem\n\n", getAllocator!Lockless().bytesAllocated()));
 	res.bodyWriter.write(format("Have %d bytes of data in SecureMem\n\n", getAllocator!CryptoSafe().bytesAllocated()));
@@ -49,10 +47,6 @@ HTTPServerRequestDelegateS serveAllocations() {
 	void allocations(scope HTTPServerRequest req, scope HTTPServerResponse res) {
 		res.contentType = "text/plain";
 		res.printSummary();
-		res.bodyWriter.write("\nVibe manual allocations: \n\n");
-		foreach (const ref size_t sz; (cast(DebugAllocator)manualAllocator()).blocks) {
-			res.bodyWriter.write(format("Entry sz %d\n", sz));
-		}
 
 		version(DictionaryDebugger) {
 			auto map = getAllocator!NativeGC().getMap();

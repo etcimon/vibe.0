@@ -12,8 +12,8 @@ import vibe.core.driver;
 
 import core.thread;
 import vibe.core.sync;
-import vibe.utils.memory;
 import std.exception;
+import memutils.refcounted;
 // todo: Fix error in corruption exception
 
 /**
@@ -32,13 +32,13 @@ class ConnectionPool(Connection)
 		Connection[] m_connections;
 		size_t space_2;
 		int[const(Connection)] m_lockCount;
-		FreeListRef!LocalTaskSemaphore m_sem;
+		RefCounted!LocalTaskSemaphore m_sem;
 	}
 
 	this(Connection delegate() connection_factory, uint max_concurrent = uint.max)
 	{
 		m_connectionFactory = connection_factory;
-		m_sem = FreeListRef!LocalTaskSemaphore(max_concurrent);
+		m_sem = RefCounted!LocalTaskSemaphore(max_concurrent);
 	}
 
 	@property size_t length() { return m_connections.length; }

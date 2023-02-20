@@ -9,7 +9,6 @@ module vibe.core.task;
 
 import vibe.core.sync;
 import vibe.internal.newconcurrency : newStdConcurrency;
-import vibe.utils.array;
 
 import core.thread;
 import std.exception;

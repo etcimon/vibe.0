@@ -17,6 +17,8 @@ import vibe.core.core;
 import vibe.core.sync;
 import vibe.utils.array;
 
+import memutils.circularbuffer;
+
 
 /**
 	Implements a unidirectional data pipe between two tasks.
@@ -67,7 +69,7 @@ private final class TaskPipeImpl {
 	private {
 		Mutex m_mutex;
 		InterruptibleTaskCondition m_condition;
-		FixedRingBuffer!ubyte m_buffer;
+		CircularBuffer!ubyte m_buffer;
 		bool m_closed = false;
 		bool m_growWhenFull;
 	}

@@ -64,7 +64,7 @@ nothrow static:
 	Vector!string getCallStack(Task t = Task.getThis(), bool in_catch = true) {
 		scope(failure) assert(false, "Memory allocation failed");
 		try if (auto ptr = t.fiber in s_taskMap) {
-			Vector!string ret = ptr.callStack.dup;
+			Vector!string ret = ptr.callStack.clone;
 			if (in_catch && ptr.failures > 0) {
 				foreach (i; 0 .. ptr.failures) {
 					ptr.failures--;

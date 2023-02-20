@@ -23,6 +23,7 @@ import vibe.stream.tls;
 import vibe.core.net;
 import std.datetime;
 import std.exception;
+import std.format;
 
 import std.stdio : writeln;
 
@@ -86,7 +87,7 @@ public:
 		assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 		// todo: add service name?
 		m_server_info = TLSServerInformation(peer_name, peer_address.port);
-		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.clone);
 		doHandshake();
 	}
 
@@ -110,7 +111,7 @@ public:
 			assert(peer_address != NetworkAddress.init, "You must specify a peer address");
 			// todo: add service name?
 			m_server_info = TLSServerInformation(peer_name, peer_address.port);
-			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.dup);
+			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.clone);
 		}
 		else /*if (state == TLSStreamState.connected)*/ {
 			m_tls_channel = TLSBlockingChannel.init;
@@ -634,7 +635,7 @@ private:
 	}
 
 	string nextProtocolHandler(in Vector!string offers) {
-		enforce(m_kind == TLSContextKind.server, "Attempted ALPN selection on a " ~ m_kind.to!string);
+		enforce(m_kind == TLSContextKind.server, format("Attempted ALPN selection on a %s", m_kind));
 		if (m_serverCb !is null)
 			return m_serverCb(offers[]);
 		else return "";
@@ -747,7 +748,7 @@ public:
 		static bool has_cache;
 
 		if (has_cache && _version == cache_version && cache_have_srp == have_srp && cache_ret.length > 0) 
-			return cache_ret.dup;
+			return cache_ret.clone;
 		
 
 		Vector!ushort ret;
@@ -764,7 +765,7 @@ public:
 		has_cache = true;
 		cache_version = _version;
 		cache_have_srp = have_srp;
-		cache_ret = ret.dup();		
+		cache_ret = ret.clone();		
 
 		return ret.move();
 	}
@@ -833,7 +834,7 @@ public:
 		// todo: Check machine stores for client mode
 		if (m_stores.length == 0)
 			return Vector!CertificateStore.init;
-		return m_stores.dup;
+		return m_stores.clone;
 	}
 	
 	override Vector!X509Certificate certChain(const ref Vector!string cert_key_types, in string type, in string) 

@@ -54,7 +54,7 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 
 				switch( res.statusCode ){
 					default:
-						throw new HTTPStatusException(res.statusCode, "Server responded with "~httpStatusText(res.statusCode)~" for "~url.toString());
+						throw new HTTPStatusException(res.statusCode, format("Server responded with %s for %s", httpStatusText(res.statusCode), url));
 					case HTTPStatus.OK:
 						done = true;
 						callback(res.bodyReader);
@@ -65,7 +65,7 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 					case HTTPStatus.temporaryRedirect:
 						logTrace("Status code: %s", res.statusCode);
 						auto pv = "Location" in res.headers;
-						enforce(pv !is null, "Server responded with redirect but did not specify the redirect location for "~url.toString());
+						enforce(pv !is null, format("Server responded with redirect but did not specify the redirect location for %s", url));
 						logDebug("Redirect to '%s'", *pv);
 						if( startsWith((*pv), "http:") || startsWith((*pv), "https:") ){
 						logTrace("parsing %s", *pv);

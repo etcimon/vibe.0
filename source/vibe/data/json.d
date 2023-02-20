@@ -322,7 +322,7 @@ struct Json {
 		}
 		m_object[key] = Json.init;
 		assert(m_object !is null);
-		assert(key in m_object, "Failed to insert key '"~key~"' into AA!?");
+		assert(key in m_object, format("Failed to insert key '%s' into AA!?", key));
 		m_object[key].m_type = Type.undefined; // DMDBUG: AAs are teh $H1T!!!11
 		assert(m_object[key].type == Type.undefined);
 		m_object[key].m_string = key;
@@ -650,7 +650,7 @@ struct Json {
 	*/
 	Json opBinary(string op)(ref const(Json) other)
 	const {
-		enforceJson(m_type == other.m_type, "Binary operation '"~op~"' between "~.to!string(m_type)~" and "~.to!string(other.m_type)~" JSON objects.");
+		enforceJson(m_type == other.m_type, format("Binary operation '%s' between %s and %s JSON objects.", op, m_type, other.m_type));
 		static if( op == "&&" ){
 			checkType!(bool)(op);
 			return Json(m_bool && other.m_bool);
@@ -710,38 +710,38 @@ struct Json {
 		if (op == "+" || op == "-" || op == "*" || op == "/" || op == "%" || op =="~")
 	{
 		enforceJson(m_type == other.m_type || op == "~" && m_type == Type.array,
-			"Binary operation '"~op~"=' between "~.to!string(m_type)~" and "~.to!string(other.m_type)~" JSON objects.");
+			format("Binary operation '%s=' between %s and %s  JSON objects.", op, m_type, other.m_type));
 		static if( op == "+" ){
 			if( m_type == Type.int_ ) m_int += other.m_int;
 			else if( m_type == Type.bigInt ) m_bigInt += other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float += other.m_float;
-			else enforceJson(false, "'+=' only allowed for scalar types, not "~.to!string(m_type)~".");
+			else enforceJson(false, format("'+=' only allowed for scalar types, not %s. ", m_type));
 		} else static if( op == "-" ){
 			if( m_type == Type.int_ ) m_int -= other.m_int;
 			else if( m_type == Type.bigInt ) m_bigInt -= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float -= other.m_float;
-			else enforceJson(false, "'-=' only allowed for scalar types, not "~.to!string(m_type)~".");
+			else enforceJson(false, format("'-=' only allowed for scalar types, not %s.", m_type));
 		} else static if( op == "*" ){
 			if( m_type == Type.int_ ) m_int *= other.m_int;
 			else if( m_type == Type.bigInt ) m_bigInt *= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float *= other.m_float;
-			else enforceJson(false, "'*=' only allowed for scalar types, not "~.to!string(m_type)~".");
+			else enforceJson(false, format("'*=' only allowed for scalar types, not ", m_type));
 		} else static if( op == "/" ){
 			if( m_type == Type.int_ ) m_int /= other.m_int;
 			else if( m_type == Type.bigInt ) m_bigInt /= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float /= other.m_float;
-			else enforceJson(false, "'/=' only allowed for scalar types, not "~.to!string(m_type)~".");
+			else enforceJson(false, format("'/=' only allowed for scalar types, not ", m_type));
 		} else static if( op == "%" ){
 			if( m_type == Type.int_ ) m_int %= other.m_int;
 			else if( m_type == Type.bigInt ) m_bigInt %= other.m_bigInt;
 			else if( m_type == Type.float_ ) m_float %= other.m_float;
-			else enforceJson(false, "'%=' only allowed for scalar types, not "~.to!string(m_type)~".");
+			else enforceJson(false, format("'%=' only allowed for scalar types, not ", m_type));
 		} else static if( op == "~" ){
 			if (m_type == Type.string) m_string ~= other.m_string;
 			else if (m_type == Type.array) {
 				if (other.m_type == Type.array) m_array ~= other.m_array;
 				else appendArrayElement(other);
-			} else enforceJson(false, "'~=' only allowed for string and array types, not "~.to!string(m_type)~".");
+			} else enforceJson(false, format("'~=' only allowed for string and array types, not ", m_type));
 		} else static assert("Unsupported operator '"~op~"=' for type JSON.");
 	}
 	/// ditto
@@ -816,7 +816,7 @@ struct Json {
 	 */
 	void appendArrayElement(Json element)
 	{
-		enforceJson(m_type == Type.array, "'appendArrayElement' only allowed for array types, not "~.to!string(m_type)~".");
+		enforceJson(m_type == Type.array, format("'appendArrayElement' only allowed for array types, not %s.", m_type));
 		m_array ~= element;
 	}
 
@@ -1022,7 +1022,7 @@ struct Json {
 	private long bigIntToLong() inout
 	{
 		assert(m_type == Type.bigInt, format("Converting non-bigInt type with bitIntToLong!?: %s", cast(Type)m_type));
-		enforceJson(m_bigInt >= long.min && m_bigInt <= long.max, "Number out of range while converting BigInt("~format("%d", m_bigInt)~") to long.");
+		enforceJson(m_bigInt >= long.min && m_bigInt <= long.max, format("Number out of range while converting BigInt(%d) to long.", m_bigInt));
 		return m_bigInt.toLong();
 	}
 
@@ -1062,17 +1062,17 @@ Json parseJson(R)(ref R range, int* line = null, string filename = null)
 
 	switch( range.front ){
 		case 'f':
-			enforceJson(range[1 .. $].startsWith("alse"), "Expected 'false', got '"~range[0 .. min(5, $)]~"'.", filename, line);
+			enforceJson(range[1 .. $].startsWith("alse"), format("Expected 'false', got '%s'.", range[0 .. min(5, $)]), filename, line);
 			range.popFrontN(5);
 			ret = false;
 			break;
 		case 'n':
-			enforceJson(range[1 .. $].startsWith("ull"), "Expected 'null', got '"~range[0 .. min(4, $)]~"'.", filename, line);
+			enforceJson(range[1 .. $].startsWith("ull"), format("Expected 'null', got '%s'.", range[0 .. min(4, $)]), filename, line);
 			range.popFrontN(4);
 			ret = null;
 			break;
 		case 't':
-			enforceJson(range[1 .. $].startsWith("rue"), "Expected 'true', got '"~range[0 .. min(4, $)]~"'.", filename, line);
+			enforceJson(range[1 .. $].startsWith("rue"), format("Expected 'true', got '%s'.", range[0 .. min(4, $)]), filename, line);
 			range.popFrontN(4);
 			ret = true;
 			break;
@@ -1122,7 +1122,7 @@ Json parseJson(R)(ref R range, int* line = null, string filename = null)
 				if(range.front == '}') break;
 				string key = skipJsonString(range);
 				skipWhitespace(range, line);
-				enforceJson(range.startsWith(":"), "Expected ':' for key '" ~ key ~ "'", filename, line);
+				enforceJson(range.startsWith(":"), format("Expected ':' for key '%s'", key), filename, line);
 				range.popFront();
 				skipWhitespace(range, line);
 				Json itm = parseJson(range, line, filename);
@@ -1516,7 +1516,7 @@ struct JsonSerializer {
 	//
 	void readDictionary(T)(scope void delegate(string) field_handler)
 	{
-		enforceJson(m_current.type == Json.Type.object, "Expected JSON object, got "~m_current.type.to!string);
+		enforceJson(m_current.type == Json.Type.object, format("Expected JSON object, got %s", m_current.type));
 		auto old = m_current;
 		foreach (string key, value; m_current) {
 			m_current = value;
@@ -1527,7 +1527,7 @@ struct JsonSerializer {
 
 	void readArray(T)(scope void delegate(size_t) size_callback, scope void delegate() entry_callback)
 	{
-		enforceJson(m_current.type == Json.Type.array, "Expected JSON array, got "~m_current.type.to!string);
+		enforceJson(m_current.type == Json.Type.array, format("Expected JSON array, got %s", m_current.type));
 		auto old = m_current;
 		size_callback(m_current.length);
 		foreach (ent; old) {
@@ -1689,7 +1689,7 @@ struct JsonStringSerializer(R, bool pretty = false)
 					m_range.popFront();
 					break;
 				} else if (!first) {
-					enforceJson(m_range.front == ',', "Expecting ',' or '}', not '"~m_range.front.to!string~"'.");
+					enforceJson(m_range.front == ',', format("Expecting ',' or '}', not '%s'.", m_range.front));
 					m_range.popFront();
 					m_range.skipWhitespace(&m_line);
 				} else first = false;
@@ -1697,7 +1697,7 @@ struct JsonStringSerializer(R, bool pretty = false)
 				auto name = m_range.skipJsonString(&m_line);
 
 				m_range.skipWhitespace(&m_line);
-				enforceJson(!m_range.empty && m_range.front == ':', "Expecting ':', not '"~m_range.front.to!string~"'.");
+				enforceJson(!m_range.empty && m_range.front == ':', format("Expecting ':', not '%s'.", m_range.front));
 				m_range.popFront();
 
 				entry_callback(name);
@@ -2030,7 +2030,7 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
 				range.popFront();
 				enforceJson(!range.empty, "Unterminated string escape sequence.");
 				switch(range.front){
-					default: enforceJson(false, "Invalid string escape sequence after: " ~ ret.data); break;
+					default: enforceJson(false, format("Invalid string escape sequence after: %s", ret.data)); break;
 						static if (!single_quoted && !unquoted) { case '"': ret.put('\"'); range.popFront(); break; }
 						static if (single_quoted) { case '\'': ret.put('\''); range.popFront(); break; }
 					case '\\': ret.put('\\'); range.popFront(); break;
@@ -2133,7 +2133,7 @@ private string skipNumber(R)(ref R s, out bool is_float, out bool is_long_overfl
 		idx++;
 		is_float = true;
 		if( idx < s.length && (s[idx] == '+' || s[idx] == '-') ) idx++;
-		enforceJson( idx < s.length && isDigit(s[idx]), "Expected exponent." ~ s[0 .. idx]);
+		enforceJson( idx < s.length && isDigit(s[idx]), format("Expected exponent.%s", s[0 .. idx]));
 		idx++;
 		while( idx < s.length && isDigit(s[idx]) ) idx++;
 	}

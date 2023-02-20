@@ -46,6 +46,8 @@ import std.digest.sha;
 import std.string;
 import std.functional;
 
+import memutils.vector;
+
 
 /// Exception thrown by $(D vibe.http.websockets).
 class WebSocketException: Exception
@@ -415,7 +417,8 @@ final class WebSocket {
 			Frame ping;
 			ping.opcode = FrameOpcode.ping;
 			ping.fin = true;
-			ping.payload = nativeToLittleEndian(++m_lastPingIndex);
+			auto last_ping_index = Vector!ubyte(nativeToLittleEndian(++m_lastPingIndex));
+			ping.payload = last_ping_index[];
 			ping.writeFrame(m_conn);
 			logDebug("Ping sent");
 		});

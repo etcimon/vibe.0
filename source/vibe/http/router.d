@@ -865,7 +865,7 @@ private struct MatchGraphBuilder {
 //logInfo("Disambiguate");
 		if (!m_nodes.length) return;
 
-		import vibe.utils.hashmap;
+		import memutils.hashmap;
 		HashMap!(immutable(size_t)[], size_t) combined_nodes;
 		auto visited = new bool[m_nodes.length * 2];
 		size_t[] node_stack = [0];

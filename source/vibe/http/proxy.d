@@ -78,7 +78,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
 			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];
-			creq.headers = req.headers.dup;
+			creq.headers = req.headers.clone();
 			foreach (k, v; settings.defaultHeaders) {
 				creq.headers[k] = v;
 			}
@@ -166,7 +166,10 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				}
 				auto size = cres.headers["Content-Length"].to!size_t();
 				logDebug("Request was: %s", req.requestURL);
-				logDebug("Got headers: %s", cres.headers);
+				logDebug("Got headers =>");
+				foreach (const key, const val; cres.headers) {
+					logDebug("%s: %s", key, val);
+				}
 				can_retry = false;
 				cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
 				if (!res.headerWritten) res.writeVoidBody();

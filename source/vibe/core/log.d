@@ -417,7 +417,7 @@ final class HTMLLogger : Logger {
 			top: 0pt;
 			left: 250pt;
 		}
-		body {
+		do {
 			font-family: Tahoma, Arial, sans-serif;
 			font-size: 10pt;
 		}

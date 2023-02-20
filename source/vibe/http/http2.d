@@ -11,8 +11,6 @@ import vibe.core.core;
 import vibe.core.stream;
 import vibe.core.driver;
 import vibe.core.trace;
-import vibe.utils.memory;
-import vibe.utils.dictionarylist;
 import vibe.utils.string;
 import vibe.inet.message;
 import vibe.inet.url;
@@ -33,9 +31,6 @@ import libhttp2.constants;
 import libhttp2.helpers;
 //import vibe.core.log:logDebug;
 
-import memutils.circularbuffer;
-import memutils.vector;
-import memutils.utils;
 
 import core.thread : Thread;
 import core.stdc.stdio;
@@ -46,6 +41,12 @@ import std.exception;
 import std.format;
 import std.algorithm;
 static import vibe.core.log;
+
+import memutils.scoped;
+import memutils.dictionarylist;
+import memutils.circularbuffer;
+import memutils.vector;
+import memutils.utils;
 
 alias B64 = Base64Impl!('-', '_', Base64.NoPadding);
 
@@ -320,7 +321,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	this(HTTP2Session sess, int stream_id, int chunk_size = 16*1024, bool push = false)
 	in { assert(sess !is null && stream_id != 0); }
-	body {
+	do {
 		m_owner = Thread.getThis();
 		logDebug("Stream ctor");
 		m_session = sess;
@@ -365,9 +366,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	}
 
 	/// Read client request headers into supplied structures. The session must be opened as a server
-	void readHeader(ref URL url, ref HTTPMethod method, ref InetHeaderMap header, Allocator alloc = defaultAllocator())
+	void readHeader(ref URL url, ref HTTPMethod method, ref InetHeaderMap header)
 	in { assert(m_session.isServer); }
-	body
+	do
 	{
 		mixin(Trace);
 		acquireReader();
@@ -386,38 +387,37 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 		
 		assert(m_active, "Stream is not active, but headers were received.");
-		import vibe.utils.memory : copy;
 
 		foreach (HeaderField hf; m_rx.headers) {
 			if (hf.name == ":path") 
-				url.localURI = hf.value.copy(alloc);
+				url.localURI = hf.value.copy();
 			else if (hf.name == ":scheme")
-				url.schema = hf.value.copy(alloc);
+				url.schema = hf.value.copy();
 			else if (hf.name == ":method")
 				method = httpMethodFromString(hf.value);
 			else if ((icmp2(hf.name, "host") == 0 && !url.host) || hf.name == ":authority") {
 				import std.algorithm : countUntil;
 				int idx = cast(int)hf.value.countUntil(":");
 				if (idx == -1)
-					url.host = hf.value.copy(alloc);
+					url.host = hf.value.copy();
 				else {
 					import std.conv : parse;
-					url.host = hf.value[0 .. idx].copy(alloc);
+					url.host = hf.value[0 .. idx].copy();
 					auto chunk = hf.value[idx + 1 .. $];
 					url.port = to!ushort(chunk);
 				}
-				header.addField("Host", hf.value.copy(alloc));
+				header.insert("Host", hf.value.copy());
 			}
 			else
-				header.addField(hf.name.copy(alloc), hf.value.copy(alloc));
+				header.insert(hf.name.copy(), hf.value.copy());
 		}
 		s_http2Registry[cast(size_t)cast(void*)m_session] = Registry(url.localURI, Clock.currTime(UTC()));
 	}
 
 	/// Read server response headers into supplied structures. The session must be opened as a client
-	void readHeader(ref int status_code, ref InetHeaderMap header, Allocator alloc = defaultAllocator())
+	void readHeader(ref int status_code, ref InetHeaderMap header)
 	in { assert(!m_session.isServer); }
-	body {
+	do {
 		mixin(Trace);
 		acquireReader();
 		scope(exit) releaseReader();
@@ -438,16 +438,15 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			processExceptions();
 		}
 		assert(m_active, "Stream is not active, but headers were received.");
-		import vibe.utils.memory : allocArray;
 
 		foreach (HeaderField hf; m_rx.headers) {
 			import std.conv : parse;
 			if (hf.name == ":status")
 				status_code = hf.value.parse!int;
 			else if (hf.name == ":authority")
-				header.addField("Host", hf.value.copy(alloc));
+				header.insert("Host", hf.value.copy());
 			else
-				header.addField(hf.name.idup, hf.value.copy(alloc));
+				header.insert(hf.name.copy(), hf.value.copy());
 		}
 
 
@@ -456,7 +455,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	/// Queue server response headers, sent when responding to a client. The session must be opened as a server.
 	void writeHeader(in HTTPStatus status, const ref InetHeaderMap header, ref Cookie[string] cookies)
 	in { enforce(m_session); assert(m_session.isServer); }
-	body {
+	do {
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
@@ -486,17 +485,16 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 		}
 
-		MemoryOutputStream memstream = FreeListObjectAlloc!MemoryOutputStream.alloc(manualAllocator());
+		auto memstream = Mem.alloc!(MemoryOutputStream!(PoolStack))();
 		StreamOutputRange dst = StreamOutputRange(memstream);
 		scope(exit) {
 			destroy(dst);
 			memstream.clear();
-			FreeListObjectAlloc!MemoryOutputStream.free(memstream);
+			ThreadMem.free(memstream);
 		}
 		// write set-cookie headers
 		foreach (name, Cookie cookie; cookies)
 		{
-			import vibe.utils.array : AllocAppender, AppenderResetMode;
 			cookie.writeString(&dst, cast(string) name);
 			dst.flush();
 			char[] cookie_val = cast(char[]) Mem.copy(memstream.data);
@@ -514,7 +512,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	/// Note: You can override the cookie jar by adding a cookie header
 	void writeHeader(in string path, in string scheme, in HTTPMethod method, const ref InetHeaderMap header, in CookieStore cookie_jar, bool concatenate_cookies)
 	in { enforce(m_session); assert(!m_session.isServer); }
-	body {
+	do {
 		acquireWriter();
 		scope(exit) releaseWriter();
 		scope(success) m_headersWritten = true;
@@ -621,7 +619,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	/// Untested.
 	void pushPromise(in URL url, in HTTPMethod method, const ref InetHeaderMap header)
 	in { assert(m_session.isServer); }
-	body {
+	do {
 		acquireWriter();
 		scope(exit) releaseWriter();
 
@@ -658,7 +656,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	/// Queue a priority change, a protocol bias will use this to alter the quality of this stream's connection
 	void setPriority(ubyte i)
 	in { assert(i != 0, "Priority cannot be zero"); }
-	body
+	do
 	{
 		acquireWriter();
 		scope(exit) releaseWriter();
@@ -1283,7 +1281,7 @@ struct HTTP2Settings {
 		scope(exit) Mem.free(buf);
 		char[] enc_buf = Mem.alloc!(char[])(B64.encodeLength(buf.length));
 		scope(exit) Mem.free(enc_buf);
-		return B64.encode(buf, enc_buf).idup;
+		return cast(string)B64.encode(buf, enc_buf).copy();
 	}
 }
 
@@ -1501,7 +1499,7 @@ final class HTTP2Session
 	// Used exclusively by the server to send an initial response
 	HTTP2Stream getUpgradeStream()
 	in { assert(isServer);}
-	body {
+	do {
 		HTTP2Stream upgrade_stream = cast(HTTP2Stream) m_session.getStreamUserData(1);
 		logDebug("Get upgrade stream: %s", (cast(void*)upgrade_stream).to!string);
 		return upgrade_stream;
@@ -1517,7 +1515,7 @@ final class HTTP2Session
 	/// Returns when stop() is called.
 	void run(bool is_upgrade = false)
 	in { assert(!is_upgrade || (is_upgrade && !m_tlsStream), "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
-	body {
+	do {
 		s_totalSessions++;
 		scope(exit) {
 			s_totalSessions--;
@@ -1536,7 +1534,7 @@ final class HTTP2Session
 	/// Used when trying upgrade from HTTP/1.1 and the remote peer doesn't support HTTP/2
 	void abort(HTTP2Stream stream) 
 	in { assert(!m_tlsStream, "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
-	body {
+	do {
 		m_aborted = true;
 		m_closing = true;
 		stream.onClose();
@@ -1551,7 +1549,7 @@ final class HTTP2Session
 	/// Used when an upgrade from HTTP/1.1 is confirmed. Will resume the read loop
 	void resume()
 	in { assert(!m_tlsStream, "Resuming is only available when a client was initially waiting for an h2c upgrade. Use unpause to unpause"); }
-	body  {
+	do {
 		m_resume = true;
 		m_rx.signal.emit();
 		m_tx.signal.emit();
@@ -1716,7 +1714,7 @@ private:
 
 	void onPushPromise(int stream_id)
 	in { assert(!isServer); }
-	body {
+	do {
 		logDebug("Got push promise on stream %d", stream_id); 
 		HTTP2Stream stream;
 		foreach (HTTP2Stream el; m_pushResponses[])

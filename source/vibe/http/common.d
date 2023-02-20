@@ -16,7 +16,6 @@ import vibe.stream.operations;
 import vibe.stream.tls : TLSStream;
 import vibe.http.http2 : HTTP2Stream;
 import vibe.utils.array;
-import vibe.utils.memory;
 import vibe.utils.string;
 
 import std.algorithm;
@@ -29,6 +28,7 @@ import std.format;
 import std.string;
 import std.typecons;
 
+import memutils.vector;
 
 enum HTTPVersion {
 	HTTP_1_0,
@@ -579,16 +579,15 @@ final class ChunkedInputStream : InputStream {
 final class ChunkedOutputStream : OutputStream {
 	private {
 		OutputStream m_out;
-		AllocAppender!(ubyte[]) m_buffer;
+		Vector!ubyte m_buffer;
 		size_t m_maxBufferSize = 512*1024;
 		ulong m_bytesWritten;
 		bool m_finalized = false;
 	}
 
-	this(OutputStream stream, Allocator alloc = manualAllocator())
+	this(OutputStream stream)
 	{
 		m_out = stream;
-		m_buffer = AllocAppender!(ubyte[])(alloc);
 	}
 
 	/** Maximum buffer size used to buffer individual chunks.
@@ -598,7 +597,7 @@ final class ChunkedOutputStream : OutputStream {
 	*/
 	@property size_t maxBufferSize() const { return m_maxBufferSize; }
 	/// ditto
-	@property void maxBufferSize(size_t bytes) { m_maxBufferSize = bytes; if (m_buffer.data.length >= m_maxBufferSize) flush(); }
+	@property void maxBufferSize(size_t bytes) { m_maxBufferSize = bytes; if (m_buffer.length >= m_maxBufferSize) flush(); }
 
 	@property ulong bytesWritten() { return m_bytesWritten; }
 
@@ -608,8 +607,8 @@ final class ChunkedOutputStream : OutputStream {
 		const(ubyte)[] bytes = bytes_;
 		while (bytes.length > 0) {
 			auto sz = bytes.length;
-			if (m_maxBufferSize > 0 && m_maxBufferSize < m_buffer.data.length + sz)
-				sz = m_maxBufferSize - min(m_buffer.data.length, m_maxBufferSize);
+			if (m_maxBufferSize > 0 && m_maxBufferSize < m_buffer.length + sz)
+				sz = m_maxBufferSize - min(m_buffer.length, m_maxBufferSize);
 			if (sz > 0) {
 				m_buffer.put(bytes[0 .. sz]);
 				bytes = bytes[sz .. $];
@@ -622,7 +621,7 @@ final class ChunkedOutputStream : OutputStream {
 	void write(InputStream data, ulong nbytes = 0)
 	{
 		assert(!m_finalized);
-		if( m_buffer.data.length > 0 ) flush();
+		if( m_buffer.length > 0 ) flush();
 		if( nbytes == 0 ){
 			while( !data.empty ){
 				auto sz = data.leastSize;
@@ -645,21 +644,21 @@ final class ChunkedOutputStream : OutputStream {
 	void flush()
 	{
 		assert(!m_finalized);
-		auto data = m_buffer.data();
+		auto data = m_buffer[];
 		if( data.length ){
 			writeChunkSize(data.length);
 			m_out.write(data);
 			m_out.write("\r\n");
 		}
 		m_out.flush();
-		m_buffer.reset(AppenderResetMode.reuseData);
+		m_buffer.clear();
 	}
 
 	void finalize()
 	{
 		if (m_finalized) return;
 		flush();
-		m_buffer.reset(AppenderResetMode.freeData);
+		m_buffer = Vector!ubyte();
 		m_finalized = true;
 		m_out.write("0\r\n\r\n");
 		m_bytesWritten += "0\r\n\r\n".length;

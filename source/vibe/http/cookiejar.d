@@ -9,7 +9,6 @@ module vibe.http.cookiejar;
 
 import vibe.core.log;
 import vibe.http.common;
-import vibe.utils.memory;
 import vibe.utils.array;
 import vibe.utils.string : icmp2;
 import vibe.core.file;
@@ -25,6 +24,10 @@ import std.datetime;
 import std.typecons;
 import std.conv : parse, to;
 import std.exception;
+
+import memutils.utils;
+import memutils.vector;
+import memutils.scoped;
 
 interface CookieJar : CookieStore
 {
@@ -97,14 +100,14 @@ public:
 		scope(exit) {
 			foreach (ref string kv; app.data)
 			{
-				freeArray(defaultAllocator(), kv);
+				ThreadMem.free(kv);
 			}
 		}
 
 		auto ret = readCookies( (CookiePair cookie) {
 				if (search.match(cookie)) {
 					//logDebug("Search matched cookie: %s", cookie.name);
-					char[] kv = allocArray!char(defaultAllocator(), cookie.name.length + 1 + cookie.value.value.length);
+					char[] kv = ThreadMem.alloc!(char[])(cookie.name.length + 1 + cookie.value.value.length);
 					kv[0 .. cookie.name.length] = cookie.name[];
 					kv[cookie.name.length] = '=';
 					kv[cookie.name.length + 1 .. $] = cookie.value.value[];
@@ -122,8 +125,8 @@ public:
 	{
 		m_writeLock.lock();
 		scope(exit) m_writeLock.unlock();
-		auto cookie_local = FreeListObjectAlloc!Cookie.alloc();
-		scope(exit) FreeListObjectAlloc!Cookie.free(cookie_local);
+		auto cookie_local = ThreadMem.alloc!Cookie();
+		scope(exit) ThreadMem.free(cookie_local);
 		parseSetCookieString(set_cookie, cookie_local, (CookiePair cookie) {
 				if (cookie.value.domain is null || cookie.value.domain == "")
 					cookie.value.domain = host;
@@ -247,27 +250,18 @@ public:
 		Appender!(CookiePair[]) cookies;
 		ubyte[8192] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
-		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
-		scope(exit) carry_over.reset(AppenderResetMode.freeData);
-		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, defaultAllocator());
-		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
+		auto carry_over = Vector!ubyte();
+		auto scoped = ScopedPool(2048);
 		
 		{
-			scope(exit) pool.reset();
 			contents = readFile(m_filePath, buffer);
-			InputStream stream;
-			scope(exit) if (stream) FreeListObjectAlloc!MemoryStream.free(cast(MemoryStream)stream);
-			if (carry_over.data.length > 0) {
-				carry_over.put(contents);
-				stream = cast(InputStream)FreeListObjectAlloc!MemoryStream.alloc(carry_over.data);
-				carry_over.reset(AppenderResetMode.reuseData);
-			}
-			else
-				stream = cast(InputStream)FreeListObjectAlloc!MemoryStream.alloc(contents);
+			InputStream stream = cast(InputStream)ThreadMem.alloc!MemoryStream(contents);
+			scope(exit) if (stream) ThreadMem.free(cast(MemoryStream)stream);
 			size_t total_read;
 
 			// loop for each cookie (line) found until the end of the buffer
 			while(total_read < contents.length) {
+				scope(exit) PoolStack.top().reset();
 				if (stream.peek().countUntil('\n') == -1)
 				{
 					carry_over.put(contents[total_read .. $]);
@@ -275,7 +269,7 @@ public:
 				}
 				string cookie_str;
 				try 
-					cookie_str = cast(string) stream.readLine(4096, "\n", pool);
+					cookie_str = cast(string) stream.readLine(4096, "\n");
 				catch(Exception e) {
 					carry_over.put(contents[total_read .. $]);
 					break;
@@ -287,7 +281,7 @@ public:
 						// copy the cookie_str on the GC and parse again
 						Cookie cookie2 = new Cookie;
 						// use the specified allocator for the payload
-						char[] cookie_str_alloc = cast(char[])cookie_str.dup;
+						string cookie_str_alloc = cookie_str.idup;
 						auto app = (CookiePair gcpair) {
 							// append the result to the `cookies`
 							cookies ~= gcpair;
@@ -297,8 +291,8 @@ public:
 				};
 				
 				{
-					Cookie cookie = FreeListObjectAlloc!Cookie.alloc();
-					scope(exit) FreeListObjectAlloc!Cookie.free(cookie);
+					Cookie cookie = ThreadMem.alloc!Cookie();
+					scope(exit) ThreadMem.free(cookie);
 					parseSetCookieString(cookie_str, cookie, getVal);
 				}
 			}
@@ -318,36 +312,26 @@ public:
 
 		ubyte[8192] buffer = void;
 		ubyte[] contents = buffer[0 .. buffer.length];
-		auto carry_over = AllocAppender!(ubyte[])(defaultAllocator());
-		scope(exit) 
-			carry_over.reset(AppenderResetMode.freeData);
-		PoolAllocator pool = FreeListObjectAlloc!PoolAllocator.alloc(4096, defaultAllocator());
-		scope(exit) FreeListObjectAlloc!PoolAllocator.free(pool);
+		auto carry_over = Vector!ubyte();
+		auto scoped = ScopedPool(4096);
 
 		FileStream new_file = createTempFile();
 		bool new_file_closed;
 		scope(exit) if (!new_file_closed) new_file.close();
-		AllocAppender!(ubyte[]) new_file_data = AllocAppender!(ubyte[])(defaultAllocator());
-		scope(exit) new_file_data.reset(AppenderResetMode.freeData);
+		auto new_file_data = Vector!ubyte();
 
 		{
-			scope(exit) pool.reset();
 			contents = readFile(m_filePath, buffer);
 			//logInfo("Read cookie file: %s", m_filePath);
 		
-			InputStream stream;
-			scope(exit) if (stream) FreeListObjectAlloc!MemoryStream.free(cast(MemoryStream)stream);
-			if (carry_over.data.length > 0) {
-				carry_over.put(contents);
-				stream = FreeListObjectAlloc!MemoryStream.alloc(carry_over.data); // todo: Avoid this GC allocation
-				carry_over.reset(AppenderResetMode.reuseData);
-			}
-			else
-				stream = FreeListObjectAlloc!MemoryStream.alloc(contents);
+			InputStream stream = ThreadMem.alloc!MemoryStream(contents);
+			scope(exit) if (stream) ThreadMem.free(cast(MemoryStream)stream);
+			
 			size_t total_read;
 
 			// loop for each cookie (line) found until the end of the buffer
 			while(total_read < contents.length) {
+				scope(exit) PoolStack.top().reset();
 				if (stream.peek().countUntil('\n') == -1)
 				{
 					carry_over.put(contents[total_read .. $]);
@@ -356,7 +340,7 @@ public:
 				string cookie_str;
 				try {					
 					//logInfo("Get cookies readln");
-					cookie_str = cast(string) stream.readLine(4096, "\n", pool);
+					cookie_str = cast(string) stream.readLine(4096, "\n");
 					//logInfo("Got: %s", cookie_str);
 				}
 				catch(Exception e) {
@@ -368,22 +352,22 @@ public:
 					if (!predicate(cookiepair)) {
 						new_file_data.put(cast(ubyte[])cookie_str);
 						new_file_data.put('\n');
-						if (new_file_data.data.length >= 256) {
-							new_file.write(cast(ubyte[]) new_file_data.data);
+						if (new_file_data[].length >= 256) {
+							new_file.write(cast(ubyte[]) new_file_data[]);
 							new_file.flush();
-							new_file_data.reset(AppenderResetMode.reuseData);
+							new_file_data.clear();
 						}
 					}
 				};
 				
 				{
-					Cookie cookie = FreeListObjectAlloc!Cookie.alloc();
-					scope(exit) FreeListObjectAlloc!Cookie.free(cookie);
+					Cookie cookie = ThreadMem.alloc!Cookie();
+					scope(exit) ThreadMem.free(cookie);
 					parseSetCookieString(cookie_str, cookie, getVal);
 				}
 			}
 		}
-		new_file.write(cast(ubyte[]) new_file_data.data);
+		new_file.write(cast(ubyte[]) new_file_data[]);
 		new_file.finalize();
 		removeFile(m_filePath);
 		new_file.close();
@@ -478,14 +462,14 @@ public:
 		scope(exit) {
 			foreach (ref string kv; app.data)
 			{
-				freeArray(defaultAllocator(), kv);
+				ThreadMem.free(kv);
 			}
 		}
 		
 		auto ret = readCookies( (CookiePair cookie) {
 				if (search.match(cookie)) {
 					//logDebug("Search matched cookie: %s", cookie.name);
-					char[] kv = allocArray!char(defaultAllocator(), cookie.name.length + 1 + cookie.value.value.length);
+					char[] kv = ThreadMem.alloc!(char[])(cookie.name.length + 1 + cookie.value.value.length);
 					kv[0 .. cookie.name.length] = cookie.name[];
 					kv[cookie.name.length] = '=';
 					kv[cookie.name.length + 1 .. $] = cookie.value.value[];

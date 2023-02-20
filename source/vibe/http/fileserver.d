@@ -307,7 +307,7 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 	}
 	scope(exit) fil.close();
 
-	res.headers.addField("Accept-Ranges", "bytes");
+	res.headers.insert("Accept-Ranges", "bytes");
 
 	if (auto ptr = "Range" in req.headers) {
 		import std.algorithm : splitter;

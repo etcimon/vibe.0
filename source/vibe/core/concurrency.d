@@ -17,8 +17,8 @@ import std.typetuple;
 import std.variant;
 import std.string;
 import vibe.core.task;
-import vibe.utils.memory;
 import vibe.internal.newconcurrency;
+import vibe.utils.memory : FreeListRef;
 
 static if (newStdConcurrency) public import std.concurrency;
 else public import std.concurrency : MessageMismatch, OwnerTerminated, LinkTerminated, PriorityMessageException, MailboxFull, OnCrowding;
@@ -505,7 +505,7 @@ private struct IsolatedArray(T)
 			//assert(isSorted(indices), "Indices must be in ascending order.");
 			assert(indices[$-1] <= m_array.length, "Splice index out of bounds.");
 		}
-		body {
+		do {
 			auto ret = new IsolatedArray!T[indices.length];
 			size_t lidx = 0;
 			foreach( i, sidx; indices ){
@@ -521,7 +521,7 @@ private struct IsolatedArray(T)
 			assert(array.m_array.ptr == m_array.ptr+m_array.length || array.m_array.ptr+array.length == m_array.ptr,
 				"Argument to merge() must be a neighbouring array partition.");
 		}
-		body {
+		do {
 			if( array.m_array.ptr == m_array.ptr + m_array.length ){
 				m_array = m_array.ptr[0 .. m_array.length + array.length];
 			} else {
@@ -1234,7 +1234,7 @@ static if (newStdConcurrency) {
 			(Variant val) { throw new MessageMismatch(format("Unexpected message type %s, expected %s.", val.type, ARGS.stringof)); }
 		);
 
-		static if(ARGS.length == 1) return ret[0];
+		static if(ARGS.length == 1) return ret[0].move();
 		else return tuple(ret);
 	}
 

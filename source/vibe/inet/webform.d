@@ -13,7 +13,6 @@ import vibe.inet.message;
 import vibe.stream.operations;
 import vibe.textfilter.urlencode;
 import vibe.utils.string;
-import vibe.utils.dictionarylist;
 import std.range : isOutputRange;
 import std.traits : ValueType, KeyType;
 import vibe.core.core;
@@ -21,6 +20,11 @@ import vibe.core.core;
 import std.array;
 import std.exception;
 import std.string;
+
+import memutils.dictionarylist;
+import memutils.utils;
+import memutils.refcounted;
+import memutils.scoped;
 
 
 /**
@@ -71,17 +75,17 @@ void parseURLEncodedForm(string str, ref FormFields params)
 		if (idx == -1) {
 			idx = vibe.utils.string.indexOfAny(str, "&;");
 			if (idx == -1) {
-				params.addField(formDecode(str[0 .. $]), "");
+				params.insert(formDecode(str[0 .. $]), "");
 				return;
 			} else {
-				params.addField(formDecode(str[0 .. idx]), "");
+				params.insert(formDecode(str[0 .. idx]), "");
 				str = str[idx+1 .. $];
 				continue;
 			}
 		} else {
 			auto idx_amp = vibe.utils.string.indexOfAny(str, "&;");
 			if (idx_amp > -1 && idx_amp < idx) {
-				params.addField(formDecode(str[0 .. idx_amp]), "");
+				params.insert(formDecode(str[0 .. idx_amp]), "");
 				str = str[idx_amp+1 .. $];
 				continue;
 			} else {
@@ -90,7 +94,7 @@ void parseURLEncodedForm(string str, ref FormFields params)
 				// value part
 				for( idx = 0; idx < str.length && str[idx] != '&' && str[idx] != ';'; idx++) {}
 				string value = formDecode(str[0 .. idx]);
-				params.addField(name, value);
+				params.insert(name, value);
 				str = idx < str.length ? str[idx+1 .. $] : null;
 			}
 		}
@@ -192,8 +196,8 @@ void parseMultiPartForm(ref FormFields fields, ref FilePartFormFields files,
 	mixin(OnCapture!("HTTPServerRequest.parseMultiPartForm", "form_to_string()"));
 }
 
-alias FormFields = DictionaryList!(string, true, 16);
-alias FilePartFormFields = DictionaryList!(FilePart, true, 1);
+alias FormFields = DictionaryList!(string, string, ThreadMem, true, 16);
+alias FilePartFormFields = DictionaryList!(string, FilePart, ThreadMem, true, 1);
 
 /**
 	Single part of a multipart form.
@@ -201,7 +205,7 @@ alias FilePartFormFields = DictionaryList!(FilePart, true, 1);
 	A FilePart is the data structure for individual "multipart/form-data" parts
 	according to RFC 1867 section 7.
 */
-struct FilePart {
+class FilePart {
 	InetHeaderMap headers;
 	PathEntry filename;
 	Path tempPath;
@@ -230,10 +234,9 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		filename = cd[0 .. pos];
 	}
 
-	import std.stdio : writeln;
 	if (filename.length > 0) {
-		FilePart fp;
-		fp.headers = headers;
+		FilePart fp = alloc!FilePart();
+		fp.headers = headers.move();
 		fp.filename = PathEntry(filename);
 
 		auto file = createTempFile("tmp");
@@ -248,10 +251,10 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 
 		file.close();
 
-		files.addField(name, fp);
+		files.insert(name, fp);
 	} else {
 		auto data = cast(string)stream.readUntil(cast(ubyte[])boundary);
-		form.addField(name, data);
+		form.insert(name, data);
 	}
 
 	ubyte[2] ub;
@@ -276,7 +279,7 @@ private bool parseMultipartFormPart(InputStream stream, ref FormFields form, ref
 		map	= An iterable key-value map iterable with $(D foreach(string key, string value; map)).
 		sep	= A valid form separator, common values are '&' or ';'
 */
-void formEncode(R, T)(ref R dst, T map, char sep = '&')
+void formEncode(R, T)(ref R dst, ref T map, char sep = '&')
 	if (isFormMap!T)
 {
 	formEncodeImpl(dst, map, sep, true);
@@ -308,7 +311,7 @@ unittest {
 		map = An iterable key-value map iterable with $(D foreach(string key, string value; map)).
 		sep = A valid form separator, common values are '&' or ';'
 */
-string formEncode(T)(T map, char sep = '&')
+string formEncode(T)(ref T map, char sep = '&')
 	if (isFormMap!T)
 {
 	return formEncodeImpl(map, sep, true);
@@ -321,7 +324,7 @@ string formEncode(T)(T map, char sep = '&')
 		dst	= The destination $(D OutputRange) where the resulting string must be written to.
 		map	= An iterable key-value map iterable with $(D foreach(string key, string value; map)).
 */
-void urlEncode(R, T)(ref R dst, T map)
+void urlEncode(R, T)(ref R dst, ref T map)
 	if (isFormMap!T)
 {
 	formEncodeImpl(dst, map, "&", false);
@@ -334,7 +337,7 @@ void urlEncode(R, T)(ref R dst, T map)
 	Params:
 		map = An iterable key-value map iterable with $(D foreach(string key, string value; map)).
 */
-string urlEncode(T)(T map)
+string urlEncode(T)(ref T map)
 	if (isFormMap!T)
 {
 	return formEncodeImpl(map, '&', false);
@@ -386,12 +389,12 @@ unittest {
 	static assert(isJsonLike!Json);
 }
 
-private string formEncodeImpl(T)(T map, char sep, bool form_encode)
+private string formEncodeImpl(T)(ref T map, char sep, bool form_encode)
 	if (isStringMap!T)
 {
 	import std.array : Appender;
 	Appender!string dst;
-	size_t len;
+	size_t len = map.length;
 
 	foreach (key, ref value; map) {
 		len += key.length;
@@ -405,12 +408,12 @@ private string formEncodeImpl(T)(T map, char sep, bool form_encode)
 }
 
 
-private string formEncodeImpl(T)(T map, char sep, bool form_encode)
+private string formEncodeImpl(T)(ref T map, char sep, bool form_encode)
 	if (isJsonLike!T)
 {
 	import std.array : Appender;
 	Appender!string dst;
-	size_t len;
+	size_t len = map.length;
 
 	foreach (string key, T value; map) {
 		len += key.length;
@@ -423,7 +426,7 @@ private string formEncodeImpl(T)(T map, char sep, bool form_encode)
 	return dst.data;
 }
 
-private void formEncodeImpl(R, T)(ref R dst, T map, char sep, bool form_encode)
+private void formEncodeImpl(R, T)(ref R dst, ref T map, char sep, bool form_encode)
 	if (isOutputRange!(R, string) && isStringMap!T)
 {
 	bool flag;
@@ -439,7 +442,7 @@ private void formEncodeImpl(R, T)(ref R dst, T map, char sep, bool form_encode)
 	}
 }
 
-private void formEncodeImpl(R, T)(ref R dst, T map, char sep, bool form_encode)
+private void formEncodeImpl(R, T)(ref R dst, ref T map, char sep, bool form_encode)
 	if (isOutputRange!(R, string) && isJsonLike!T)
 {
 	bool flag;
@@ -465,11 +468,10 @@ private void formEncodeImpl(R, T)(ref R dst, T map, char sep, bool form_encode)
 
 unittest
 {
-	import vibe.utils.dictionarylist : DictionaryList;
 	import vibe.data.json : Json;
 
 	string[string] aaMap;
-	DictionaryList!string dlMap;
+	DictionaryList!(string, string) dlMap;
 	Json jsonMap = Json.emptyObject;
 
 	aaMap["unicode"] = "╤╳";
@@ -498,11 +500,9 @@ unittest
 	jsonMap["complex"] = "╤╳/=$$\"'1!2()'\"";
 	jsonMap["╤╳"] = "1";
 
-	assert(urlEncode(aaMap) == "complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&unicode=%E2%95%A4%E2%95%B3&spaces=1%202%203%204%20a%20b%20c%20d&numbers=123456789&slashes=1%2F2%2F3%2F4%2F5&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1" ||
-           urlEncode(aaMap) == "slashes=1%2F2%2F3%2F4%2F5&spaces=1%202%203%204%20a%20b%20c%20d&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
+	assert(urlEncode(aaMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&slashes=1%2F2%2F3%2F4%2F5&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1%202%203%204%20a%20b%20c%20d&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
 	assert(urlEncode(dlMap) == "unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1%202%203%204%20a%20b%20c%20d&slashes=1%2F2%2F3%2F4%2F5&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&%E2%95%A4%E2%95%B3=1");
-	assert(urlEncode(jsonMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&unicode=%E2%95%A4%E2%95%B3&spaces=1%202%203%204%20a%20b%20c%20d&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&slashes=1%2F2%2F3%2F4%2F5" ||
-           urlEncode(jsonMap) == "slashes=1%2F2%2F3%2F4%2F5&spaces=1%202%203%204%20a%20b%20c%20d&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
+	assert(urlEncode(jsonMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&slashes=1%2F2%2F3%2F4%2F5&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1%202%203%204%20a%20b%20c%20d&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
 	{
 		FormFields aaFields;
 		parseURLEncodedForm(urlEncode(aaMap), aaFields);
@@ -518,11 +518,9 @@ unittest
 
 	}
 
-	assert(formEncode(aaMap) == "complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&unicode=%E2%95%A4%E2%95%B3&spaces=1+2+3+4+a+b+c+d&numbers=123456789&slashes=1%2F2%2F3%2F4%2F5&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1" ||
-           formEncode(aaMap) == "slashes=1%2F2%2F3%2F4%2F5&spaces=1+2+3+4+a+b+c+d&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
+	assert(formEncode(aaMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&slashes=1%2F2%2F3%2F4%2F5&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1+2+3+4+a+b+c+d&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
 	assert(formEncode(dlMap) == "unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1+2+3+4+a+b+c+d&slashes=1%2F2%2F3%2F4%2F5&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&%E2%95%A4%E2%95%B3=1");
-	assert(formEncode(jsonMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&unicode=%E2%95%A4%E2%95%B3&spaces=1+2+3+4+a+b+c+d&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22&slashes=1%2F2%2F3%2F4%2F5" ||
-           formEncode(jsonMap) == "slashes=1%2F2%2F3%2F4%2F5&spaces=1+2+3+4+a+b+c+d&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&%E2%95%A4%E2%95%B3=1&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
+	assert(formEncode(jsonMap) == "%E2%95%A4%E2%95%B3=1&equals=1%3D2%3D3%3D4%3D5%3D6%3D7&slashes=1%2F2%2F3%2F4%2F5&unicode=%E2%95%A4%E2%95%B3&numbers=123456789&spaces=1+2+3+4+a+b+c+d&complex=%E2%95%A4%E2%95%B3%2F%3D%24%24%22%271%212%28%29%27%22");
 
 	{
 		FormFields aaFields;

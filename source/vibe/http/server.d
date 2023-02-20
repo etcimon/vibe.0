@@ -28,7 +28,6 @@ import vibe.stream.wrapper : ConnectionProxyStream;
 import vibe.stream.zlib;
 import vibe.textfilter.urlencode;
 import vibe.utils.array;
-import vibe.utils.memory;
 import vibe.utils.string;
 import vibe.http.http2;
 
@@ -41,9 +40,12 @@ import std.exception;
 import std.format;
 import std.functional;
 import std.string;
-import std.typecons;
+import std.typecons : Tuple, tuple, scoped;
 import std.uri;
 
+import memutils.utils;
+import memutils.scoped;
+import memutils.refcounted;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -77,7 +79,7 @@ void listenHTTP(HTTPServerSettings settings, HTTPServerRequestDelegate request_h
 	if (g_ctor)
 		assert(g_ctor == Thread.getThis(), "Listening from multiple threads is unsupported");
 	else g_ctor = Thread.getThis();
-	HTTPServerContext ctx = FreeListObjectAlloc!HTTPServerContext.alloc();
+	HTTPServerContext ctx = ThreadMem.alloc!HTTPServerContext();
 	ctx.settings = settings;
 	ctx.requestHandler = request_handler;
 
@@ -318,7 +320,7 @@ HTTPServerRequest createTestHTTPServerRequest(URL url, HTTPMethod method = HTTPM
 	return createTestHTTPServerRequest(url, method, headers, data);
 }
 /// ditto
-HTTPServerRequest createTestHTTPServerRequest(URL url, HTTPMethod method, InetHeaderMap headers, InputStream data = null)
+HTTPServerRequest createTestHTTPServerRequest(URL url, HTTPMethod method, ref InetHeaderMap headers, InputStream data = null)
 {
 	auto is_tls = url.schema == "https";
 	auto ret = new HTTPServerRequest(url.port ? url.port : is_tls ? 443 : 80);
@@ -329,7 +331,7 @@ HTTPServerRequest createTestHTTPServerRequest(URL url, HTTPMethod method, InetHe
 	ret.requestURL = url.localURI;
 	ret.method = method;
 	ret.tls = is_tls;
-	ret.headers = headers;
+	ret.headers = headers.clone();
 	ret.bodyReader = data;
 	return ret;
 }
@@ -348,7 +350,7 @@ HTTPServerResponse createTestHTTPServerResponse(OutputStream data_sink = null, S
 	}
 	if (!data_sink) data_sink = new NullOutputStream;
 	auto stream = new ProxyStream(null, data_sink);
-	auto ret = new HTTPServerResponse(stream, settings, defaultAllocator());
+	auto ret = new HTTPServerResponse(stream, settings);
 	return ret;
 }
 
@@ -866,7 +868,6 @@ final class HTTPServerResponse : HTTPResponse {
 		CompressionStream m_compressionStream;
 		BodyStream m_bodyStream;
 
-		Allocator m_requestAlloc;
 		HTTPServerSettings m_settings;
 		Session m_session;
 
@@ -911,16 +912,15 @@ final class HTTPServerResponse : HTTPResponse {
 	}
 
 	// Test constructor.
-	this(Stream test_stream, HTTPServerSettings settings, Allocator req_alloc)
+	this(Stream test_stream, HTTPServerSettings settings)
 	{
 		m_isTest = true;
 		m_conn.test = new ConnectionProxyStream(test_stream, null);
 		m_settings = settings;
-		m_requestAlloc = req_alloc;
 	}
 
 	// Regular constructor taking a connection stack
-	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTP2Stream http2_stream, HTTPServerSettings settings, Allocator req_alloc)
+	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTP2Stream http2_stream, HTTPServerSettings settings)
 	{
 		m_conn.stack.tcp = tcp_conn;
 		m_conn.stack.tls = tls_stream;
@@ -928,7 +928,6 @@ final class HTTPServerResponse : HTTPResponse {
 		if (http2_stream)
 			httpVersion = HTTPVersion.HTTP_2;
 		m_settings = settings;
-		m_requestAlloc = req_alloc;
 	}
 
 	~this() {
@@ -937,26 +936,26 @@ final class HTTPServerResponse : HTTPResponse {
 		if (!outputStream) return;
 		if (hasCompression) {
 			if (m_isGzip && m_compressionStream.gzip) {
-				FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
+				ThreadMem.free(m_compressionStream.gzip);
 				m_compressionStream.gzip = null;
 			}
 			else {
-				FreeListObjectAlloc!DeflateOutputStream.free(m_compressionStream.deflate);
+				ThreadMem.free(m_compressionStream.deflate);
 				m_compressionStream.deflate = null;
 			}
 		}
 		
 		if (isHeadResponse && m_bodyStream.none) {
-			FreeListObjectAlloc!NullOutputStream.free(m_bodyStream.none);
+			ThreadMem.free(m_bodyStream.none);
 			m_bodyStream.none = null;
 		}
 		else {
 			if (m_isChunked && m_bodyStream.chunked) {
-				FreeListObjectAlloc!ChunkedOutputStream.free(m_bodyStream.chunked);
+				ThreadMem.free(m_bodyStream.chunked);
 				m_bodyStream.chunked = null;
 			}
 			else if (m_bodyStream.counting) {
-				FreeListObjectAlloc!CountingOutputStream.free(m_bodyStream.counting);
+				ThreadMem.free(m_bodyStream.counting);
 				m_bodyStream.counting = null;
 			}
 		}
@@ -987,7 +986,7 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		logDebug("Write body: %d", data.length);
 		if (content_type != "") headers["Content-Type"] = content_type;
-		headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", data.length);
+		headers["Content-Length"] = formatAlloc("%d", data.length);
 		bodyWriter.write(data);
 	}
 	/// ditto
@@ -1070,7 +1069,7 @@ final class HTTPServerResponse : HTTPResponse {
 			long length = 0;
 			auto counter = RangeCounter(&length);
 			serializeToJson(counter, data);
-			headers["Content-Length"] = formatAlloc(m_requestAlloc, "%d", length);
+			headers["Content-Length"] = formatAlloc("%d", length);
 		}
 		mixin(OnCapture!("HTTPServerResponse.jsonBody", "serializeToJson(data).toPrettyString()"));
 		auto rng = StreamOutputRange(bodyWriter);
@@ -1129,7 +1128,7 @@ final class HTTPServerResponse : HTTPResponse {
 				headers["Transfer-Encoding"] = "chunked";
 			}
 			writeHeader();
-			m_bodyStream.none = FreeListObjectAlloc!NullOutputStream.alloc();
+			m_bodyStream.none = ThreadMem.alloc!NullOutputStream();
 			return outputStream;
 		}
 
@@ -1142,20 +1141,20 @@ final class HTTPServerResponse : HTTPResponse {
 
 		if ("Content-Length" in headers || isHTTP2) {
 			m_isChunked = false;
-			m_bodyStream.counting = FreeListObjectAlloc!CountingOutputStream.alloc(topStream);
+			m_bodyStream.counting = ThreadMem.alloc!CountingOutputStream(topStream);
 		} else if (!isHTTP2) {
 			headers["Transfer-Encoding"] = "chunked";
 			m_isChunked = true;
-			m_bodyStream.chunked = FreeListObjectAlloc!ChunkedOutputStream.alloc(topStream);
+			m_bodyStream.chunked = ThreadMem.alloc!ChunkedOutputStream(topStream);
 		}
 
 		bool applyCompression(string val) {
 			if (icmp2(val, "gzip") == 0) {
-				m_compressionStream.gzip = FreeListObjectAlloc!GzipOutputStream.alloc(outputStream);
+				m_compressionStream.gzip = ThreadMem.alloc!GzipOutputStream(outputStream);
 				m_isGzip = true;
 				return true;
 			} else if (icmp2(val, "deflate") == 0) {
-				m_compressionStream.deflate = FreeListObjectAlloc!DeflateOutputStream.alloc(outputStream);
+				m_compressionStream.deflate = ThreadMem.alloc!DeflateOutputStream(outputStream);
 				return true;
 			}
 			return false;
@@ -1354,7 +1353,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 		else if (outputStream !is null) {
 			if (isHeadResponse) {
-				FreeListObjectAlloc!NullOutputStream.free(m_bodyStream.none);
+				ThreadMem.free(m_bodyStream.none);
 				m_bodyStream.none = null;
 			}
 			else
@@ -1363,13 +1362,13 @@ final class HTTPServerResponse : HTTPResponse {
 					if (m_isGzip) {
 						m_compressionStream.gzip.finalize();
 						bytes_written = bytesWritten();
-						FreeListObjectAlloc!GzipOutputStream.free(m_compressionStream.gzip);
+						ThreadMem.free(m_compressionStream.gzip);
 						m_compressionStream.gzip = null;
 					}
 					else {
 						m_compressionStream.deflate.finalize();
 						bytes_written = bytesWritten();
-						FreeListObjectAlloc!DeflateOutputStream.free(m_compressionStream.deflate);
+						ThreadMem.free(m_compressionStream.deflate);
 						m_compressionStream.deflate = null;
 					}
 				} 
@@ -1377,12 +1376,12 @@ final class HTTPServerResponse : HTTPResponse {
 				if (m_isChunked) {
 					m_bodyStream.chunked.finalize();
 					bytes_written = bytesWritten();
-					FreeListObjectAlloc!ChunkedOutputStream.free(m_bodyStream.chunked);
+					ThreadMem.free(m_bodyStream.chunked);
 					m_bodyStream.chunked = null;
 				}
 				else {
 					m_bodyStream.counting.finalize();
-					FreeListObjectAlloc!CountingOutputStream.free(m_bodyStream.counting);
+					ThreadMem.free(m_bodyStream.counting);
 					m_bodyStream.counting = null;
 				}
 			}
@@ -1456,7 +1455,7 @@ final class HTTPServerResponse : HTTPResponse {
 		scope(success) {
 			auto headers_to_string = {
 				import vibe.stream.memory : MemoryOutputStream;
-				auto output = scoped!MemoryOutputStream(defaultAllocator());
+				auto output = scoped!(MemoryOutputStream!PoolStack)();
 				scope(exit) output.destroy();
 				writeHeader(output);
 				output.flush();
@@ -1831,9 +1830,9 @@ struct BodyReader
 	HTTPServerRequest req;
 	
 	// bodyReader filters
-	FreeListRef!TimeoutHTTPInputStream timeout;
-	FreeListRef!LimitedHTTPInputStream limited;
-	FreeListRef!ChunkedInputStream chunked;
+	RefCounted!TimeoutHTTPInputStream timeout;
+	RefCounted!LimitedHTTPInputStream limited;
+	RefCounted!ChunkedInputStream chunked;
 	
 	InputStream bodyReader() {
 		if (cached)
@@ -1841,14 +1840,14 @@ struct BodyReader
 		
 		if (!req.m_settings) {
 			logDebug("No m_settings defined!");
-			limited = FreeListRef!LimitedHTTPInputStream(reader, 0);
+			limited = RefCounted!LimitedHTTPInputStream(reader, 0);
 			reader = limited;
 			cached = true;
 			return reader;
 		}
 		
 		if (req.m_settings.maxRequestTime != Duration.zero) {
-			timeout = FreeListRef!TimeoutHTTPInputStream(reader, req.m_settings.maxRequestTime, req.timeCreated);
+			timeout = RefCounted!TimeoutHTTPInputStream(reader, req.m_settings.maxRequestTime, req.timeCreated);
 			reader = timeout;
 		}
 		
@@ -1858,13 +1857,13 @@ struct BodyReader
 			ulong contentLength = v.parse!ulong;
 			enforceBadRequest(v.length == 0, "Invalid content-length");
 			enforceBadRequest(req.m_settings.maxRequestSize == 0 || contentLength <= req.m_settings.maxRequestSize, "Request size too big");
-			limited = FreeListRef!LimitedHTTPInputStream(reader, contentLength);
+			limited = RefCounted!LimitedHTTPInputStream(reader, contentLength);
 		} else if (auto pt = "Transfer-Encoding" in req.headers) {
 			// allow chunked because HTTP/2 cleartext upgrade stream #1 might use it
-			chunked = FreeListRef!ChunkedInputStream(reader);
-			limited = FreeListRef!LimitedHTTPInputStream(chunked, req.m_settings.maxRequestSize, true);
+			chunked = RefCounted!ChunkedInputStream(reader);
+			limited = RefCounted!LimitedHTTPInputStream(chunked, req.m_settings.maxRequestSize, true);
 		} else {
-			limited = FreeListRef!LimitedHTTPInputStream(reader, 0);
+			limited = RefCounted!LimitedHTTPInputStream(reader, 0);
 		}
 		reader = limited;
 		cached = true;
@@ -1943,12 +1942,7 @@ void handleRequest(TCPConnection tcp_conn,
 	keep_alive = false;
 
 	// Used for the parser and the HTTPServerResponse
-	PoolAllocator request_allocator = FreeListObjectAlloc!PoolAllocator.alloc(2048, manualAllocator());
-	scope(exit) {
-		request_allocator.reset();
-		FreeListObjectAlloc!PoolAllocator.free(request_allocator);
-		request_allocator = null;
-	}
+	auto pool = ScopedPool(2048);
 	// parse the request
 	try {
 		bool is_upgrade;
@@ -1960,7 +1954,7 @@ void handleRequest(TCPConnection tcp_conn,
 		
 		if (!http2_stream) {
 			// HTTP/1.1 headers
-			try parseRequestHeader(req, reqReader.reader, request_allocator, context.settings.maxRequestHeaderSize);
+			try parseRequestHeader(req, reqReader.reader, context.settings.maxRequestHeaderSize);
 			catch (InterruptException e) { throw new HTTPStatusException(HTTPStatus.requestTimeout); }
 			// find/verify context
 			string authority = req.headers.get("Host", null);
@@ -1984,9 +1978,9 @@ void handleRequest(TCPConnection tcp_conn,
 					req.httpVersion = HTTPVersion.HTTP_2;
 					import vibe.stream.memory;
 					if (reqReader.bodyReader && !reqReader.bodyReader.empty) {
-						auto tmp = scoped!MemoryOutputStream(manualAllocator());
+						auto tmp = scoped!(MemoryOutputStream!PoolStack)();
 						tmp.write(reqReader.bodyReader);
-						reqReader.reader = FreeListObjectAlloc!MemoryStream.alloc(tmp.data.dup, false);
+						reqReader.reader = ThreadMem.alloc!MemoryStream(tmp.data, false);
 						tmp.clear();
 					}
 					http2_stream = http2_stream_;
@@ -1998,7 +1992,7 @@ void handleRequest(TCPConnection tcp_conn,
 		{ 
 			// HTTP/2 headers
 			enforce(http2_handler.started, "HTTP/2 session is invalid");
-			try parseHTTP2RequestHeader(req, http2_stream, request_allocator);
+			try parseHTTP2RequestHeader(req, http2_stream);
 			catch (TimeoutException e) { throw new HTTPStatusException(HTTPStatus.requestTimeout); }
 
 			// find/verify context
@@ -2040,12 +2034,12 @@ void handleRequest(TCPConnection tcp_conn,
 		// Lazily load the body reader because most requests don't need it
 		req.bodyReader = &reqReader.bodyReader;
 
-		res = ThreadMem.alloc!HTTPServerResponse(tcp_conn, tls_stream, http2_stream, context.settings, request_allocator);
+		res = ThreadMem.alloc!HTTPServerResponse(tcp_conn, tls_stream, http2_stream, context.settings);
 		scope(exit) {
 			import vibe.stream.memory : MemoryStream;
 			// Flush the body if it still contains data when we're done
 			if (auto reader_ = cast(MemoryStream)reqReader.reader) {
-				FreeListObjectAlloc!MemoryStream.free(reader_);
+				ThreadMem.free(reader_);
 				// finalize (e.g. for chunked encoding)
 			}
 			else if (!is_upgrade && topStream.connected && !req.bodyReader.empty) {
@@ -2111,7 +2105,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (context.settings.options & HTTPServerOption.parseCookies) {
 			if (req.httpVersion == HTTPVersion.HTTP_2)
 			{
-				req.headers.getAll("cookie", (const string cookie) {
+				req.headers.getValuesAt("cookie", (const string cookie) {
 						parseCookies(cookie, req.cookies);
 					});
 			} else {
@@ -2164,7 +2158,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (curr_time > last_time)
 		{
 			last_time = curr_time;
-			last_date_str = formatRFC822DateAlloc(defaultAllocator(), req.timeCreated);
+			last_date_str = formatRFC822DateAlloc(req.timeCreated);
 		}
 		res.headers["Date"] = last_date_str;
 
@@ -2188,7 +2182,9 @@ void handleRequest(TCPConnection tcp_conn,
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
 		logTrace("Request handler");
 		scope(failure) logTrace("Failed request handler");
+		PoolStack.freeze(1);
 		context.requestHandler(req, res);
+		PoolStack.unfreeze(1);
 		logTrace("Request handler done");
 
 		// if no one has written anything, return 404
@@ -2249,7 +2245,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (!parsed || (res && res.headerWritten) || !cast(Exception)e) keep_alive = false;
 	}
 
-	foreach (k, v ; req.files) {
+	foreach (k, ref v ; req.files) {
 		if (existsFile(v.tempPath)) {
 			removeFile(v.tempPath);
 			logDebug("Deleted upload tempfile %s", v.tempPath.toString());
@@ -2264,7 +2260,7 @@ void handleRequest(TCPConnection tcp_conn,
 
 }
 
-void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Allocator alloc/*, max_header_size*/) // header sizes restricted through HTTP/2 settings
+void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream/*, max_header_size*/) // header sizes restricted through HTTP/2 settings
 {
 	mixin(Trace);
 	logTrace("----------------------");
@@ -2272,7 +2268,7 @@ void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Al
 	logTrace("----------------------");
 	// the entire url should be parsed here to simplify processing of pseudo-headers in HTTP/2
 	URL url;
-	http2_stream.readHeader(url, req.method, req.headers, alloc);
+	http2_stream.readHeader(url, req.method, req.headers);
 	req.httpVersion = HTTPVersion.HTTP_2;
 	req.requestURL = url.pathString;
 	req.path = urlDecode(url.pathString);
@@ -2286,10 +2282,10 @@ void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream, Al
 	logTrace("----------------------");
 }
 
-void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocator alloc, ulong max_header_size)
+void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, ulong max_header_size)
 {
 	mixin(Trace);
-	auto stream = FreeListRef!LimitedHTTPInputStream(http_stream, max_header_size);
+	auto stream = RefCounted!LimitedHTTPInputStream(http_stream, max_header_size);
 	auto task_id = Task.getThis();
 	auto timer_id = getEventDriver().createTimer({ task_id.interrupt(); });
 	getEventDriver().rearmTimer(timer_id, 2.seconds, false);
@@ -2298,7 +2294,7 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 		getEventDriver().releaseTimer(timer_id);
 	}
 	logTrace("HTTP server reading status line");
-	auto reqln = cast(string)stream.readLine(MaxHTTPHeaderLineLength, "\r\n", alloc);
+	auto reqln = cast(string)stream.readLine(MaxHTTPHeaderLineLength, "\r\n");
 
 	logTrace("--------------------");
 	logTrace("HTTP server request:");
@@ -2321,7 +2317,7 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, Allocato
 	req.httpVersion = parseHTTPVersion(reqln);
 
 	//headers
-	parseRFC5322Header(stream, req.headers, MaxHTTPHeaderLineLength, alloc, false);
+	parseRFC5322Header(stream, req.headers, MaxHTTPHeaderLineLength, false);
 
 	foreach (k, v; req.headers)
 		logTrace("%s: %s", k, v);
@@ -2359,11 +2355,11 @@ else {
 	}
 }
 
-private string formatRFC822DateAlloc(Allocator alloc, SysTime time)
+private string formatRFC822DateAlloc(SysTime time)
 {
-	auto app = AllocAppender!string(alloc);
+	auto app = Vector!(char, PoolStack)();
 	writeRFC822DateTimeString(app, time);
-	return app.data;
+	return app[];
 }
 
 version (VibeDebugCatchAll) private alias UncaughtException = Throwable;
