@@ -46,6 +46,7 @@ import std.uri;
 import memutils.utils;
 import memutils.scoped;
 import memutils.refcounted;
+import memutils.vector;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -1021,9 +1022,9 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		logDebug("Write raw body RAS");
 		writeHeader();
-		auto writer = topStream;
+		//auto writer = topStream;
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		auto bytes = stream.size - stream.tell();
+		//auto bytes = stream.size - stream.tell();
 		topStream.write(stream);
 	}
 	/// ditto
@@ -1031,7 +1032,7 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		logDebug("Write raw body: %d", num_bytes);
 		writeHeader();
-		auto writer = topStream;
+		//auto writer = topStream;
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
 		if (num_bytes > 0) 
 			topStream.write(stream, num_bytes);
@@ -1453,16 +1454,18 @@ final class HTTPServerResponse : HTTPResponse {
 		m_headerWritten = true;
 
 		scope(success) {
-			auto headers_to_string = {
-				import vibe.stream.memory : MemoryOutputStream;
-				auto output = scoped!(MemoryOutputStream!PoolStack)();
-				scope(exit) output.destroy();
-				writeHeader(output);
-				output.flush();
-				return cast(string)output.data;
-			};
+			version(VibeNoDebug) {} else {
+				auto headers_to_string = {
+					import vibe.stream.memory : MemoryOutputStream;
+					auto output = scoped!(MemoryOutputStream!PoolStack)();
+					scope(exit) output.destroy();
+					writeHeader(output);
+					output.flush();
+					return cast(string)output.data;
+				};
 
-			mixin(OnCaptureIf!("!m_isSilent", "HTTPServerResponse.headers", "headers_to_string()"));
+				mixin(OnCaptureIf!("!m_isSilent", "HTTPServerResponse.headers", "headers_to_string()"));
+			}
 		}
 		if (isHTTP2) {
 			httpVersion = HTTPVersion.HTTP_2;
@@ -1942,7 +1945,7 @@ void handleRequest(TCPConnection tcp_conn,
 	keep_alive = false;
 
 	// Used for the parser and the HTTPServerResponse
-	auto pool = ScopedPool(2048);
+	auto scoped_pool = ScopedPool(4096);
 	// parse the request
 	try {
 		bool is_upgrade;
@@ -2004,7 +2007,7 @@ void handleRequest(TCPConnection tcp_conn,
 
 		logTrace("Got request header.");
 		// Capture
-		{
+		version(VibeNoDebug) {} else {
 			auto headers_to_str = {
 				Appender!string app;
 				app ~= getHTTPVersionString(req.httpVersion);
@@ -2138,7 +2141,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0 || icmp2(req.contentType, "application/vnd.api+json") == 0) {
 				logTrace("Reading all");
-				auto bodyStr = cast(string)req.bodyReader.readAllUTF8(true);
+				auto bodyStr = req.bodyReader.readAllUTF8(true);
 
 				if (!bodyStr.empty) {
 					req.json = parseJson(bodyStr);
@@ -2181,10 +2184,15 @@ void handleRequest(TCPConnection tcp_conn,
 		// logTrace("handle request (body %d)", req.bodyReader.leastSize);
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
 		logTrace("Request handler");
-		scope(failure) logTrace("Failed request handler");
-		PoolStack.freeze(1);
-		context.requestHandler(req, res);
-		PoolStack.unfreeze(1);
+		scope(failure) {
+			logTrace("Failed request handler");
+		}
+		{
+			PoolStack.freeze(1);
+			scope(exit) 
+				PoolStack.unfreeze(1);
+			context.requestHandler(req, res);
+		}
 		logTrace("Request handler done");
 
 		// if no one has written anything, return 404

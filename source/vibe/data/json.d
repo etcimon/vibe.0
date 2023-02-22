@@ -55,6 +55,8 @@ import std.range;
 import std.traits;
 import std.bigint;
 
+import memutils.vector;
+import memutils.scoped;
 
 /******************************************************************************/
 /* public types                                                               */
@@ -2019,18 +2021,18 @@ import std.string : toLower;
 /// private
 private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false)(ref R range)
 {
-	auto ret = appender!string();
+	auto ret = Vector!char();
 	while(!range.empty){
 		auto ch = range.front;
 		switch( ch ){
-			static if (!single_quoted && !unquoted) { case '"': return ret.data; }
-			static if (single_quoted) { case '\'': return ret.data; }
-				static if (unquoted) { case ':': return ret.data; } // handles only unquoted names for javascript objects
+			static if (!single_quoted && !unquoted) { case '"': return cast(string)ret[].copy(); }
+			static if (single_quoted) { case '\'': return cast(string)ret[].copy(); }
+				static if (unquoted) { case ':': return cast(string)ret[].copy(); } // handles only unquoted names for javascript objects
 			case '\\':
 				range.popFront();
 				enforceJson(!range.empty, "Unterminated string escape sequence.");
 				switch(range.front){
-					default: enforceJson(false, format("Invalid string escape sequence after: %s", ret.data)); break;
+					default: enforceJson(false, format("Invalid string escape sequence after: %s", cast(string)ret[].copy())); break;
 						static if (!single_quoted && !unquoted) { case '"': ret.put('\"'); range.popFront(); break; }
 						static if (single_quoted) { case '\'': ret.put('\''); range.popFront(); break; }
 					case '\\': ret.put('\\'); range.popFront(); break;
@@ -2088,7 +2090,7 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
 				break;
 		}
 	}
-	return ret.data;
+	return cast(string)ret[].copy();
 }
 
 /// private

@@ -16,6 +16,7 @@ import std.format;
 import std.uni;
 import std.utf;
 import core.exception;
+import std.range : isOutputRange;
 
 import memutils.vector;
 import memutils.scoped;
@@ -24,10 +25,9 @@ import memutils.scoped;
 	Takes a string with possibly invalid UTF8 sequences and outputs a valid UTF8 string as near to
 	the original as possible.
 */
-string sanitizeUTF8(in ubyte[] str)
-@safe pure {
+string sanitizeUTF8(in ubyte[] str) {
 	import std.utf;
-	auto ret = appender!string();
+	auto ret = Vector!(char, PoolStack)();
 	ret.reserve(str.length);
 
 	size_t i = 0;
@@ -41,7 +41,29 @@ string sanitizeUTF8(in ubyte[] str)
 		ret.put(dst[0 .. len]);
 	}
 
-	return ret.data;
+	return cast(string)ret[].copy();
+}
+
+/**
+	Takes a string with possibly invalid UTF8 sequences and outputs a valid UTF8 string as near to
+	the original as possible.
+*/
+void sanitizeUTF8(R)(in ubyte[] str, ref R ret)
+	if (isOutputRange!(R, char))
+{
+	import std.utf;
+	ret.reserve(str.length);
+
+	size_t i = 0;
+	while (i < str.length) {
+		dchar ch = str[i];
+		try ch = std.utf.decode(cast(const(char[]))str, i);
+		catch( UTFException ){ i++; }
+		//catch( AssertError ){ i++; }
+		char[4] dst;
+		auto len = std.utf.encode(dst, ch);
+		ret.put(dst[0 .. len]);	}
+
 }
 
 /**

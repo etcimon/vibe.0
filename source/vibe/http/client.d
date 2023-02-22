@@ -578,7 +578,7 @@ final class HTTPClient {
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
 		mixin(Trace);		
-		auto scoped = ScopedPool();
+		auto scoped = ScopedPool(4096);
 		validateConnection();
 
 		do {
@@ -655,9 +655,13 @@ private:
 		Duration latency = Duration.zero;
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
 											m_http2Context ? m_http2Context.latency : latency, keepalive, m_state.location, m_settings.cookieJar);
-		PoolStack.freeze(1);
-		requester(req);
-		PoolStack.unfreeze(1);
+		
+		{
+			PoolStack.freeze(1);
+			scope(exit)
+				PoolStack.unfreeze(1);
+			requester(req);
+		}
 
 		// after requester, to make sure it doesn't get corrupted
 		if (canUpgradeHTTP2)
@@ -692,8 +696,9 @@ private:
 			{
 				try { // Response callback
 					PoolStack.freeze(1);
+					scope(exit)
+						PoolStack.unfreeze(1);
 					responder(res);
-					PoolStack.unfreeze(1);
 				}
 				catch (Exception e) {
 					logDebug("Error while handling response: %s", e.toString().sanitize());
@@ -1317,7 +1322,7 @@ final class HTTPClientResponse : HTTPResponse {
 				m_client.m_state.redirects = 0;
 			}
 		}
-		{
+		version(VibeNoDebug) {} else {
 			auto headers_to_str = {
 				Appender!string app;
 				app ~= getHTTPVersionString(this.httpVersion);

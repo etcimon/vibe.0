@@ -223,7 +223,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			uint windowUpdate;
 			uint windowUpdatePaused;
 
-			HeaderField[] headers;
+			Vector!HeaderField headers;
 
 			SysTime last_write;
 
@@ -259,14 +259,14 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			}
 
 			void freeHeaders() {
-				if (headers) { // When the headers are outbound, strings are references only except cookies
-					foreach (HeaderField hf; headers) {
+				if (headers.length > 0) { // When the headers are outbound, strings are references only except cookies
+					foreach (HeaderField hf; headers[]) {
 						if (icmp2(hf.name, "Cookie") == 0) Mem.free(hf.value);
 						if (hf.name == ":status") Mem.free(hf.value);
 						if (icmp2(hf.name, "Set-Cookie") == 0) Mem.free(hf.value);
 						if (icmp2(hf.name, "HTTP2-Settings") == 0) Mem.free(hf.value);
 					}
-					headers.destroy();
+					headers.clear();
 				}
 			}
 
@@ -461,10 +461,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		scope(success) m_headersWritten = true;
 		//int len = cast(int)( 1 /*:status*/ + header.length + cookies.length );
 		import std.array : Appender;
-		Appender!(HeaderField[]) headers;
-		headers.reserve(header.length + cookies.length + 4);
+		m_tx.headers.reserve(header.length + cookies.length + 4);
 		scope(failure) {
-			foreach (hf; headers.data)
+			foreach (hf; m_tx.headers[])
 			{
 				if (hf.name == ":status") Mem.free(hf.value);
 				if (icmp2(hf.name, "Set-Cookie") == 0) Mem.free(hf.value);
@@ -473,15 +472,15 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		char[] status_str = Mem.alloc!(char[])(3);
 		sprintf(status_str.ptr, "%d\0", cast(int)status);
 		// write status code
-		headers ~= HeaderField(":status", cast(string) status_str);
+		m_tx.headers ~= HeaderField(":status", cast(string) status_str);
 
 		// write headers
 		foreach (string name, const ref string value; header) 
 		{
 			if (icmp2(name, "Host") == 0)
-				headers ~= HeaderField(":authority", value);
+				m_tx.headers ~= HeaderField(":authority", value);
 			else
-				headers ~= HeaderField(name, value);
+				m_tx.headers ~= HeaderField(name, value);
 
 		}
 
@@ -499,11 +498,10 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			dst.flush();
 			char[] cookie_val = cast(char[]) Mem.copy(memstream.data);
 			memstream.reset();
-			headers ~= HeaderField("Set-Cookie", cast(string) cookie_val);
+			m_tx.headers ~= HeaderField("Set-Cookie", cast(string) cookie_val);
 		}
 
 		//commit
-		m_tx.headers = headers.data;
 
 		dirty();
 	}
@@ -553,13 +551,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		logDebug("Cookie jar got %d %s %d", cookie_arr.length, " concat: ", cookie_concat.length);
 		//int len = cast(int)( 2 /* :scheme :path */ + 1 /* :method */ + header.length + cookie_arr.length + (cookie_jar && cookie_concat?1:0) ) /* one per field for indexing */;
 		import std.array : Appender;
-		Appender!(HeaderField[]) headers;
+		m_tx.headers.reserve(header.length + 5);
 
 		// write method, scheme, path pseudo-headers
-		headers ~= HeaderField(":method", methods[method]);
-		headers ~= HeaderField(":scheme", scheme);
-		headers ~= HeaderField(":path", path);
-		headers ~= HeaderField(":authority", authority);
+		m_tx.headers ~= HeaderField(":method", methods[method]);
+		m_tx.headers ~= HeaderField(":scheme", scheme);
+		m_tx.headers ~= HeaderField(":path", path);
+		m_tx.headers ~= HeaderField(":authority", authority);
 
 		bool wrote_cookie;
 
@@ -583,31 +581,30 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 							auto cval = cval_.strip();
 							char[] cookie_val = Mem.alloc!(char[])(cval.length);
 							cookie_val[] = cast(char[]) cval;
-							headers ~= HeaderField("Cookie", cast(string) cookie_val);
+							m_tx.headers ~= HeaderField("Cookie", cast(string) cookie_val);
 						}
 					}
 					else {
 						char[] cookie_val = Mem.alloc!(char[])(value.length);
 						cookie_val[] = cast(char[]) value;
-						headers ~= HeaderField("Cookie", cast(string) cookie_val);
+						m_tx.headers ~= HeaderField("Cookie", cast(string) cookie_val);
 					}
 					wrote_cookie = true;
 				} 
 			}
-			else headers ~= HeaderField(name, value);
+			else m_tx.headers ~= HeaderField(name, value);
 		}
 
 		// write cookies, individually by default to use indexing
 		if (cookie_jar && !wrote_cookie) {
 			if (concatenate_cookies)
-				headers ~= HeaderField("Cookie", cast(string) cookie_concat);
+				m_tx.headers ~= HeaderField("Cookie", cast(string) cookie_concat);
 			else foreach (char[] cookie; cookie_arr[])
-				headers ~= HeaderField("Cookie", cast(string) cookie);
+				m_tx.headers ~= HeaderField("Cookie", cast(string) cookie);
 		}
 
 		//commit
-		m_tx.headers = headers.data;
-		logDebug(m_tx.headers.to!string); 
+		logDebug(m_tx.headers[].to!string); 
 		//assert(len == i);
 
 		dirty();
@@ -2031,7 +2028,7 @@ private:
 				}
 
 				// This stream needs to send a header, in which case it may send additional information and coalesce to optimize
-				if (headers) {
+				if (headers.length > 0) {
 
 					// Push promise must be sent by a server only
 					if (isServer && stream.m_push) {
@@ -2053,7 +2050,7 @@ private:
 							continue; // try again later
 						}
 						logDebug("HTTP/2: Submit push promise id %d", stream.m_priSpec.stream_id);
-						int rv = submitPushPromise(m_session, stream.m_priSpec.stream_id, headers, cast(void*)stream);
+						int rv = submitPushPromise(m_session, stream.m_priSpec.stream_id, headers[], cast(void*)stream);
 						if (rv < 0) {
 							HTTP2Stream parent = cast(HTTP2Stream)m_session.getStreamUserData(stream.m_priSpec.stream_id);
 							parent.m_rx.ex = new Exception("Push promise failed: " ~ libhttp2.types.toString(cast(ErrorCode)rv));
@@ -2065,7 +2062,7 @@ private:
 					{
 						if (isServer) {
 							// handle full server response
-							ErrorCode rv = submitResponse(m_session, stream.m_stream_id, headers, &stream.dataProvider);
+							ErrorCode rv = submitResponse(m_session, stream.m_stream_id, headers[], &stream.dataProvider);
 							logDebug("HTTP/2: Submit response id %d", stream.m_stream_id);
 							data_processed = true;
 							if (rv != ErrorCode.OK)
@@ -2085,7 +2082,7 @@ private:
 									continue; // try again later
 								}
 								prispec_processed = true;
-								int stream_id = submitRequest(m_session, stream.m_tx.priSpec, headers, (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
+								int stream_id = submitRequest(m_session, stream.m_tx.priSpec, headers[], (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
 								logDebug("HTTP/2: Submit request id %d", stream_id);
 								data_processed = true;
 								if (stream_id < 0) {
@@ -2139,11 +2136,11 @@ private:
 								}
 								int rv;
 								if (!isServer) {
-									rv = submitRequest(m_session, stream.m_tx.priSpec, headers, (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
+									rv = submitRequest(m_session, stream.m_tx.priSpec, headers[], (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
 								
 									data_processed = true;
 								}
-								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers, cast(void*)stream);
+								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers[], cast(void*)stream);
 								if (rv < 0)
 									stream.m_rx.ex = new Exception("Error submitting headers: " ~ libhttp2.types.toString(cast(ErrorCode)rv));
 								logDebug("HTTP/2: Submit headers request id %d", rv);
@@ -2156,7 +2153,6 @@ private:
 
 					// all strings stored in the headers are destroyed
 					freeHeaders();
-					headers = null;
 					headers_processed = true;
 				}
 

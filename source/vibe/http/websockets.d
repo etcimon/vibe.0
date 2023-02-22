@@ -324,24 +324,24 @@ final class WebSocket {
 	*/
 	ubyte[] receiveBinary(bool strict = true)
 	{
-		ubyte[] ret;
+		auto dst = appender!(ubyte[])();
 		receive((scope message){
 			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.binary,
 				"Expected a binary message, got "~message.frameOpcode.to!string());
-			ret = message.readAll();
+			message.readAll(dst);
 		});
-		return ret;
+		return dst.data;
 	}
 	/// ditto
 	string receiveText(bool strict = true)
 	{
-		string ret;
+		auto dst = appender!string();
 		receive((scope message){
 			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.text,
 				"Expected a text message, got "~message.frameOpcode.to!string());
-			ret = message.readAllUTF8();
+			message.readAllUTF8(dst);
 		});
-		return ret;
+		return dst.data;
 	}
 
 	/**

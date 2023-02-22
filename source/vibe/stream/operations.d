@@ -24,6 +24,7 @@ import std.typecons;
 import memutils.utils;
 import memutils.unique;
 import memutils.scoped;
+import memutils.vector;
 
 /**************************************************************************************************/
 /* Public functions                                                                               */
@@ -256,8 +257,7 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 	if (max_bytes == 0) logDebug("Deprecated behavior: readAll() called with max_bytes==0, use max_bytes==size_t.max instead.");
 
 	// prepare output buffer
-	auto dst = appender!(ubyte[])();
-	scope(exit) dst.destroy();
+	auto dst = Vector!(ubyte, PoolStack)();
 
 	import std.traits : hasMember;
 	static if (hasMember!(Stream, "waitForData"))
@@ -279,9 +279,42 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 		stream.read(buffer[0 .. chunk]);
 		dst.put(buffer[0 .. chunk]);
 	}
-	return dst.data;
+	return dst[].copy();
 }
+/**
+	Reads the complete contents of a stream, optionally limited by max_bytes.
 
+	Throws:
+		An exception is thrown if the stream contains more than max_bytes data.
+*/
+void readAll(Stream, R)(Stream stream, ref R dst, size_t max_bytes = size_t.max, size_t reserve_bytes = 64, Duration max_wait = Duration.zero) /*@ufcs*/
+	if (isOutputRange!(R, ubyte))
+{
+	mixin(Trace);
+	enforce(stream !is null, "Null stream in readAll");
+	if (max_bytes == 0) logDebug("Deprecated behavior: readAll() called with max_bytes==0, use max_bytes==size_t.max instead.");
+
+	import std.traits : hasMember;
+	static if (hasMember!(Stream, "waitForData"))
+		if (max_wait > Duration.zero)
+			enforce!TimeoutException(stream.waitForData(max_wait));
+	dst.reserve( max(reserve_bytes, min(max_bytes, stream.leastSize) ));
+
+	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
+	scope(exit) ThreadMem.free(buffer);
+	
+	size_t n = 0;
+	while (!stream.empty) {
+		static if (hasMember!(Stream, "waitForData"))
+			if (max_wait > Duration.zero)
+				enforce!TimeoutException(stream.waitForData(max_wait));
+		size_t chunk = cast(size_t)min(stream.leastSize, buffer.length);
+		n += chunk;
+		enforce(!max_bytes || n <= max_bytes, "Input data too long!");
+		stream.read(buffer[0 .. chunk]);
+		dst.put(buffer[0 .. chunk]);
+	}
+}
 /**
 	Reads the complete contents of a stream, assuming UTF-8 encoding.
 
@@ -308,6 +341,31 @@ string readAllUTF8(InputStream stream, bool sanitize = true, size_t max_bytes = 
 	else {
 		validate(cast(string)data);
 		return stripUTF8Bom(cast(string)data);
+	}
+}
+
+// ditto
+void readAllUTF8(R)(InputStream stream, ref R dst, bool sanitize = true, size_t max_bytes = size_t.max)
+	if (isOutputRange!(R, char))
+{
+	mixin(Trace);
+	import std.utf;
+	import vibe.utils.string;
+	ubyte[] data;
+	{
+		auto temp = appender!(ubyte[])();
+		readAll(stream, temp, max_bytes);
+		data = temp.data;
+	}
+	if( sanitize ) {
+		auto temp2 = appender!string();
+		temp2.reserve(data.length);
+		sanitizeUTF8(data, temp2);
+		dst.put(stripUTF8Bom(temp2.data));
+	}
+	else {
+		validate(cast(string)data);
+		dst.put(stripUTF8Bom(cast(string)data));
 	}
 }
 
