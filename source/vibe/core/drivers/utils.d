@@ -1,7 +1,7 @@
 /**
 	Utility definitions for socket handling.
 
-	Copyright: © 2013 RejectedSoftware e.K.
+	Copyright: © 2013 Sönke Ludwig
 	Authors: Sönke Ludwig
 	License: Subject to the terms of the MIT license, as written in the included LICENSE.txt file.
 */
