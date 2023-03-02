@@ -2,7 +2,7 @@
 	"name": "vibe-0",
 	"description": "Asynchronous I/O framework",
 	"license": "MIT",
-	"copyright": "Copyright © 2012-2014 rejectedsoftware e.K.",
+	"copyright": "Copyright © 2012-2014 Sönke Ludwig",
 	"homepage": "http://vibed.org/",
 	"authors": [
 			"Sönke Ludwig",

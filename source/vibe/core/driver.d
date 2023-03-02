@@ -1,7 +1,7 @@
 /**
 	Contains interfaces and enums for evented I/O drivers.
 
-	Copyright: © 2012-2015 RejectedSoftware e.K.
+	Copyright: © 2012-2015 Sönke Ludwig
 	Authors: Sönke Ludwig
 	License: Subject to the terms of the MIT license, as written in the included LICENSE.txt file.
 */

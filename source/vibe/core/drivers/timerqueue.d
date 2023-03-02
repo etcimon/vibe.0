@@ -1,7 +1,7 @@
 /**
 	Efficient timer management routines for large number of timers.
 
-	Copyright: © 2014 RejectedSoftware e.K.
+	Copyright: © 2014 Sönke Ludwig
 	Authors: Sönke Ludwig
 	License: Subject to the terms of the MIT license, as written in the included LICENSE.txt file.
 */
