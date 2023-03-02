@@ -19,8 +19,8 @@ void main()
 	settings.http2.settings.enablePush = false;
 	settings.http2.disable = false;
 	settings.http2.alpn = ["h2", "http/1.1"];
-	//settings.tlsContext = new OpenSSLContext(TLSContextKind.client, TLSVersion.tls1_3);
-	//settings.tlsContext.setCipherList("AES128+GCM+SHA256:AES256+GCM+SHA384:CHACHA20+SHA256");
+	//settings.tlsContext = new OpenSSLContext(TLSContextKind.client, TLSVersion.tls1_2);
+	//settings.tlsContext.setCipherList("AES256+GCM+SHA384:CHACHA20+SHA256");
 	settings.maxRedirects = 2;
 	settings.defaultKeepAliveTimeout = 3.seconds;
 	string result;
@@ -30,7 +30,7 @@ void main()
 			{
 				StopWatch sw;
 				sw.start();
-				requestHTTP("https://httpbin.org/ip",
+				requestHTTP("https://api.hubapi.com/contacts/v1/lists/all/contacts/all",
 					(scope req) {
 						
 						logDebug("Callback called with Request");

@@ -475,7 +475,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		m_tx.headers ~= HeaderField(":status", cast(string) status_str);
 
 		// write headers
-		foreach (string name, const ref string value; header) 
+		foreach (const string name, const string value; header) 
 		{
 			if (icmp2(name, "Host") == 0)
 				m_tx.headers ~= HeaderField(":authority", value);
@@ -562,7 +562,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		bool wrote_cookie;
 
 		// write headers
-		foreach (string name, const ref string value; header) 
+		foreach (const string name, const string value; header) 
 		{
 			if (icmp2(name, "Host") == 0) continue;
 			if (cookie_jar && icmp2(name, "Cookie") == 0 && concatenate_cookies && value.length > 0) {

@@ -1172,7 +1172,7 @@ unittest {
 	assert(parseJsonString("\"test\"") == Json("test"));
 	assert(parseJsonString("[1, 2, 3]") == Json([Json(1), Json(2), Json(3)]));
 	assert(parseJsonString("{\"a\": 1}") == Json(["a": Json(1)]));
-	assert(parseJsonString(`"\\\/\b\f\n\r\t\u1234"`).get!string == "\\/\b\f\n\r\t\u1234");
+	assert(parseJsonString(`"\\\/\b\f\n\r\t\u1234"`).get!string == "\\/\u0008\u000C\n\r\t\u1234");
 	auto json = parseJsonString(`{"hey": "This is @à test éhééhhéhéé !%/??*&?\ud83d\udcec"}`);
 	assert(json.toPrettyString() == parseJsonString(json.toPrettyString()).toPrettyString());
 }
@@ -1965,7 +1965,7 @@ string convertJsonToASCII(string json)
 
 
 /// private
-private void jsonEscape(bool escape_unicode = false, R)(ref R dst, string s)
+private void jsonEscape(bool escape_unicode = true, R)(ref R dst, string s)
 {
 	for (size_t pos = 0; pos < s.length; pos++) {
 		immutable(char) ch = s[pos];
@@ -2023,7 +2023,7 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
 {
 	auto ret = Vector!char();
 	while(!range.empty){
-		auto ch = range.front;
+		auto ch = range[0];
 		switch( ch ){
 			static if (!single_quoted && !unquoted) { case '"': return cast(string)ret[].copy(); }
 			static if (single_quoted) { case '\'': return cast(string)ret[].copy(); }
@@ -2046,7 +2046,6 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
                         foreach (i; 0 .. 9) range.popFront();
                         break;
 					case 'u':
-
 						dchar decode_unicode_escape() {
 							enforceJson(range.front == 'u');
 							range.popFront();
@@ -2080,7 +2079,10 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
 										0x10000;
 							}
 						}
-						ret.put(uch);
+						import std.utf : encode;
+						char[4] encoded;
+						auto len = encode(encoded, uch);
+						ret.put(encoded[0 .. len]);
 						break;
 				}
 				break;
