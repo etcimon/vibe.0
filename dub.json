@@ -20,7 +20,7 @@
 	},
 	"targetType": "library",
 	"mainSourceFile": "source/vibe/appmain.d",
-	"buildRequirements": ["requireBoundsCheck"], 
+	"buildRequirements": ["requireBoundsCheck"],
 	"libs-posix": ["sqlite3", "dl", "pthread","brotlicommon","brotlidec","brotlienc", "ssl", "crypto"],
 	"libs-windows-x86_64": ["C:/Development/vibe.0/lib/openssl-win64-x64/libssl","C:/Development/vibe.0/lib/openssl-win64-x64/libcrypto","C:/Development/vibe.0/lib/sqlite3_x64","C:/Development/vibe.0/lib/brotli-win64-x64/brotlicommon","C:/Development/vibe.0/lib/brotli-win64-x64/brotlienc","C:/Development/vibe.0/lib/brotli-win64-x64/brotlidec"],
 	"libs-windows-x86": ["C:/Development/vibe.0/lib/openssl-win32-x86/libssl","C:/Development/vibe.0/lib/openssl-win32-x86/libcrypto","C:/Development/vibe.0/lib/sqlite3_x86","C:/Development/vibe.0/lib/brotli-win32-x86/brotlicommon","C:/Development/vibe.0/lib/brotli-win32-x86/brotlienc","C:/Development/vibe.0/lib/brotli-win32-x86/brotlidec"],

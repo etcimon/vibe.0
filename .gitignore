@@ -3,6 +3,12 @@
 #*.lib
 *.dll
 .*.sw*
+*.*~
+*.exe
+*.lib
+*.pdb
+*.cookies
+
 
 docs.json
 /docs/index.html

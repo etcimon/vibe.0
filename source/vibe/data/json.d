@@ -2042,9 +2042,9 @@ private string jsonUnescape(R, bool single_quoted = false, bool unquoted = false
 					case 'n': ret.put('\n'); range.popFront(); break;
 					case 'r': ret.put('\r'); range.popFront(); break;
 					case 't': ret.put('\t'); range.popFront(); break;
-                    case 'U': // todo UTF-32
+                    /*case 'U': // todo UTF-32
                         foreach (i; 0 .. 9) range.popFront();
-                        break;
+                        break;*/
 					case 'u':
 						dchar decode_unicode_escape() {
 							enforceJson(range.front == 'u');
