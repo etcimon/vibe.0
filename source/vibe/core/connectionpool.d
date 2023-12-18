@@ -14,6 +14,7 @@ import core.thread;
 import vibe.core.sync;
 import std.exception;
 import memutils.refcounted;
+import memutils.vector;
 // todo: Fix error in corruption exception
 
 /**
@@ -22,17 +23,24 @@ import memutils.refcounted;
 	The connection pool is creating connections using the supplied factory function as needed
 	whenever lockConnection() is called. Connections are associated to the calling fiber, as long
 	as any copy of the returned LockedConnection object still exists. Connections that are not
-	associated 
+	associated
 */
 class ConnectionPool(Connection)
 {
 	private {
 		Connection delegate() m_connectionFactory;
 		size_t space_1;
-		Connection[] m_connections;
+		Vector!Connection m_connections;
 		size_t space_2;
 		int[const(Connection)] m_lockCount;
 		RefCounted!LocalTaskSemaphore m_sem;
+	}
+
+	~this() {
+		foreach(conn; m_connections[]) {
+			conn.destroy();
+		}
+		m_connections.clear();
 	}
 
 	this(Connection delegate() connection_factory, uint max_concurrent = uint.max)
@@ -55,7 +63,7 @@ class ConnectionPool(Connection)
 	{
 		m_sem.lock();
 		size_t cidx = size_t.max;
-		foreach( i, c; m_connections ){
+		foreach( i, c; m_connections[] ){
 			auto plc = c in m_lockCount;
 			if( !plc || *plc == 0 ){
 				cidx = i;
@@ -69,7 +77,7 @@ class ConnectionPool(Connection)
 				*plc = 0;
 		}
 		if( cidx != size_t.max ){
-			logTrace("returning %s connection %d of %d", Connection.stringof, cidx, m_connections.length);
+			//logTrace("returning %s connection %d of %d", Connection.stringof, cidx, m_connections.length);
 			try conn = m_connections[cidx];
 			catch (CorruptionException) {
 				cidx = size_t.max;
@@ -110,7 +118,7 @@ struct LockedConnection(Connection) {
 		size_t spacing;
 		uint m_magic = 0xB1345AC2;
 	}
-	
+
 	private this(ConnectionPool!Connection pool, Connection conn)
 	{
 		assert(conn !is null);
@@ -126,7 +134,7 @@ struct LockedConnection(Connection) {
 			auto fthis = Task.getThis();
 			assert(fthis is m_task);
 			m_pool.m_lockCount[m_conn]++;
-			logTrace("conn %s copy %d", cast(void*)m_conn, m_pool.m_lockCount[m_conn]);
+			//logTrace("conn %s copy %d", cast(void*)m_conn, m_pool.m_lockCount[m_conn]);
 		}
 	}
 

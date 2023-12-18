@@ -8,7 +8,7 @@
 *.lib
 *.pdb
 *.cookies
-
+*.log
 
 docs.json
 /docs/index.html

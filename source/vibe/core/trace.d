@@ -54,9 +54,9 @@ nothrow static:
 		import std.array : Appender;
 		Appender!(Task[]) keys;
 
-		foreach (const ref TaskFiber t, const ref TaskDebugInfo tdi; s_taskMap) 
+		foreach (const ref TaskFiber t, const ref TaskDebugInfo tdi; s_taskMap)
 			keys ~= (cast()t).task;
-		
+
 		return keys.data;
 	}
 
@@ -147,7 +147,7 @@ nothrow static:
 
 	Duration getAge(Task t = Task.getThis()) {
 		scope(failure) assert(false, "Memory allocation failed");
-		
+
 		if (auto ptr = t.fiber in s_taskMap) {
 			return Clock.currTime() - ptr.created;
 		}
@@ -156,7 +156,7 @@ nothrow static:
 
 	Duration getInactivity(Task t = Task.getThis()) {
 		scope(failure) assert(false, "Memory allocation failed");
-		
+
 		if (auto ptr = t.fiber in s_taskMap) {
 			return Clock.currTime() - ptr.lastResumed;
 		}
@@ -165,7 +165,7 @@ nothrow static:
 
 	size_t getMemoryUsage(Task t = Task.getThis()) {
 		scope(failure) assert(false, "Memory allocation failed");
-		
+
 		if (auto ptr = t.fiber in s_taskMap) {
 			return ptr.memoryUsage;
 		}
@@ -181,7 +181,7 @@ nothrow static:
 		setIsCapturing(true);
 		// todo: add capture to existing tasks if option is set
 		settings.id = id++;
-		try s_captureSettings.insert(settings); 
+		try s_captureSettings.insert(settings);
 		catch (Exception e) { setIsCapturing(false); return 0; }
 		return settings.id;
 	}
@@ -292,7 +292,7 @@ private:
 				setIsCapturing(false);
 		}
 	}
-}	
+}
 
 struct CaptureFilters {
 	/// The name of the task. Use * ? globbing wildcards
@@ -303,7 +303,7 @@ struct CaptureFilters {
 	string[] breadcrumbs;
 	/// The maximum number of tasks that can be monitored, after which the capture is automatically stopped
 	uint maxTasks = uint.max;
-	/// Whether existing tasks should be scanned. If not, tasks will join the capture 
+	/// Whether existing tasks should be scanned. If not, tasks will join the capture
 	/// the moment they match those filters (when adding breadcrumbs, changing names, etc).
 	// todo: bool scanExistingTasks;
 }
@@ -363,12 +363,12 @@ void removeFromArray(ref Vector!CaptureSettings arr, CaptureSettings t) {
 			break;
 		}
 	}
-	
+
 	auto tmp = Vector!CaptureSettings(arr[0 .. idx]);
 	if (arr.length - 1 > idx)
 		tmp ~= arr[idx .. $];
 	arr.swap(tmp);
-	
+
 }
 
 void removeFromArray(T,U)(ref Vector!T arr, ref U t) {
@@ -381,12 +381,12 @@ void removeFromArray(T,U)(ref Vector!T arr, ref U t) {
 			break;
 		}
 	}
-	
+
 	auto tmp = Vector(arr[0 .. idx]);
 	if (arr.length - 1 > idx)
 		tmp ~= arr[idx .. $];
 	arr.swap(tmp);
-	
+
 }
 
 void removeFromArray(T)(ref T[] arr, ref T t) {
@@ -398,12 +398,12 @@ void removeFromArray(T)(ref T[] arr, ref T t) {
 			break;
 		}
 	}
-	
+
 	T[] tmp = arr[0 .. idx];
 	if (arr.length - 1 > idx)
 		tmp ~= arr[idx .. $];
 	arr = tmp;
-	
+
 }
 
 void pushTraceImpl(string info) {
@@ -411,13 +411,13 @@ void pushTraceImpl(string info) {
 	if (auto ptr = Task.getThis().fiber in s_taskMap) {
 		ptr.callStack ~= info;
 	}
-	
+
 }
 
 void popTraceImpl(bool in_failure = false) {
 	if (Task.getThis() == Task()) return;
 	if (auto ptr = Task.getThis().fiber in s_taskMap) {
-		if (in_failure) { 
+		if (in_failure) {
 			ptr.callStack[ptr.callStack.length - ++ptr.failures] ~= " (E)";
 		}
 		else ptr.callStack.removeBack();
@@ -470,4 +470,10 @@ static this() {
 	getAllocator!Lockless().setAllocSizeCallbacks(&onAlloc, &onFree);
 	getAllocator!CryptoSafe().setAllocSizeCallbacks(&onAlloc, &onFree);
 
+}
+
+static ~this() {
+	foreach(const key, ref tdi; s_taskMap) {
+		ThreadMem.free(cast()tdi);
+	}
 }

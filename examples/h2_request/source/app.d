@@ -32,7 +32,7 @@ void main()
 				sw.start();
 				requestHTTP("https://api.hubapi.com/contacts/v1/lists/all/contacts/all",
 					(scope req) {
-						
+
 						logDebug("Callback called with Request");
 						req.headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 						req.headers["Accept-Language"] = "en-US,en;q=0.5";
@@ -56,13 +56,12 @@ void main()
 						logDebug("Result str: %s", result);
 						Thread.sleep(30.msecs);
 					}, settings);
-				
+
 			}
-			
+
 			);
 	}
 
 	secondTask();
-
 	runEventLoop();
 }

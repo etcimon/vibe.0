@@ -16,6 +16,7 @@ import std.traits;
 import std.typecons;
 import std.variant;
 import memutils.circularbuffer;
+import memutils.utils;
 
 
 /** Represents a single task as started using vibe.core.runTask.
@@ -116,6 +117,9 @@ class TaskFiber : Fiber {
 			ThreadInfo m_tidInfo;
 		}
 		MessageQueue m_messageQueue;
+		~this() {
+			ThreadMem.free(m_messageQueue);
+		}
 	}
 
 	protected {
@@ -127,7 +131,7 @@ class TaskFiber : Fiber {
 	{
 		super(fun, stack_size);
 		m_thread = Thread.getThis();
-		m_messageQueue = new MessageQueue;
+		m_messageQueue = ThreadMem.alloc!MessageQueue();
 	}
 
 	/** Returns the thread that owns this task.
@@ -250,10 +254,10 @@ class MessageQueue {
 			notify = this.full;
 			while (true) {
 				import vibe.core.log;
-				logTrace("looking for messages");
+				//logTrace("looking for messages");
 				if (receiveQueue(m_priorityQueue, args, filter)) break;
 				if (receiveQueue(m_queue, args, filter)) break;
-				logTrace("received no message, waiting..");
+				//logTrace("received no message, waiting..");
 				m_condition.wait();
 				notify = this.full;
 			}

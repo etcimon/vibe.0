@@ -40,7 +40,7 @@ version(Windows){
 			int write(int fd, in void *buffer, uint count);
 			off_t lseek(int fd, off_t offset, int whence);
 		}
-		
+
 		enum O_RDONLY = 0;
 		enum O_WRONLY = 1;
 		enum O_RDWR = 2;
@@ -81,20 +81,20 @@ final class Win32FileStream : FileStream {
 		ulong m_ptr = 0;
 		DWORD m_bytesTransferred;
 	}
-	
+
 	this(DriverCore driver, Path path, FileMode mode)
 	{
 		m_path = path;
 		m_mode = mode;
 		m_driver = driver;
-		
+
 		auto access = m_mode == FileMode.readWrite ? (GENERIC_WRITE | GENERIC_READ) :
 		(m_mode == FileMode.createTrunc || m_mode == FileMode.append)? GENERIC_WRITE : GENERIC_READ;
-		
+
 		auto shareMode = m_mode == FileMode.read? FILE_SHARE_READ : 0;
-		
+
 		auto creation = m_mode == FileMode.createTrunc? CREATE_ALWAYS : m_mode == FileMode.append? OPEN_ALWAYS : OPEN_EXISTING;
-		
+
 		m_handle = CreateFileW(
 			toUTF16z(m_path.toNativeString()),
 			access,
@@ -103,7 +103,7 @@ final class Win32FileStream : FileStream {
 			creation,
 			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
 			null);
-		
+
 		auto errorcode = GetLastError();
 		enforce(m_handle != INVALID_HANDLE_VALUE, format("Failed to open %s: %s Mode: %d", path.nodes, errorcode, mode));
 		if(mode == FileMode.createTrunc && errorcode == ERROR_ALREADY_EXISTS)
@@ -123,29 +123,29 @@ final class Win32FileStream : FileStream {
 			m_ptr = size;
 		}
 	}
-	
+
 	~this()
 	{
 		close();
 	}
-	
+
 	void release()
 	{
 		assert(m_task == Task.getThis(), "Releasing FileStream that is not owned by the calling task.");
 		m_task = Task();
 	}
-	
+
 	void acquire()
 	{
 		assert(m_task == Task(), "Acquiring FileStream that is already owned.");
 		m_task = Task.getThis();
 	}
-	
+
 	bool amOwner()
 	{
 		return m_task == Task.getThis();
 	}
-	
+
 	void close()
 	{
 		if(m_handle == INVALID_HANDLE_VALUE)
@@ -153,47 +153,47 @@ final class Win32FileStream : FileStream {
 		CloseHandle(m_handle);
 		m_handle = INVALID_HANDLE_VALUE;
 	}
-	
+
 	ulong tell() { return m_ptr; }
-	
+
 	@property Path path() const { return m_path; }
-	
+
 	@property bool isOpen() const { return m_handle != INVALID_HANDLE_VALUE; }
-	
+
 	@property ulong size() const { return m_size; }
-	
+
 	@property bool readable()
 	const {
 		return m_mode != FileMode.append;
 	}
-	
+
 	@property bool writable()
 	const {
 		return m_mode == FileMode.append || m_mode == FileMode.createTrunc || m_mode == FileMode.readWrite;
 	}
-	
+
 	void seek(ulong offset)
 	{
 		m_ptr = offset;
 	}
-	
-	
+
+
 	@property bool empty() const { assert(this.readable); return m_ptr >= m_size; }
 	@property ulong leastSize() const { assert(this.readable); return m_size - m_ptr; }
 	@property bool dataAvailableForRead(){
 		return leastSize() > 0;
 	}
-	
+
 	const(ubyte)[] peek(){
 		assert(false);
 	}
-	
+
 	void read(ubyte[] dst)
 	{
 		assert(this.readable);
 		acquire();
 		scope(exit) release();
-		
+
 		while( dst.length > 0 ){
 			enforce(dst.length <= leastSize);
 			OVERLAPPED overlapped;
@@ -203,30 +203,30 @@ final class Win32FileStream : FileStream {
 			overlapped.OffsetHigh = cast(uint)(m_ptr >> 32);
 			overlapped.hEvent = cast(HANDLE)cast(void*)this;
 			m_bytesTransferred = 0;
-			
+
 			auto to_read = min(dst.length, DWORD.max);
-			
+
 			// request to write the data
 			ReadFileEx(m_handle, cast(void*)dst, to_read, &overlapped, &onIOCompleted);
-			
+
 			// yield until the data is read
 			while( !m_bytesTransferred ) m_driver.yieldForEvent();
-			
+
 			assert(m_bytesTransferred <= to_read, "More bytes read than requested!?");
 			dst = dst[m_bytesTransferred .. $];
 			m_ptr += m_bytesTransferred;
 		}
 	}
-	
+
 	void write(in ubyte[] bytes_)
 	{
-		logTrace("File write bytes offset: %d => %s", m_ptr, cast(string)bytes_);
+		//logTrace("File write bytes offset: %d => %s", m_ptr, cast(string)bytes_);
 		assert(this.writable);
 		acquire();
 		scope(exit) release();
-		
+
 		const(ubyte)[] bytes = bytes_;
-		
+
 		while( bytes.length > 0 ){
 			OVERLAPPED overlapped;
 			overlapped.Internal = 0;
@@ -235,31 +235,31 @@ final class Win32FileStream : FileStream {
 			overlapped.OffsetHigh = cast(uint)(m_ptr >> 32);
 			overlapped.hEvent = cast(HANDLE)cast(void*)this;
 			m_bytesTransferred = 0;
-			
+
 			auto to_write = min(bytes.length, DWORD.max);
 
 			// request to write the data
 			WriteFileEx(m_handle, cast(void*)bytes, to_write, &overlapped, &onIOCompleted);
-			
+
 			// yield until the data is written
 			while( !m_bytesTransferred ) m_driver.yieldForEvent();
-			
+
 			assert(m_bytesTransferred <= to_write, "More bytes written than requested!?");
 			bytes = bytes[m_bytesTransferred .. $];
 			m_ptr += m_bytesTransferred;
 		}
 		if(m_ptr > m_size) m_size = m_ptr;
 	}
-	
+
 	void flush(){}
-	
+
 	void finalize(){}
-	
+
 	void write(InputStream stream, ulong nbytes = 0)
 	{
 		writeDefault(stream, nbytes);
 	}
-	
+
 	private static extern(System) nothrow
 		void onIOCompleted(DWORD dwError, DWORD cbTransferred, OVERLAPPED* overlapped)
 	{
@@ -286,7 +286,7 @@ final class ThreadedFileStream : FileStream {
 		FileMode m_mode;
 		bool m_ownFD = true;
 	}
-	
+
 	this(Path path, FileMode mode)
 	{
 		auto pathstr = path.toNativeString();
@@ -319,7 +319,7 @@ final class ThreadedFileStream : FileStream {
 		if( m_fileDescriptor < 0 )
 			//throw new Exception(format("Failed to open '%s' with %s: %d", pathstr, cast(int)mode, errno));
 			throw new Exception("Failed to open file '"~pathstr~"'.");
-		
+
 		load(m_fileDescriptor, path, mode);
 	}
 
@@ -342,25 +342,25 @@ final class ThreadedFileStream : FileStream {
 			stat_t st;
 			fstat(m_fileDescriptor, &st);
 			m_size = st.st_size;
-			
+
 			// (at least) on windows, the created file is write protected
 			version(Windows){
-				if( mode == FileMode.createTrunc ) 
+				if( mode == FileMode.createTrunc )
 				{
 					_wchmod(path.toNativeString().toUTF16z(), S_IREAD|S_IWRITE);
 				}
 			}
 		}
 		lseek(m_fileDescriptor, 0, SEEK_SET);
-		
+
 		logDebug("opened file %s with %d bytes as %d", path.toNativeString(), m_size, m_fileDescriptor);
 	}
-	
+
 	~this()
 	{
 		close();
 	}
-	
+
 	@property int fd() { return m_fileDescriptor; }
 	@property Path path() const { return m_path; }
 	@property bool isOpen() const { return m_fileDescriptor >= 0; }
@@ -381,7 +381,7 @@ final class ThreadedFileStream : FileStream {
 	}
 
 	ulong tell() { return m_ptr; }
-	
+
 	void close()
 	{
 		if( m_fileDescriptor != -1 && m_ownFD ){

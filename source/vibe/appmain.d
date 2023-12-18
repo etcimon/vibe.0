@@ -35,6 +35,8 @@ else { version(unittest){} else static assert(false, "Error: -version=VibeDefaul
 */
 int main()
 {
+	import std.stdio : writeln;
+	writeln("Int MAIN");
 	static assert(false, "You must place your code in your own main() and cannot use shared static this() using this fork");
 	import vibe.core.args : finalizeCommandLineOptions;
 	import vibe.core.core : runEventLoop, lowerPrivileges;
@@ -66,10 +68,6 @@ int main()
 		} else {
 			status = runEventLoop();
 		}
-
-		import libasync.threads : destroyAsyncThreads;
-		destroyAsyncThreads(); // destroy threads
-
 
 		logDiagnostic("Event loop exited with status %d.", status);
 		return status;

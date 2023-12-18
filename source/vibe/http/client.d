@@ -41,10 +41,18 @@ import std.typecons: tuple, Tuple, scoped;
 
 import memutils.scoped;
 import memutils.refcounted;
+import memutils.utils;
 
 static if (__VERSION__ >= 2071)
     extern (C) bool gc_inFinalizer();
 
+static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
+static CircularBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) g_connections;
+static ~this() {
+	foreach (ref el; g_connections) {
+		ThreadMem.free(el[1]);
+	}
+}
 /**************************************************************************************************/
 /* Public functions                                                                               */
 /**************************************************************************************************/
@@ -78,7 +86,7 @@ void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) reque
 	auto cli = connectHTTP(url.host, url.port, use_tls, settings, url.ip);
 
 	cli.request((scope req) {
-		// When sending through a proxy, full URL to the resource must be on the first line of the request		
+		// When sending through a proxy, full URL to the resource must be on the first line of the request
 		if (settings.proxyURL.schema !is null) {
 			req.requestURL = url.toString();
 		}
@@ -131,34 +139,35 @@ unittest {
 auto connectHTTP(string host, ushort port = 0, bool use_tls = false, HTTPClientSettings settings = null, string ip_ = null)
 {
 	if (!settings) settings = defaultSettings();
-	static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
-	static CircularBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) s_connections;
 
 	if( port == 0 ) port = use_tls ? 443 : 80;
 	auto ckey = ConnInfo(host, port, settings);
 
 	ConnectionPool!HTTPClient pool;
-	foreach (c; s_connections)
+	foreach (c; g_connections)
 		if (c[0].host == host && c[0].port == port && settings is c[0].settings)
 			pool = c[1];
 
 	if (!pool) {
-		logTrace("Create HTTP client pool %s:%s %s proxy %s:%d", host, port, use_tls, ( settings ) ? settings.proxyURL.host : string.init, ( settings ) ? settings.proxyURL.port : 0);
-		pool = new ConnectionPool!HTTPClient({
+		//logTrace("Create HTTP client pool %s:%s %s proxy %s:%d", host, port, use_tls, ( settings ) ? settings.proxyURL.host : string.init, ( settings ) ? settings.proxyURL.port : 0);
+		pool = ThreadMem.alloc!(ConnectionPool!HTTPClient)({
 				auto ret = new HTTPClient;
 				ret.master = true;
 				ret.m_owner = Thread.getThis();
 				ret.connect(host, port, use_tls, settings, ip_);
 				return ret;
 			});
-		if (s_connections.full)	s_connections.popFront();
-		s_connections.put(tuple(ckey, pool));
+		if (g_connections.full)	{
+			ThreadMem.free(g_connections.front[1]);
+			g_connections.popFront();
+		}
+		g_connections.put(tuple(ckey, pool));
 	}
 	auto conn = pool.lockConnection();
 	conn.m_state.responding = false;
 	enforce(conn.__conn !is null, "Could not lock connection");
 	if (conn.isHTTP2Started) {
-		logTrace("Lock http/2 connection pool");
+		//logTrace("Lock http/2 connection pool");
 		return conn.lockConnection();
 	}
 	return conn;
@@ -180,11 +189,11 @@ class HTTPClientSettings {
 	URL proxyURL;
 
 	/// Maximum amount of time the client should wait for the next request when there are none active (observed by HTTP/1.1 and HTTP/2)
-	Duration defaultKeepAliveTimeout = 20.seconds; 
+	Duration defaultKeepAliveTimeout = 20.seconds;
 
 	/// If set to a value > 0, the client will auto-follow to request any URL returned in the "Location" header.
 	/// The request callback will be called once for every redirect, for up to maxRedirects times.
-	/// 
+	///
 	/// Note: The HTTPClient.request delegate taking HTTPClientRequest argument will have
 	/// requestURL set if it is called through a redirection.
 	int maxRedirects = 2;
@@ -205,7 +214,7 @@ class HTTPClientSettings {
 		/// Will not try upgrading the connection
 		bool disablePlainUpgrade = true;
 		/// send ping frames at pingInterval intervals to avoid peer inactivity timeout. Disabled by default
-		Duration pingInterval; 
+		Duration pingInterval;
 		/// max time the event loop is allowed to wait in read() or write(). This doesn't currently work. - use keep-alive timeout
 		Duration maxInactivity = 5.minutes;
 		/// Settings sent through protocol
@@ -340,14 +349,14 @@ final class HTTPClient {
 		// use TLS either if the web server or the proxy has it
 		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https")) {
 			m_conn.tlsContext = m_settings.tlsContext;
-			
+
 			if (!m_settings.tlsContext) {
 				m_conn.tlsContext = createTLSContext(TLSContextKind.client);
 
-				if (ms_tlsSetup) 
+				if (ms_tlsSetup)
 					ms_tlsSetup(m_conn.tlsContext);
 			}
-			
+
 			if (m_settings.http2.disable)
 				m_conn.tlsContext.setClientALPN(["http/1.1"]);
 			else
@@ -385,19 +394,19 @@ final class HTTPClient {
 						m_conn.forceTLS = force_tls;
 					}
 					import std.base64 : Base64;
-					logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
-					logTrace("CONNECT %s", m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
+					//logTrace("Connecting with proxy: %s", m_settings.proxyURL.toString());
+					//logTrace("CONNECT %s", m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
 					m_conn.tcp.write("CONNECT " ~ m_conn.server ~ ":" ~ m_conn.port.to!string ~ " HTTP/1.1\r\nHost: " ~ m_conn.server ~ ":" ~ m_conn.port.to!string);
 					if (m_settings.proxyURL.username)
 						m_conn.tcp.write("\r\nProxy-Authorization: Basic " ~ cast(string) Base64.encode(cast(ubyte[])format("%s:%s", m_settings.proxyURL.username, m_settings.proxyURL.password)));
 					m_conn.tcp.write("\r\n\r\n");
 					auto payload = (cast(InputStream)m_conn.tcp).readUntil(cast(ubyte[])"\r\n\r\n");
-					logTrace("Got connect response: %s", cast(string)payload);
+					//logTrace("Got connect response: %s", cast(string)payload);
 				}
 			}
 			else // connect to the requested server/port
 			{
-				logTrace("Connect without proxy");
+				//logTrace("Connect without proxy");
 				try m_conn.tcp = connectTCP(m_conn.ip.length > 0 ? m_conn.ip : m_conn.server, m_conn.port);
 				catch (ConnectionClosedException e) { continue; }
 				peerAddr = m_conn.tcp.remoteAddress;
@@ -410,7 +419,7 @@ final class HTTPClient {
 					enforce(e.msg.countUntil("HTTP/") == -1, format("HTTP/%s", cast(string)m_conn.tcp.readUntil(cast(ubyte[])"\r\n\r\n")));
 					throw e;
 				}
-				logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+				//logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 				if (!m_conn.tlsStream || !m_conn.tlsStream.connected) {
 					if (m_conn.tcp) m_conn.tcp.close();
 					m_conn.tcp = null;
@@ -419,7 +428,7 @@ final class HTTPClient {
 					{
 						try botan_stream.processException();
 						catch (TimeoutException t) {
-							logTrace("TimeoutException");
+							//logTrace("TimeoutException");
 							continue;
 						}
 					}
@@ -429,23 +438,23 @@ final class HTTPClient {
 					if (m_settings.http2.pingInterval != Duration.zero) {
 						m_http2Context.pinger = setTimer(m_settings.http2.pingInterval, &onPing, true);
 					}
-					
+
 					// alpn http/2 connection
 					if (m_settings.http2.forced || (m_conn.tlsStream && !m_settings.http2.disable && m_conn.tlsStream.alpn.length >= 2 && (m_conn.tlsStream.alpn[0 .. 2] == "h2" || m_conn.tlsStream.alpn[0 .. 2] == "sp"))) {
-						logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
+						//logTrace("Got alpn: %s", m_conn.tlsStream.alpn);
 						HTTP2Settings local_settings = m_settings.http2.settings;
 						enforce(m_conn.tcp !is null && m_conn.tcp.connected, "Not connected");
 						m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, m_conn.tlsStream, local_settings, &onRemoteSettings);
 
 						m_http2Context.worker = runTask(&runHTTP2Worker, false);
 						//yield();
-						logTrace("Worker started, continuing");
+						//logTrace("Worker started, continuing");
 						m_http2Context.isValidated = true;
 						m_http2Context.isSupported = true;
 					}
 					// pre-verified http/2 cleartext connection
 					else if (canUpgradeHTTP2 && m_http2Context.isSupported) {
-						logTrace("Upgrading HTTP/2");
+						//logTrace("Upgrading HTTP/2");
 						HTTP2Settings local_settings = m_settings.http2.settings;
 						m_http2Context.session = new HTTP2Session(false, null, cast(TCPConnection) m_conn.tcp, null, local_settings, &onRemoteSettings);
 						m_http2Context.worker = runTask(&runHTTP2Worker, false);
@@ -460,7 +469,7 @@ final class HTTPClient {
 					}
 				}
 
-				logTrace("TLS Stream created");
+				//logTrace("TLS Stream created");
 			}
 		}
 		while((m_conn.tcp is null || !m_conn.tcp.connected) && ++i < 3);
@@ -493,7 +502,7 @@ final class HTTPClient {
 		if (m_conn.tcp !is null) {
 			if (m_conn.tcp.connected)
 			{
-				if (notify) 
+				if (notify)
 					m_conn.tcp.notifyClose();
 				else {
 					m_conn.tcp.finalize();
@@ -520,7 +529,7 @@ final class HTTPClient {
 		if (!m_conn || !m_conn.tcp) return;
 		m_conn.totRequest = 0;
 		m_conn.maxRequests = int.max;
-        if (!rst_stream && master) 
+        if (!rst_stream && master)
             m_conn.keepAliveTimeout = Duration.zero;
 		if (isHTTP2Started && !rst_stream && !m_http2Context.closing) {
 			if (m_http2Context.pinger !is Timer.init && m_http2Context.pinger.pending)
@@ -577,7 +586,7 @@ final class HTTPClient {
 	*/
 	void request(scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse) responder)
 	{
-		mixin(Trace);		
+		mixin(Trace);
 		auto scoped = ScopedPool(4096);
 		validateConnection();
 
@@ -590,7 +599,7 @@ final class HTTPClient {
 
 			if (!keepalive)
 				m_conn.keepAliveTimeout = Duration.zero;
-			logTrace("Before loop: redirecting? %s %s %s %s %s", m_state.redirecting, " max redirects: ", m_settings.maxRedirects, " redirects: ", m_state.redirects);
+			//logTrace("Before loop: redirecting? %s %s %s %s %s", m_state.redirecting, " max redirects: ", m_settings.maxRedirects, " redirects: ", m_state.redirects);
 		} while(m_state.redirecting && m_settings.maxRedirects > m_state.redirects);
 
 		enforce(m_settings.maxRedirects == 0 || m_settings.maxRedirects > m_state.redirects, "Max redirect attempts exceeded.");
@@ -599,7 +608,7 @@ final class HTTPClient {
 private:
 	void validateConnection() {
 		if (m_conn.nextTimeout == Duration.zero && m_settings.defaultKeepAliveTimeout != 0.seconds) {
-			logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
+			//logTrace("Set keep-alive timer to: %s", m_settings.defaultKeepAliveTimeout.total!"msecs");
 			m_conn.keepAlive = setTimer(m_settings.defaultKeepAliveTimeout, &onKeepAlive, false);
 			m_conn.nextTimeout = m_settings.defaultKeepAliveTimeout;
 		}
@@ -616,7 +625,7 @@ private:
 		}
 		else if (++m_conn.totRequest >= m_conn.maxRequests)
 			reconnect("Max keep-alive requests exceeded");
-		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected) 
+		else if (isHTTP2Started && m_http2Context !is null && m_http2Context.session !is null && !m_http2Context.session.connected)
 		{
 			if (m_http2Context.worker != Task.init) {
 				m_http2Context.session.stop("Must reconnect now");
@@ -641,7 +650,7 @@ private:
 		client.m_settings = m_settings;
 		return client;
 	}
-	
+
 	void processRequest(scope void delegate(HTTPClientRequest req) requester, ref HTTPMethod req_method, ref bool keepalive)
 	{
 		mixin(Trace);
@@ -655,7 +664,7 @@ private:
 		Duration latency = Duration.zero;
 		auto req = scoped!HTTPClientRequest(m_conn, m_state.http2Stream, m_settings.proxyURL, user_agent, canUpgradeHTTP2,
 											m_http2Context ? m_http2Context.latency : latency, keepalive, m_state.location, m_settings.cookieJar);
-		
+
 		{
 			PoolStack.freeze(1);
 			scope(exit)
@@ -667,21 +676,21 @@ private:
 		if (canUpgradeHTTP2)
 			startHTTP2Upgrade(req.headers);
 		req.finalize();
-		logTrace("Sent HTTP request");
+		//logTrace("Sent HTTP request");
 		req_method = req.method;
 	}
 
-	void processResponse(scope void delegate(scope HTTPClientResponse) responder, ref HTTPMethod req_method, ref bool keepalive) 
+	void processResponse(scope void delegate(scope HTTPClientResponse) responder, ref HTTPMethod req_method, ref bool keepalive)
 	{
 		mixin(Trace);
 		// fixme: Close HTTP/2 session when a response is not handled properly?
 		m_state.responding = true;
 		scope(exit) m_state.responding = false;
-		logTrace("Processing response");
+		//logTrace("Processing response");
 		if (m_settings.defaultKeepAliveTimeout != Duration.zero)
 			keepalive = true;
 		auto res = scoped!HTTPClientResponse(this, req_method, keepalive);
-		logTrace("Response loaded");
+		//logTrace("Response loaded");
 		Exception user_exception;
 		{
 			scope (failure) {
@@ -736,7 +745,7 @@ private:
 			m_http2Context.isUpgrading = false;
 			m_http2Context.isSupported = true;
 			m_http2Context.isValidated = true;
-			logTrace("Session resume");
+			//logTrace("Session resume");
 			m_http2Context.session.resume();
 		}
 		else if (m_http2Context.isUpgrading && (upgrade_hd.length < 3 || upgrade_hd[0 .. 3] != "h2c"))
@@ -744,7 +753,7 @@ private:
 			m_http2Context.isUpgrading = false;
 			m_http2Context.isSupported = false;
 			m_http2Context.isValidated = true;
-			logTrace("Session abort");
+			//logTrace("Session abort");
 			m_http2Context.session.abort(m_state.http2Stream);
 			m_state.http2Stream = null;
 			m_http2Context.worker.join();
@@ -756,9 +765,9 @@ private:
 	}
 
 	void handleRedirect() {
-		logTrace("Handle redirect");
-		scope(exit) logTrace("After handle redirect");
-		with(m_state) 
+		//logTrace("Handle redirect");
+		//scope(exit) //logTrace("After handle redirect");
+		with(m_state)
 			if (redirecting && m_settings.maxRedirects != 0 )
 			{
 				redirects++;
@@ -779,16 +788,16 @@ private:
 				}
 				throw new HTTPStatusException(HTTPStatus.proxyAuthenticationRequired, "Proxy Authentication Required - Wrong Username Provided.");
 			}
-			
+
 			throw new HTTPStatusException(HTTPStatus.ProxyAuthenticationRequired, "Proxy Authentication Failed With Error: " ~ status_code.to!string);
 		}
 	}
-	
 
-	void runHTTP2Worker(bool upgrade = false) 
+
+	void runHTTP2Worker(bool upgrade = false)
 	{
 		mixin(Trace);
-		logTrace("Running HTTP/2 worker");
+		//logTrace("Running HTTP/2 worker");
 		enforce(m_http2Context && m_http2Context.session);
 		m_http2Context.session.setReadTimeout(m_settings.http2.maxInactivity);
 		m_http2Context.session.setWriteTimeout(m_settings.http2.maxInactivity);
@@ -798,7 +807,7 @@ private:
 		// starting...
 		enforce(m_conn.tcp.connected);
 		try m_http2Context.session.run(upgrade);
-		catch (Exception e) { 
+		catch (Exception e) {
 			timed_out = true;
 		}
 		// stopped here
@@ -818,12 +827,12 @@ private:
 			m_conn.keepAliveTimeout = 0.seconds;
 			closeTCP();
 		}
-		logTrace("Cleaned HTTP/2 worker");
-		
+		//logTrace("Cleaned HTTP/2 worker");
+
 	}
 
 	void onKeepAlive() {
-		logTrace("Keep-alive timeout");
+		//logTrace("Keep-alive timeout");
 		if (m_state.responding || m_state.requesting || (m_http2Context && m_http2Context.session && m_http2Context.session.streams > 0)) {
 			m_conn.rearmKeepAlive();
 			return;
@@ -834,15 +843,15 @@ private:
 	/// will update m_http2Context.latency with the latest latency
 	private void ping() {
 		Duration latency;
-		logTrace("Running ping");
+		//logTrace("Running ping");
 		auto cb = getEventDriver().createManualEvent();
 		SysTime start = Clock.currTime(UTC());
 		long sent = start.stdTime();
 		SysTime recv;
 		PingData data = PingData(sent, &recv, cb);
-		
+
 		m_http2Context.session.ping(data);
-		
+
 		cb.wait();
 		cb.destroy();
 		m_http2Context.latency = recv - start;
@@ -889,15 +898,15 @@ final class HTTPClientRequest : HTTPRequest {
 
 	/// Retrieve the underlying TCP Connection object
 	@property inout(TCPConnection) tcpConnection() inout { return cast(inout) m_conn.tcp; }
-	
+
 	/// Returns null if no TLS negotiation was established
 	@property inout(TLSStream) tlsStream() inout { return cast(inout) m_conn.tlsStream; }
-	
+
 	/// Returns null if no HTTP/2 session was established
 	@property inout(HTTP2Stream) http2Stream() inout { return cast(inout) m_http2Stream; }
 
 	/// private
-	this(HTTPClientConnection conn, HTTP2Stream http2, URL proxy, string user_agent, bool is_http2_upgrading, 
+	this(HTTPClientConnection conn, HTTP2Stream http2, URL proxy, string user_agent, bool is_http2_upgrading,
 		 ref Duration latency, ref bool keepalive, URL location, CookieStore cookie_jar)
 	{
 		m_location = location;
@@ -1006,7 +1015,7 @@ final class HTTPClientRequest : HTTPRequest {
 	/// Writes a multipart upload as a body to the request. This must be written in its entirety because the Content-Length
 	/// must be known beforehand.
 	/// Usage: req.writeBody(new FileMultiPart(req.headers, "Photo", "images/picture.jpg"));
-	void writeBody(MultiPartPart linked_parts) 
+	void writeBody(MultiPartPart linked_parts)
 	{
 		headers["Content-Length"] = linked_parts.size.to!string;
 		method = HTTPMethod.POST;
@@ -1076,7 +1085,7 @@ final class HTTPClientRequest : HTTPRequest {
 	{
 		import vibe.stream.wrapper : StreamOutputRange;
 		auto output = StreamOutputRange(ostream);
-		
+
 		formattedWrite(&output, "%s %s %s\r\n", httpMethodString(method), requestURL, getHTTPVersionString(httpVersion));
 		logTrace("--------------------");
 		logTrace("HTTP client request:");
@@ -1088,16 +1097,16 @@ final class HTTPClientRequest : HTTPRequest {
 		}
 		void cookieSinkConcatenate(string cookies) {
 			if (cookies !is null && cookies != "") {
-				logTrace("Cookie: %s", cookies);
+				//logTrace("Cookie: %s", cookies);
 				formattedWrite(&output, "Cookie: %s\r\n", cookies);
 			}
-			
+
 		}
 		if (m_cookieJar !is null && "Cookie" !in headers)
 			m_cookieJar.get(headers["Host"], (m_proxy != URL.init) ? URL.parse(requestURL).pathString : requestURL, tlsStream !is null, &cookieSinkConcatenate);
 		output.put("\r\n");
-		logTrace("Done with cookies");
-		logTrace("--------------------");
+		//logTrace("Done with cookies");
+		//logTrace("--------------------");
 	}
 
 	private void writeHeader()
@@ -1131,7 +1140,7 @@ final class HTTPClientRequest : HTTPRequest {
 			if (auto pka = "Connection" in headers) {
 				headers.remove("Connection");
 			}
-			logTrace("Writing HTTP/2 headers");
+			//logTrace("Writing HTTP/2 headers");
 			http2Stream.writeHeader(requestURL, tlsStream ? "https" : "http", method, headers, m_cookieJar, m_concatCookies);
 			return;
 		}
@@ -1143,10 +1152,10 @@ final class HTTPClientRequest : HTTPRequest {
 
 	private void finalize()
 	{
-		logTrace("Finalize request");
+		//logTrace("Finalize request");
 		// test if already finalized
 		if (m_headerWritten && !m_bodyWriter) {
-			logTrace("Already finalized...");
+			//logTrace("Already finalized...");
 			topStream.flush();
 			return;
 		}
@@ -1163,7 +1172,7 @@ final class HTTPClientRequest : HTTPRequest {
 			topStream.flush();
 			m_bodyWriter = null;
 		}
-		if (isHTTP2) 
+		if (isHTTP2)
 			http2Stream.finalize(); // we may have a shot at an atomic request here. This will half-close the stream
 
 	}
@@ -1238,7 +1247,7 @@ final class HTTPClientResponse : HTTPResponse {
 		bool is_upgrade = m_client.canUpgradeHTTP2;
 		if (!m_client.m_http2Context || !m_client.m_http2Context.isValidated || !m_client.m_http2Context.isSupported) {
 			// read and parse status line ("HTTP/#.# #[ $]\r\n")
-			logTrace("HTTP client reading status line");
+			//logTrace("HTTP client reading status line");
 			enforce!ConnectionClosedException(client.topStream !is null && client.topStream.connected, "Response stream not active");
             enforce!TimeoutException(req_method == HTTPMethod.POST || client.topStream.waitForData(30.seconds), "Response stream timed out while reading HTTP status code");
             import std.algorithm : canFind;
@@ -1251,7 +1260,7 @@ final class HTTPClientResponse : HTTPResponse {
 				this.statusPhrase = "Internal Server Error";
 			} else {
 				string stln = cast(string)client.topStream.readLine(HTTPClient.maxHeaderLineLength, "\r\n");
-				logTrace("stln: %s", stln);
+				//logTrace("stln: %s", stln);
 				this.httpVersion = parseHTTPVersion(stln);
 
 				enforce(stln.startsWith(" "));
@@ -1267,7 +1276,7 @@ final class HTTPClientResponse : HTTPResponse {
 				parseRFC5322Header(client.topStream, this.headers, HTTPClient.maxHeaderLineLength, false);
 
 				auto upgrade_hd = this.headers.get("Upgrade", "");
-				logTrace("Finalizing the upgrade process");
+				//logTrace("Finalizing the upgrade process");
 				m_client.finalizeHTTP2Upgrade(upgrade_hd);
 			}
 		}
@@ -1275,9 +1284,9 @@ final class HTTPClientResponse : HTTPResponse {
 			httpVersion = HTTPVersion.HTTP_2;
 			if (is_upgrade) this.headers.destroy();
 			try m_client.m_state.http2Stream.readHeader(this.statusCode, this.headers);
-			catch (ConnectionClosedException cc) { logTrace("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Connection Closed during header read"); throw cc; }
-			catch (TimeoutException e) { logTrace("Connection was timed out"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); throw e; }
-			
+			catch (ConnectionClosedException cc) { logDebug("Connection was closed"); m_keepAlive = false; keepalive = false; disconnect("Connection Closed during header read"); throw cc; }
+			catch (TimeoutException e) { logDebug("Connection was timed out"); m_keepAlive = false; keepalive = false; disconnect("Read Header timeout"); throw e; }
+
 			this.statusPhrase = httpStatusText(this.statusCode);
 		}
 		else {
@@ -1286,12 +1295,11 @@ final class HTTPClientResponse : HTTPResponse {
 		}
 
 		void saveCookie(string value) {
-			logTrace("Save cookie: %s", value);
+			//logTrace("Save cookie: %s", value);
 			if (m_client.m_settings.cookieJar) {
 				m_client.m_settings.cookieJar.set(client.m_conn.server, value);
 			}
 		}
-
 
 		logTrace("---------------------");
 		logTrace("HTTP client response:");
@@ -1312,7 +1320,7 @@ final class HTTPClientResponse : HTTPResponse {
 					redirecting = true;
 					if (location.host != m_client.m_conn.server || location.port != m_client.m_conn.port)
 						redirecting = false;
-					else 
+					else
 						location = URL.parse((*pl).idup);
 					// redirects++ will happen once the new request is made
 				}
@@ -1415,12 +1423,12 @@ final class HTTPClientResponse : HTTPResponse {
 			return cast(InputStream)empty_memory_stream;
 		}
 
-		if( m_bodyReader ) { 
-			logTrace("Returning bodyreader: http2? %s", isHTTP2.to!string);
+		if( m_bodyReader ) {
+			//logTrace("Returning bodyreader: http2? %s", isHTTP2.to!string);
 			return m_bodyReader;
 		}
 
-		logTrace("Creating bodyreader: http2? %s", isHTTP2.to!string);
+		//logTrace("Creating bodyreader: http2? %s", isHTTP2.to!string);
 		assert (m_client, "Response was already read or no response body, may not use bodyReader.");
 
 		m_bodyReader = m_client.topStream;
@@ -1522,10 +1530,10 @@ final class HTTPClientResponse : HTTPResponse {
 		If a reason is used and this is an HTTP/2 stream, all HTTP/2 streams
 		will be forcefully closed as well.
 
-		Note that for HTTP/1.0 and HTTP/1.1,  this will only actually disconnect 
-		if the request has not yet been fully processed. If the whole body was 
-		already read, the connection is not owned by the current request operation 
-		anymore and cannot be accessed. Use a "Connection: close" header instead 
+		Note that for HTTP/1.0 and HTTP/1.1,  this will only actually disconnect
+		if the request has not yet been fully processed. If the whole body was
+		already read, the connection is not owned by the current request operation
+		anymore and cannot be accessed. Use a "Connection: close" header instead
 		in this case to let the server close the connection.
 	*/
 	void disconnect(string reason = "")
@@ -1554,7 +1562,7 @@ final class HTTPClientResponse : HTTPResponse {
 		destroy(m_gzipInputStream);
 		destroy(m_chunkedInputStream);
 		destroy(m_limitedInputStream);
-		if (!keepalive || cli.isHTTP2Started || (!cli.isHTTP2Started && headers.get("Connection") == "close")) 
+		if (!keepalive || cli.isHTTP2Started || (!cli.isHTTP2Started && headers.get("Connection") == "close"))
 			cli.disconnect();
 		destroy(m_endCallback);
 		//destroy(m_bodyReader); this is endCallback, could end up making an infinite loop
@@ -1593,18 +1601,18 @@ class HTTPClientConnection {
 
 	void rearmKeepAlive() {
 		if (keepAlive is Timer.init) {
-			logTrace("Keep-alive is init");
+			//logTrace("Keep-alive is init");
 			return;
 		}
 		if (nextTimeout == Duration.zero) {
-			logTrace("NextTimeout is zero");
+			//logTrace("NextTimeout is zero");
 			if ((cast(bool)keepAlive) && keepAlive.pending) {
-				logTrace("Stopped timer");
+				//logTrace("Stopped timer");
 				keepAlive.stop();
 			}
 			return;
 		}
-		logTrace("Rearming to: %s", nextTimeout);
+		//logTrace("Rearming to: %s", nextTimeout);
 		keepAlive.rearm(nextTimeout);
 	}
 
@@ -1612,28 +1620,28 @@ class HTTPClientConnection {
 
 	@property void keepAliveTimeout(Duration timeout) {
 		if (keepAlive is Timer.init) {
-			logTrace("Keep-alive is init");
+			//logTrace("Keep-alive is init");
 			return;
 		}
 		if (timeout != nextTimeout) {
-			logTrace("Keep-alive from %s to %s", nextTimeout.total!"msecs", timeout.total!"msecs");
+			//logTrace("Keep-alive from %s to %s", nextTimeout.total!"msecs", timeout.total!"msecs");
 			nextTimeout = timeout;
 		}
 		if (Duration.zero == timeout) {
-			logTrace("Got zero keep-alive timeout");
+			//logTrace("Got zero keep-alive timeout");
 			if ((cast(bool)keepAlive) && keepAlive.pending) {
-				logTrace("Stop keep-alive");
+				//logTrace("Stop keep-alive");
 				keepAlive.stop();
 			}
 		}
 		else {
-			logTrace("Re-arming keep-alive to: %s", timeout.total!"msecs");
+			//logTrace("Re-arming keep-alive to: %s", timeout.total!"msecs");
 			keepAlive.rearm(timeout);
 		}
 	}
 
 
-} 
+}
 
 __gshared bool g_exiting;
 shared static ~this() {
@@ -1647,7 +1655,7 @@ class HTTP2ClientContext {
 	ConnectionPool!HTTPClient pool;
 
 	/// true if peer was validated for HTTP/2 support
-	bool isValidated; 
+	bool isValidated;
 	/// true if peer has HTTP/2 support
 	bool isSupported;
 	/// true if upgrade is ongoing
@@ -1660,7 +1668,7 @@ class HTTP2ClientContext {
 
 	~this() {
 	}
-} 
+}
 
 struct HTTPClientState {
 	bool master;
@@ -1671,7 +1679,7 @@ struct HTTPClientState {
 	bool redirecting;
 	int redirects;
 	URL location;
-} 
+}
 
 
 private __gshared NullOutputStream s_sink;
@@ -1688,7 +1696,7 @@ HTTPClientSettings defaultSettings() {
 static this()
 {
 	import core.thread;
-	auto thisthr = Thread.getThis();	
+	auto thisthr = Thread.getThis();
 	if (thisthr.name.length < 2 || thisthr.name[0 .. 2] != "V|") return;
 	if(!s_sink)
 		s_sink = new NullOutputStream;

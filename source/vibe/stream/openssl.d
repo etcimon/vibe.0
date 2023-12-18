@@ -66,7 +66,7 @@ final class OpenSSLStream : TLSStream, Buffered
         scope(failure) {
             SSL_free(m_tls);
             m_tls = null;
-        } 
+        }
 
 		m_bio = BIO_new(&s_bio_methods);
 
@@ -181,7 +181,7 @@ final class OpenSSLStream : TLSStream, Buffered
 		}
 	}
 
-	ubyte[] readBuf(ubyte[] buf) { 
+	ubyte[] readBuf(ubyte[] buf) {
 		checkExceptions();
         scope(success) checkExceptions();
         size_t read_len;
@@ -194,12 +194,12 @@ final class OpenSSLStream : TLSStream, Buffered
 		if (this.dataAvailableForRead) return true;
 		return m_tcpConn.waitForData(timeout);
 	}
-	
-	@property bool connected() const { 
+
+	@property bool connected() const {
 		auto ret = SSL_peek(cast(ssl_st*)m_tls, cast(void*)m_peekBuffer.ptr, 1);
-        return m_tls !is null && m_tcpConn.connected && ret != 0; 
+        return m_tls !is null && m_tcpConn.connected && ret != 0;
     }
-	
+
 	void close()
 	{
 		if (m_tcpConn.connected) finalize();
@@ -263,7 +263,7 @@ final class OpenSSLStream : TLSStream, Buffered
 	void finalize()
 	{
 		if( !m_tls ) return;
-		logTrace("TLSStream finalize");
+		//logTrace("TLSStream finalize");
 
 		SSL_shutdown(m_tls);
 		SSL_free(m_tls);
@@ -386,7 +386,7 @@ final class OpenSSLStream : TLSStream, Buffered
 		alpn = ThreadMem.alloc!(ubyte[])(len);
 		scope(exit)
 			ThreadMem.free(alpn);
-		
+
 		size_t i;
 		foreach (string alpn_val; alpn_list)
 		{
@@ -397,7 +397,7 @@ final class OpenSSLStream : TLSStream, Buffered
 		assert(i == len);
 
 		SSL_set_alpn_protos(m_tls, cast(const char*) alpn.ptr, cast(uint) len);
-		
+
 	}
 }
 
@@ -424,7 +424,7 @@ final class OpenSSLContext : SSLContext {
 	this(TLSContextKind kind, TLSVersion ver = TLSVersion.any)
 	{
 		setupOpenSSL();
-		
+
 		m_kind = kind;
 
 
@@ -445,7 +445,7 @@ final class OpenSSLContext : SSLContext {
 /*
                 static string[string] identities;
                 static uint onNewPskIdentity(SSL* ssl, const(char)* hint,	char* identity, uint max_identity_len, ubyte* psk, uint max_psk_len) {
-                    
+
                 }
 
                 if (identity)
@@ -519,7 +519,7 @@ final class OpenSSLContext : SSLContext {
 
 	/// The kind of SSL context (client/server)
 	@property TLSContextKind kind() const { return m_kind; }
-		
+
 	/// Callback function invoked by server to choose alpn
 	@property void alpnCallback(string delegate(string[]) alpn_chooser)
 	{
@@ -527,7 +527,7 @@ final class OpenSSLContext : SSLContext {
 		m_alpnCallback = alpn_chooser;
         logDebug("Call select cb");
         SSL_CTX_set_alpn_select_cb(m_ctx, &chooser, cast(void*)this);
-    
+
 	}
 
 	/// Get the current ALPN callback function
@@ -554,7 +554,7 @@ final class OpenSSLContext : SSLContext {
 		assert(i == len);
 
 		SSL_CTX_set_alpn_protos(m_ctx, cast(const char*) alpn.ptr, cast(uint) len);
-		
+
 	}
 
 	/** Specifies the validation level of remote peers.
@@ -632,7 +632,7 @@ final class OpenSSLContext : SSLContext {
 		auto newctx = cast(OpenSSLContext)ctx.m_sniCallback(servername.to!string);
 		if (!newctx) return SSL_TLSEXT_ERR_NOACK;
 		SSL_set_SSL_CTX(s, newctx.m_ctx);
-		
+
 		enum SSL_OP_ENABLE_MIDDLEBOX_COMPAT = 0x00100000U;
 		SSL_clear_options(s, SSL_OP_ENABLE_MIDDLEBOX_COMPAT);
 		return SSL_TLSEXT_ERR_OK;
@@ -670,20 +670,20 @@ final class OpenSSLContext : SSLContext {
 			SSL_CTX_set_ciphersuites(m_ctx, toStringz(list));
 	}
 
-    void setGroupsList(string list = null) 
-    {        
+    void setGroupsList(string list = null)
+    {
 		if (list is null)
             SSL_CTX_set1_groups_list!()(m_ctx, "X25519:P-256");
-        else 
+        else
             SSL_CTX_set1_groups_list!()(m_ctx, toStringz(list));
     }
 
 
-    void setSigAlgoList(string list = null) 
-    {        
+    void setSigAlgoList(string list = null)
+    {
 		if (list is null)
             SSL_CTX_set1_sigalgs_list!()(m_ctx, "ECDSA+SHA256:RSA-PSS+SHA256");
-        else 
+        else
             SSL_CTX_set1_sigalgs_list!()(m_ctx, toStringz(list));
     }
 
@@ -710,7 +710,7 @@ final class OpenSSLContext : SSLContext {
 	 * pem_file = Path to a PEM file containing the DH parameters. Calling
 	 *    this function without argument will restore the default.
 	 */
-     
+
 	void setDHParams(string pem_file=null)
 	{/*
 		DH* dh;
@@ -747,7 +747,7 @@ final class OpenSSLContext : SSLContext {
         if (curve is null) {
             return;
         }
-        
+
         int nid;
         if (curve is null)
             nid = NID_X9_62_prime256v1;
@@ -900,7 +900,7 @@ void setupOpenSSL()
 	logDebug("Initializing OpenSSL...");
     OPENSSL_init_ssl(OPENSSL_INIT_LOAD_SSL_STRINGS | OPENSSL_INIT_LOAD_CRYPTO_STRINGS, null);
 	OPENSSL_init_ssl(0, null);
-    
+
     EVP_add_cipher(EVP_aes_128_gcm());
     EVP_add_cipher(EVP_aes_256_gcm());
     EVP_add_cipher(EVP_chacha20_poly1305());
@@ -1018,7 +1018,7 @@ private nothrow extern(C)
 {
 	import core.stdc.config;
 
-	
+
 	int chooser(SSL* ssl, const(char)** output, ubyte* outlen, const(char) *input, uint inlen, void* arg) {
 		logDebug("Got chooser input: %s", input[0 .. inlen]);
 		OpenSSLContext ctx = cast(OpenSSLContext) arg;
@@ -1118,7 +1118,7 @@ private nothrow extern(C)
 		switch(cmd){
 			case BIO_CTRL_GET_CLOSE: ret = b.shutdown; break;
 			case BIO_CTRL_SET_CLOSE:
-				logTrace("SSL set close %d", num);
+				//logTrace("SSL set close %d", num);
 				b.shutdown = cast(int)num;
 				break;
 			case BIO_CTRL_PENDING:

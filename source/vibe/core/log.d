@@ -116,7 +116,7 @@ void log(LogLevel level, /*string mod = __MODULE__, string func = __FUNCTION__,*
 		foreach (l; getLoggers())
 			if (l.minLevel <= level) { // WARNING: TYPE SYSTEM HOLE: accessing field of shared class!
 				import std.format : formattedWrite, FormatException;
-				
+
 				Sink sink;
 				import core.stdc.stdlib : malloc, free;
 				char[] buf = (cast(char*)malloc(1024*1024))[0 .. 1024*1024];
@@ -143,10 +143,10 @@ struct Sink
 	{
 		char[4] enc;
 		auto n = encode(enc, c);
-		
+
 		if (buf.length < i + n)
 			return;
-		
+
 		buf[i .. i + n] = enc[0 .. n];
 		i += n;
 	}
@@ -617,8 +617,6 @@ final class SyslogLogger : Logger {
 		else auto fs = FracSec.from!"usecs"(1);
 		msg.time = SysTime(DateTime(0, 1, 1, 0, 0, 0), fs);
 		msg.text = "αβγ";
-		import libasync.threads;
-		spawnAsyncThreads();
 
 		msg.level = LogLevel.debug_;
 		logger.log(msg);
@@ -649,7 +647,6 @@ final class SyslogLogger : Logger {
 		assert(lines[6] == "<137>1 0000-01-01T00:00:00.000001 - " ~ BOM ~ "appname - - - " ~ BOM ~ "αβγ\n");
 		removeFile(fstream.path().toNativeString());
 
-		destroyAsyncThreads();
 	}
 }
 

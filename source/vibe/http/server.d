@@ -277,21 +277,21 @@ unittest {
 
 ///
 unittest {
-	
+
 	void login(scope HTTPServerRequest req, scope HTTPServerResponse res)
 	{
 		// TODO: validate username+password
-		
+
 		// ensure that there is an active session
 		if (!req.session) req.session = res.startSession();
-		
+
 		// update session variables
 		req.session.set("loginUser", req.form["user"]);
 	}
 }
 
 ///
-unittest {	
+unittest {
 	// sends all session entries to the requesting browser
 	// assumes that all entries are strings
 	void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
@@ -945,7 +945,7 @@ final class HTTPServerResponse : HTTPResponse {
 				m_compressionStream.deflate = null;
 			}
 		}
-		
+
 		if (isHeadResponse && m_bodyStream.none) {
 			ThreadMem.free(m_bodyStream.none);
 			m_bodyStream.none = null;
@@ -1034,7 +1034,7 @@ final class HTTPServerResponse : HTTPResponse {
 		writeHeader();
 		//auto writer = topStream;
 		enforce(!m_isChunked, "The raw body can only be written if Content-Type is set");
-		if (num_bytes > 0) 
+		if (num_bytes > 0)
 			topStream.write(stream, num_bytes);
 
 	}
@@ -1086,7 +1086,7 @@ final class HTTPServerResponse : HTTPResponse {
 	 */
 	void writeVoidBody()
 	{
-		logTrace("WriteVoidBody");
+		//logTrace("WriteVoidBody");
 		if (!m_isHeadResponse) {
 			assert("Content-Length" !in headers);
 			assert("Transfer-Encoding" !in headers);
@@ -1097,7 +1097,7 @@ final class HTTPServerResponse : HTTPResponse {
 				headers.remove("Transfer-Encoding");
 			if ("Content-Encoding" in headers)
 				headers.remove("Content-Encoding");
-			
+
 			writeHeader();
 		}
 
@@ -1112,7 +1112,7 @@ final class HTTPServerResponse : HTTPResponse {
 	@property OutputStream bodyWriter()
 	{
 		if (outputStream) {
-			logTrace("Returning existing outputstream: %s", cast(void*) outputStream);
+			//logTrace("Returning existing outputstream: %s", cast(void*) outputStream);
 			return outputStream;
 		}
 		logDebug("Calculating bodyWriter");
@@ -1162,7 +1162,7 @@ final class HTTPServerResponse : HTTPResponse {
 		}
 
 		if (auto pce = "Content-Encoding" in headers) {
-			logTrace("Apply Compression: %s", *pce);
+			//logTrace("Apply Compression: %s", *pce);
 			if (!applyCompression(*pce))
 			{
 				logWarn("Attemped to return body with a Content-Encoding which is not supported");
@@ -1341,14 +1341,14 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		mixin(Trace);
 		ulong bytes_written = bytesWritten();
-		version(VibeNoDebug) { } else { 
+		version(VibeNoDebug) { } else {
 			import vibe.core.trace : TaskDebugger;
 			TaskDebugger.stopCapturing();
 		}
 		scope(exit) logDebug("Finalized to: %d", bytes_written);
 
 		if (!m_headerWritten) {
-			writeHeader(); 
+			writeHeader();
 
 			// No streams were opened in this response, because they are created in bodyWriter()
 		}
@@ -1372,7 +1372,7 @@ final class HTTPServerResponse : HTTPResponse {
 						ThreadMem.free(m_compressionStream.deflate);
 						m_compressionStream.deflate = null;
 					}
-				} 
+				}
 
 				if (m_isChunked) {
 					m_bodyStream.chunked.finalize();
@@ -1390,7 +1390,7 @@ final class HTTPServerResponse : HTTPResponse {
 		if (!topStream)
 			return;
 
-		logTrace("Server response finalize() called, http/2? %s", cast(HTTP2Stream)topStream ? true : false);
+		//logTrace("Server response finalize() called, http/2? %s", cast(HTTP2Stream)topStream ? true : false);
 		if (!isHeadResponse && bytes_written < headers.get("Content-Length", "0").to!long) {
 			logDebug("HTTP response only written partially before finalization. Terminating connection.");
 			topStream.close();
@@ -1410,36 +1410,36 @@ final class HTTPServerResponse : HTTPResponse {
 		auto dst = StreamOutputRange(ostream);
 		void writeLine(T...)(string fmt, T args)
 		{
-			logTrace(fmt, args);
+			//logTrace(fmt, args);
 			formattedWrite(&dst, fmt, args);
 			dst.put("\r\n");
 		}
-		
-		logTrace("---------------------");
-		logTrace("HTTP server response:");
-		logTrace("---------------------");
-		
+
+		//logTrace("---------------------");
+		//logTrace("HTTP server response:");
+		//logTrace("---------------------");
+
 		// write the status line
 		writeLine("%s %d %s",
 			getHTTPVersionString(this.httpVersion),
 			this.statusCode,
 			this.statusPhrase.length ? this.statusPhrase : httpStatusText(this.statusCode));
-		
+
 		// write all normal headers
 		foreach (k, v; this.headers) {
-			logTrace("%s: %s", k, v);
+			//logTrace("%s: %s", k, v);
 			writeLine("%s: %s", k, v);
 		}
-		
-		logTrace("---------------------");
-		
+
+		//logTrace("---------------------");
+
 		// write cookies
 		foreach (n, cookie; this.cookies) {
 			dst.put("Set-Cookie: ");
 			cookie.writeString(&dst, n);
 			dst.put("\r\n");
 		}
-		
+
 		// finalize response header
 		dst.put("\r\n");
 		//dst.flush();
@@ -1470,11 +1470,11 @@ final class HTTPServerResponse : HTTPResponse {
 		if (isHTTP2) {
 			httpVersion = HTTPVersion.HTTP_2;
 			// Use integrated header writer
-			m_conn.stack.http2.writeHeader(cast(HTTPStatus)this.statusCode, this.headers, this.cookies); 
+			m_conn.stack.http2.writeHeader(cast(HTTPStatus)this.statusCode, this.headers, this.cookies);
 			return;
 		}
 
-		logTrace("writeHeader ...");
+		//logTrace("writeHeader ...");
 
 		writeHeader(topStream);
 
@@ -1560,7 +1560,7 @@ static ~this() {
 	import memutils.hashmap;
 	import memutils.utils;
 	HashMap!(void*, bool, Malloc) dtor_called;
-	foreach (ctx; g_contexts) { 
+	foreach (ctx; g_contexts) {
 		if (ctx.settings && ctx.settings.tlsContext !is null)
 		{
 			dtor_called[cast(void*)&ctx.settings.tlsContext] = true;
@@ -1575,7 +1575,7 @@ static ~this() {
 	foreach (listener; g_listeners) {
 		if (listener.tlsContext) {
 			if (dtor_called.get(cast(void*)&listener.tlsContext)) {
-				listener.tlsContext.destroy(); 
+				listener.tlsContext.destroy();
 			}
 		}
 		listener.tlsContext = null;
@@ -1593,7 +1593,7 @@ HTTPServerContext getServerContext(ref HTTPServerListener listen_info, string au
 	if (!reqhostparts.empty) { reqhost = reqhostparts.front; reqhostparts.popFront(); }
 	if (!reqhostparts.empty) { reqport = reqhostparts.front.to!ushort; reqhostparts.popFront(); }
 	enforce(reqhostparts.empty, "Invalid suffix found in host header");
-	
+
 	foreach (ctx; g_contexts)
 		if (icmp2(ctx.settings.hostName, reqhost) == 0 && (!reqport || reqport == ctx.settings.port))
 			if (ctx.settings.port == listen_info.bindPort)
@@ -1617,21 +1617,21 @@ HTTPServerContext getServerContext(ref HTTPServerListener listen_info)
 class HTTP2HandlerContext
 {
 	bool started;
-	
+
 	TCPConnection tcpConn;
 	TLSStream tlsStream;
 	HTTP2Session session;
-	
+
 	HTTPServerListener listenInfo;
 	HTTPServerContext context;
-	
+
 	// Used only in h2c upgrade, to allow the loop to be kept active after the response is sent
 	// we can't end the scope because the response will need to happen through HTTP/2
 	Task evloop;
-	
+
 	@property bool isUpgrade() { return evloop != Task(); }
 	@property bool isTLS() { return tlsStream?true:false; }
-		
+
 	this(TCPConnection tcp_conn, TLSStream tls_stream, HTTPServerListener listen_info, HTTPServerContext _context) {
 		listenInfo = listen_info;
 		tcpConn = tcp_conn;
@@ -1642,11 +1642,11 @@ class HTTP2HandlerContext
 	void close(string error) {
 		session.stop(error);
 	}
-	
+
 	bool tryStart(string chosen_alpn)
 	{
 		assert(!started);
-		
+
 		// see if the client has an HTTP/2 preface for a quick cleartext upgrade attempt
 		if (!tlsStream)
 		{
@@ -1663,10 +1663,10 @@ class HTTP2HandlerContext
 			startTLSHTTP2();
 			return true;
 		}
-		
+
 		return false;
 	}
-	
+
 	void startTLSHTTP2() { // using ALPN prior knowledge over secured stream. Restrict to a specific context
 		started = true;
 		HTTP2Settings local_settings;
@@ -1676,7 +1676,7 @@ class HTTP2HandlerContext
 		scope(exit) session = null;
 		session.run(); // blocks, loops and handles requests here
 	}
-	
+
 	void startHTTP2() { // using prior knowledge over cleartext
 		started = true;
 		HTTP2Settings local_settings;
@@ -1686,18 +1686,18 @@ class HTTP2HandlerContext
 		scope(exit) session = null;
 		session.run(); // blocks, loops and handles requests here
 	}
-	
+
 	HTTP2Stream tryStartUpgrade(ref InetHeaderMap headers)
 	{
 		// using HTTP/1.1 upgrade mechanism over cleartext
 		string upgrade_hd = headers.get("Upgrade", null);
 		if (!upgrade_hd || upgrade_hd.length < 3 || upgrade_hd[0 .. 3] != "h2c")
 			return null;
-		
+
 		string connection_hd = headers.get("Connection", null);
 		if (!connection_hd || icmp2(connection_hd, "Upgrade, HTTP2-Settings") != 0)
 			return null;
-		
+
 		string base64_settings = headers.get("HTTP2-Settings", null);
 		if (!base64_settings)
 			return null;
@@ -1720,7 +1720,7 @@ class HTTP2HandlerContext
 			evloop.join();
 		// the handleRequest scope stays active while connected once the initial request is handled
 	}
-	
+
 	void handler(HTTP2Stream stream)
 	{
 		mixin(Trace);
@@ -1753,17 +1753,16 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		logDebug("Client didn't send the initial request in a timely manner. Closing connection.");
 		return;
 	}
-	
-	logTrace("reading request..");
-	scope(exit) 
-		logTrace("Done handling connection.");
-	
+
+	//logTrace("reading request..");
+	//scope(exit) logTrace("Done handling connection.");
+
 	string chosen_alpn;
 	HTTPServerContext context;
 	// if vhosts == 0, we keep the listener context. We use the it until the headers specify a `Host`
 	bool has_vhosts = listen_info.vhosts > 0;
 	if (listen_info.tlsContext !is null) {
-		logTrace("Accept TLS connection: %s", listen_info.tlsContext.kind);
+		//logTrace("Accept TLS connection: %s", listen_info.tlsContext.kind);
 		// TODO: reverse DNS lookup for peer_name of the incoming connection for TLS client certificate verification purposes
 		version(VibeNoTLS) {} else {
 			const(ubyte)[] check_tls = tcp_conn.peek();
@@ -1781,7 +1780,7 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 		else
 			context = listen_info.getServerContext();
 		chosen_alpn = tls_stream.alpn;
-		logTrace("Chose alpn: %s", chosen_alpn);
+		//logTrace("Chose alpn: %s", chosen_alpn);
 	}
 	if (!context)
 		context = listen_info.getServerContext();
@@ -1793,31 +1792,31 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	if (http2_handler.tryStart(chosen_alpn))
 		// HTTP/2 session terminated, exit
 		return;
-	
+
 	/// Loop for HTTP/1.1 or HTTP/1.0 only
 	mixin(Name!"HTTP Request");
 	do {
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
-		
+
 		if (http2_handler !is null && http2_handler.isUpgrade) {
 			// The HTTP/2 Upgrade request was turned into HTTP/2 stream ID#1, we can now listen for more with an HTTP/2 session
 			http2_handler.continueHTTP2Upgrade();
 			return;
 		}
 		version(VibeNoDebug) {}
-		else { 
-			TaskDebugger.resetBreadcrumbs(); 
+		else {
+			TaskDebugger.resetBreadcrumbs();
 		}
-		if (!keep_alive) { logTrace("No keep-alive - disconnecting client."); break; }
+		if (!keep_alive) { logDebug("No keep-alive - disconnecting client."); break; }
 
 		mixin(Breadcrumb!("(tcp_conn !is null && tcp_conn.connected) ? tcp_conn.peerAddress() : `disconnecting`"));
 
-		logTrace("Waiting for next request...");
+		//logTrace("Waiting for next request...");
 		// wait for another possible request on a keep-alive connection
 		if (!tcp_conn || !tcp_conn.waitForData(context.settings.keepAliveTimeout)) {
-			if (!tcp_conn || !tcp_conn.connected) logTrace("Client disconnected.");
-			else logTrace("Keep-alive connection timed out!");
+			if (!tcp_conn || !tcp_conn.connected) logDebug("Client disconnected.");
+			else logDebug("Keep-alive connection timed out!");
 			break;
 		}
 	} while(tcp_conn !is null && !tcp_conn.empty);
@@ -1828,19 +1827,19 @@ struct BodyReader
 {
 	// true if the bodyReader was initialized
 	bool cached;
-	
+
 	InputStream reader;
 	HTTPServerRequest req;
-	
+
 	// bodyReader filters
 	RefCounted!TimeoutHTTPInputStream timeout;
 	RefCounted!LimitedHTTPInputStream limited;
 	RefCounted!ChunkedInputStream chunked;
-	
+
 	InputStream bodyReader() {
 		if (cached)
 			return reader;
-		
+
 		if (!req.m_settings) {
 			logDebug("No m_settings defined!");
 			limited = RefCounted!LimitedHTTPInputStream(reader, 0);
@@ -1848,12 +1847,12 @@ struct BodyReader
 			cached = true;
 			return reader;
 		}
-		
+
 		if (req.m_settings.maxRequestTime != Duration.zero) {
 			timeout = RefCounted!TimeoutHTTPInputStream(reader, req.m_settings.maxRequestTime, req.timeCreated);
 			reader = timeout;
 		}
-		
+
 		// limit request size
 		if (auto pcl = "Content-Length" in req.headers) {
 			string v = *pcl;
@@ -1874,8 +1873,8 @@ struct BodyReader
 	}
 }
 
-void handleRequest(TCPConnection tcp_conn, 
-				   TLSStream tls_stream, 
+void handleRequest(TCPConnection tcp_conn,
+				   TLSStream tls_stream,
 				   HTTP2Stream http2_stream,
 				   HTTPServerListener listen_info,
 				   bool verify_context, // vhosts > 0
@@ -1884,8 +1883,8 @@ void handleRequest(TCPConnection tcp_conn,
 				   ref bool keep_alive)
 {
 	mixin(Trace);
-	ConnectionStream topStream() 
-	{ 
+	ConnectionStream topStream()
+	{
 		if (http2_stream !is null)
 			return cast(ConnectionStream) http2_stream;
 		if (tls_stream !is null)
@@ -1913,7 +1912,7 @@ void handleRequest(TCPConnection tcp_conn,
 			res.contentType = "text/plain";
 			res.bodyWriter.write(cast(ubyte[])response);
 		}
-		catch (Exception ex) 
+		catch (Exception ex)
 		{ // do something...?
 			logError("errorOut Exception: %s", ex.msg);
 			return;
@@ -1951,10 +1950,10 @@ void handleRequest(TCPConnection tcp_conn,
 		bool is_upgrade;
 		BodyReader reqReader;
 		scope(exit) reqReader.destroy();
-		// During an upgrade, we would need to read with HTTP/1.1 and write with HTTP/2, 
+		// During an upgrade, we would need to read with HTTP/1.1 and write with HTTP/2,
 		// so we define the InputStream before the upgrade starts
 		reqReader.reader = cast(InputStream) topStream;
-		
+
 		if (!http2_stream) {
 			// HTTP/1.1 headers
 			try parseRequestHeader(req, reqReader.reader, context.settings.maxRequestHeaderSize);
@@ -1972,11 +1971,11 @@ void handleRequest(TCPConnection tcp_conn,
 			if (!context.settings.disableHTTP2 && !tls_stream) {
 				HTTP2Stream http2_stream_ = http2_handler.tryStartUpgrade(req.headers);
 				if (http2_stream_ !is null) {
-					scope(exit) 
+					scope(exit)
 						http2_handler.session.resume();
 
 					is_upgrade = true;
-					req.m_settings = context.settings;		
+					req.m_settings = context.settings;
 					reqReader.req = req;
 					req.httpVersion = HTTPVersion.HTTP_2;
 					import vibe.stream.memory;
@@ -1992,7 +1991,7 @@ void handleRequest(TCPConnection tcp_conn,
 			}
 		}
 		else
-		{ 
+		{
 			// HTTP/2 headers
 			enforce(http2_handler.started, "HTTP/2 session is invalid");
 			try parseHTTP2RequestHeader(req, http2_stream);
@@ -2005,7 +2004,7 @@ void handleRequest(TCPConnection tcp_conn,
 			enforceBadRequest(!verify_context || listen_info.getServerContext(authority) == http2_handler.context, "Invalid hostname requested for this session.");
 		}
 
-		logTrace("Got request header.");
+		//logTrace("Got request header.");
 		// Capture
 		version(VibeNoDebug) {} else {
 			auto headers_to_str = {
@@ -2033,7 +2032,7 @@ void handleRequest(TCPConnection tcp_conn,
 		enforce(context !is null && context.settings !is null, "Context settings failed");
 		req.m_settings = context.settings;
 		reqReader.req = req;
-		
+
 		// Lazily load the body reader because most requests don't need it
 		req.bodyReader = &reqReader.bodyReader;
 
@@ -2048,7 +2047,7 @@ void handleRequest(TCPConnection tcp_conn,
 			else if (!is_upgrade && topStream.connected && !req.bodyReader.empty) {
 				auto nullWriter = scoped!NullOutputStream();
 				nullWriter.write(req.bodyReader);
-				logTrace("dropped body");
+				//logTrace("dropped body");
 			}
 		}
 		scope(success) {
@@ -2056,7 +2055,7 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 		if (req.tls)
 			req.clientCertificate = tls_stream.peerCertificate;
-			
+
 		// Setup compressed output with client priority ordering
 		if (context.settings.useCompressionIfPossible) {
 			if (auto pae = "Accept-Encoding" in req.headers) {
@@ -2079,15 +2078,15 @@ void handleRequest(TCPConnection tcp_conn,
 				}
 			}
 		}
-				
+
 		// handle Expect header
 		if (auto pv = "Expect" in req.headers) {
 			if (icmp2(*pv, "100-continue") == 0) {
-				logTrace("sending 100 continue");
+				//logTrace("sending 100 continue");
 				topStream.write("HTTP/1.1 100 Continue\r\n\r\n");
 			}
 		}
-		
+
 		// URL parsing if desired. Note that http/2 automatically parsed it
 		if (req.httpVersion != HTTPVersion.HTTP_2 && context.settings.options & HTTPServerOption.parseURL) {
 			auto url = URL.parse(req.requestURL);
@@ -2096,14 +2095,14 @@ void handleRequest(TCPConnection tcp_conn,
 			req.username = url.username;
 			req.password = url.password;
 		}
-		
+
 		// query string parsing if desired
 		if (context.settings.options & HTTPServerOption.parseQueryString) {
 			if (!(context.settings.options & HTTPServerOption.parseURL))
 				logWarn("Query string parsing requested but URL parsing is disabled!");
 			parseURLEncodedForm(req.queryString, req.query);
 		}
-		
+
 		// cookie parsing if desired
 		if (context.settings.options & HTTPServerOption.parseCookies) {
 			if (req.httpVersion == HTTPVersion.HTTP_2)
@@ -2116,7 +2115,7 @@ void handleRequest(TCPConnection tcp_conn,
 				if (pv) parseCookies(*pv, req.cookies);
 			}
 		}
-		
+
 		// lookup the session
 		if (context.settings.sessionStore) {
 			auto pv = context.settings.sessionIdCookie in req.cookies;
@@ -2130,17 +2129,17 @@ void handleRequest(TCPConnection tcp_conn,
 				}
 			}
 		}
-		
+
 		if (context.settings.options & HTTPServerOption.parseFormBody) {
 			auto ptype = "Content-Type" in req.headers;
 			if (ptype) {
 				parseFormData(req.form, req.files, *ptype, req.bodyReader, MaxHTTPHeaderLineLength);
 			}
 		}
-		
+
 		if (context.settings.options & HTTPServerOption.parseJsonBody) {
 			if (icmp2(req.contentType, "application/json") == 0 || icmp2(req.contentType, "application/vnd.api+json") == 0) {
-				logTrace("Reading all");
+				//logTrace("Reading all");
 				auto bodyStr = req.bodyReader.readAllUTF8(true);
 
 				if (!bodyStr.empty) {
@@ -2149,7 +2148,7 @@ void handleRequest(TCPConnection tcp_conn,
 				}
 			}
 		}
-		
+
 		// write default headers
 		if (req.method == HTTPMethod.HEAD) res.m_isHeadResponse = true;
 		if (context.settings.serverString.length)
@@ -2177,23 +2176,23 @@ void handleRequest(TCPConnection tcp_conn,
 		}
 		// finished parsing the request
 		parsed = true;
-		logTrace("persist: %s", req.persistent);
+		//logTrace("persist: %s", req.persistent);
 		keep_alive = req.persistent;
-		
+
 		// handle the request
-		// logTrace("handle request (body %d)", req.bodyReader.leastSize);
+		// //logTrace("handle request (body %d)", req.bodyReader.leastSize);
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
-		logTrace("Request handler");
+		//logTrace("Request handler");
 		scope(failure) {
-			logTrace("Failed request handler");
+			//logTrace("Failed request handler");
 		}
 		{
 			PoolStack.freeze(1);
-			scope(exit) 
+			scope(exit)
 				PoolStack.unfreeze(1);
 			context.requestHandler(req, res);
 		}
-		logTrace("Request handler done");
+		//logTrace("Request handler done");
 
 		// if no one has written anything, return 404
 		if ((http2_stream !is null && !http2_stream.headersWritten) || (!http2_stream && !res.headerWritten)) {
@@ -2263,7 +2262,7 @@ void handleRequest(TCPConnection tcp_conn,
 	// log the request to access log
 	foreach (log; context.loggers)
 		log.log(req, res);
-	
+
 	//logTrace("return keep-alive %s (used pool memory: %s/%s)", keep_alive, request_allocator.allocatedSize, request_allocator.totalSize);
 
 }
@@ -2271,9 +2270,9 @@ void handleRequest(TCPConnection tcp_conn,
 void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream/*, max_header_size*/) // header sizes restricted through HTTP/2 settings
 {
 	mixin(Trace);
-	logTrace("----------------------");
-	logTrace("HTTP/2 server request:");
-	logTrace("----------------------");
+	//logTrace("----------------------");
+	//logTrace("HTTP/2 server request:");
+	//logTrace("----------------------");
 	// the entire url should be parsed here to simplify processing of pseudo-headers in HTTP/2
 	URL url;
 	http2_stream.readHeader(url, req.method, req.headers);
@@ -2283,11 +2282,11 @@ void parseHTTP2RequestHeader(HTTPServerRequest req, HTTP2Stream http2_stream/*, 
 	req.queryString = url.queryString;
 	req.username = url.username;
 	req.password = url.password;
-	logTrace("%s", url.toString());
+	//logTrace("%s", url.toString());
 
-	foreach (k, v; req.headers)
-		logTrace("%s: %s", k, v);
-	logTrace("----------------------");
+	//foreach (k, v; req.headers)
+		//logTrace("%s: %s", k, v);
+	//logTrace("----------------------");
 }
 
 void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, ulong max_header_size)
@@ -2301,13 +2300,13 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, ulong ma
 		getEventDriver().stopTimer(timer_id);
 		getEventDriver().releaseTimer(timer_id);
 	}
-	logTrace("HTTP server reading status line");
+	//logTrace("HTTP server reading status line");
 	auto reqln = cast(string)stream.readLine(MaxHTTPHeaderLineLength, "\r\n");
 
-	logTrace("--------------------");
-	logTrace("HTTP server request:");
-	logTrace("--------------------");
-	logTrace("%s", reqln);
+	//logTrace("--------------------");
+	//logTrace("HTTP server request:");
+	//logTrace("--------------------");
+	//logTrace("%s", reqln);
 
 	//Method
 	auto pos = reqln.indexOf(' ');
@@ -2327,9 +2326,9 @@ void parseRequestHeader(HTTPServerRequest req, InputStream http_stream, ulong ma
 	//headers
 	parseRFC5322Header(stream, req.headers, MaxHTTPHeaderLineLength, false);
 
-	foreach (k, v; req.headers)
-		logTrace("%s: %s", k, v);
-	logTrace("--------------------");
+	//foreach (k, v; req.headers)
+		//logTrace("%s: %s", k, v);
+	//logTrace("--------------------");
 }
 
 void parseCookies(string str, ref CookieValueMap cookies)

@@ -24,9 +24,14 @@ import vibe.core.net;
 import std.datetime;
 import std.exception;
 import std.format;
+import botan.libstate.init;
 
-import std.stdio : writeln;
-
+static this() {
+	LibraryInitializer.initialize();
+}
+static ~this() {
+	LibraryInitializer.deinitialize();
+}
 class BotanTLSStream : TLSStream, Buffered
 {
 private:
@@ -53,7 +58,7 @@ public:
 	@property SysTime started() const { return m_session_age; }
 
 	/// Get the session ID
-	@property const(ubyte[]) sessionId() { return m_sess_id; } 
+	@property const(ubyte[]) sessionId() { return m_sess_id; }
 
 	/// Get the information about the server (local or remote)
 	@property TLSServerInformation serverInfo() { return m_server_info; }
@@ -72,8 +77,8 @@ public:
 	@property TLSCertificateInformation peerCertificate() { assert(false, "Incompatible interface method requested"); }
 
 	// Constructs a new TLS Client Stream and connects with the specified handlers
-	this(TCPConnection underlying, BotanTLSContext ctx, 
-		 void delegate(in TLSAlert alert, in ubyte[] ub) alert_cb, 
+	this(TCPConnection underlying, BotanTLSContext ctx,
+		 void delegate(in TLSAlert alert, in ubyte[] ub) alert_cb,
 		 bool delegate(in TLSSession session) hs_cb,
 		 string peer_name = null, NetworkAddress peer_address = NetworkAddress.init)
 	{
@@ -104,7 +109,7 @@ public:
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
 			m_server_info = TLSServerInformation(peer_address.toAddressString(), peer_address.port);
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
-		
+
 		}
 		else if (state == TLSStreamState.connecting) {
 			assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
@@ -145,7 +150,7 @@ public:
 
 	void close()
 	{
-		if (m_tcp_conn.connected) 
+		if (m_tcp_conn.connected)
 			finalize();
 		m_tcp_conn.close();
 		m_tls_channel.destroy();
@@ -160,19 +165,19 @@ public:
 		}
 	}
 
-	void flush() { 
+	void flush() {
 		doWrite(m_outBuf[]);
 		m_outBuf.length = 0;
 		m_tcp_conn.flush();
 	}
 
-	void finalize() { 
+	void finalize() {
 
 		if (m_tls_channel.isClosed())
 			return;
 
 		processException();
-		scope(success) 
+		scope(success)
 			processException();
 		if (m_writer != Task())
 			m_writer.interrupt();
@@ -196,32 +201,32 @@ public:
 			}
 
 			if (!connected || !m_tcp_conn.connected) return false;
-			m_tls_channel.readBuf(null); // force an exchange			
+			m_tls_channel.readBuf(null); // force an exchange
 		}
 		return true;
 	}
 
 	void* getUserData() const
-	{ 
+	{
 		(cast()this).processException();
 		assert(m_ctx.m_kind != TLSContextKind.client, "Only SNI servers may hold user data");
 		if (!m_userData && !m_tls_channel.isClosed)
-			(cast()this).m_userData = (cast(TLSServer)m_tls_channel.underlyingChannel()).getUserData();	
-		return cast(void*) m_userData; 
+			(cast()this).m_userData = (cast(TLSServer)m_tls_channel.underlyingChannel()).getUserData();
+		return cast(void*) m_userData;
 	}
 
-	void read(ubyte[] dst) { 
+	void read(ubyte[] dst) {
 		mixin(STrace);
 		processException();
-		scope(success) 
+		scope(success)
 			processException();
 		m_tls_channel.read(dst);
 	}
 
-	ubyte[] readBuf(ubyte[] buf) { 
+	ubyte[] readBuf(ubyte[] buf) {
 		mixin(STrace);
 		processException();
-		scope(success) 
+		scope(success)
 			processException();
 		return m_tls_channel.readBuf(buf);
 	}
@@ -238,7 +243,7 @@ public:
 	private void doWrite(in ubyte[] src) {
 		mixin(STrace);
 		processException();
-		scope(success) 
+		scope(success)
 			processException();
 		try m_tls_channel.write(src);
 		catch (TLSClosedException e) {
@@ -253,7 +258,7 @@ public:
 		processException();
 		return leastSize() == 0 && m_tcp_conn.empty;
 	}
-	
+
 	@property ulong leastSize()
 	{
 		mixin(STrace);
@@ -264,13 +269,13 @@ public:
 		//logDebug("Least size returned: ", ret);
 		return ret > 0 ? ret : m_tcp_conn.empty ? 0 : 1;
 	}
-	
+
 	@property bool dataAvailableForRead()
 	{
 		processException();
 		return m_tls_channel.pending() > 0 || m_tcp_conn.dataAvailableForRead;
 	}
-	
+
 	const(ubyte)[] peek()
 	{
 		processException();
@@ -279,14 +284,14 @@ public:
 		//logDebug("Peeked data ptr: ", peeked.ptr);
 		return peeked;
 	}
-	
-	@property void setAlertCallback(void delegate(in TLSAlert alert, in ubyte[] ub) alert_cb) 
+
+	@property void setAlertCallback(void delegate(in TLSAlert alert, in ubyte[] ub) alert_cb)
 	{
 		processException();
 		m_alert_cb = alert_cb;
 	}
-	
-	@property void setHandshakeCallback(bool delegate(in TLSSession session) hs_cb) 
+
+	@property void setHandshakeCallback(bool delegate(in TLSSession session) hs_cb)
 	{
 		processException();
 		m_handshake_complete = hs_cb;
@@ -308,7 +313,7 @@ private:
 			import vibe.core.log : logError;
 			if (alert.isFatal || m_ctx.m_kind == TLSContextKind.client)
 				m_tcp_conn.close();
-			if (alert.isFatal || m_ctx.m_kind != TLSContextKind.client) 
+			if (alert.isFatal || m_ctx.m_kind != TLSContextKind.client)
 				m_ex = new ConnectionClosedException("Fatal TLS Alert Received: " ~ alert.typeString());
 		}
 		if (m_alert_cb)
@@ -333,7 +338,7 @@ private:
 		return true;
 	}
 
-	ubyte[] onRead(ubyte[] buf) 
+	ubyte[] onRead(ubyte[] buf)
 	{
 		static import std.algorithm;
 		import vibe.core.log : logError;
@@ -354,7 +359,7 @@ private:
 		return buf[0 .. len];
 	}
 
-	void onWrite(in ubyte[] src) {	
+	void onWrite(in ubyte[] src) {
 		mixin(STrace);
 		m_writer = Task.getThis();
 		scope(exit) m_writer = Task();
@@ -396,9 +401,9 @@ private:
 
 public:
 
-	this(TLSContextKind kind, 
-		 TLSCredentialsManager credentials = null, 
-		 TLSPolicy policy = null, 
+	this(TLSContextKind kind,
+		 TLSCredentialsManager credentials = null,
+		 TLSPolicy policy = null,
 		 TLSSessionManager session_manager = null,
 		 bool is_datagram = false)
 	{
@@ -432,7 +437,7 @@ public:
 	}
 
 	/// The kind of TLS context (client/server)
-	@property TLSContextKind kind() const { 
+	@property TLSContextKind kind() const {
 		return m_kind;
 	}
 
@@ -530,8 +535,8 @@ public:
 
 		The default value is 9.
 	*/
-	@property void maxCertChainLength(int val) { 
-		
+	@property void maxCertChainLength(int val) {
+
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			credentials.m_max_cert_chain_length = val;
 			return;
@@ -548,7 +553,7 @@ public:
 
 	void setCipherList(string list = null) { assert(false, "Incompatible interface method requested"); }
 	void setCipherSuites(string list = null) { assert(false, "Incompatible interface method requested"); }
-	
+
 	/** Set params to use for DH cipher.
 	 *
 	 * By default the 2048-bit prime from RFC 3526 is used.
@@ -558,7 +563,7 @@ public:
 	 *    this function without argument will restore the default.
 	 */
 	void setDHParams(string pem_file=null) { assert(false, "Incompatible interface method requested"); }
-	
+
 	/** Set the elliptic curve to use for ECDH cipher.
 	 *
 	 * By default a curve is either chosen automatically or  prime256v1 is used.
@@ -569,9 +574,9 @@ public:
 	 *
 	 */
 	void setECDHCurve(string curve=null) { assert(false, "Incompatible interface method requested"); }
-	
+
 	/// Sets a certificate file to use for authenticating to the remote peer
-	void useCertificateChainFile(string path) { 
+	void useCertificateChainFile(string path) {
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			m_cert_checked = false;
 			credentials.m_server_cert = X509Certificate(path);
@@ -579,11 +584,11 @@ public:
 		}
 		else assert(false, "Cannot handle useCertificateChainFile if CustomTLSCredentials is not used");
 	}
-	
+
 	/// Sets the private key to use for authenticating to the remote peer based
 	/// on the configured certificate chain file.
 	/// todo: Use passphrase?
-	void usePrivateKeyFile(string path) { 
+	void usePrivateKeyFile(string path) {
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			import botan.pubkey.pkcs8 : loadKey;
 			credentials.m_key = loadKey(path, *m_rng);
@@ -591,7 +596,7 @@ public:
 		}
 		else assert(false, "Cannot handle usePrivateKeyFile if CustomTLSCredentials is not used");
 	}
-	
+
 	/** Sets the list of trusted certificates for verifying peer certificates.
 
 		If this is a server context, this also entails that the given
@@ -601,27 +606,27 @@ public:
 		found at "/etc/ssl/certs/ca-certificates.crt",
 		"/etc/pki/tls/certs/ca-bundle.crt", or "/etc/ssl/ca-bundle.pem".
 	*/
-	void useTrustedCertificateFile(string path) { 
+	void useTrustedCertificateFile(string path) {
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			auto store = new CertificateStoreInMemory;
-			
+
 			store.addCertificate(X509Certificate(path));
 			credentials.m_stores.pushBack(store);
 			return;
-		} 
+		}
 		else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
 	}
 
     /// Use the CA root certificate with this client to validate the peer cert
-    void addTrustedCertificate(ubyte[] cert_data) { 
+    void addTrustedCertificate(ubyte[] cert_data) {
         if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
             credentials.addTrustedCertificate(cert_data);
             return;
-        } 
+        }
         else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
     }
 private:
-	SNIContextSwitchInfo sniHandler(string hostname) 
+	SNIContextSwitchInfo sniHandler(string hostname)
 	{
 		auto ctx = onSNI(hostname);
 		if (!ctx) return SNIContextSwitchInfo.init;
@@ -688,11 +693,11 @@ class CustomTLSPolicy : TLSPolicy
 	Duration m_session_lifetime = 24.hours;
 	bool m_pri_ciphers_exclusive;
 	bool m_pri_curves_exclusive;
-	
+
 public:
 	/// Sets the minimum acceptable protocol version
 	@property void minProtocolVersion(TLSProtocolVersion ver) { m_min_ver = ver; }
-	
+
 	/// Get the minimum acceptable protocol version
 	@property TLSProtocolVersion minProtocolVersion() { return m_min_ver; }
 
@@ -701,18 +706,18 @@ public:
 
 	/// Add a cipher suite to the priority ciphers with lowest ordering value
 	void addPriorityCiphersuites(TLSCiphersuite[] suites) { m_pri_ciphersuites ~= suites; }
-	
+
 	@property TLSCiphersuite[] ciphers() { return m_pri_ciphersuites[]; }
-	
+
 	/// Set to true to use excuslively priority ciphers passed through "addCiphersuites"
 	@property void priorityCiphersOnly(bool b) { m_pri_ciphers_exclusive = b; }
 	@property bool priorityCiphersOnly() { return m_pri_ciphers_exclusive; }
-	
+
 	void addPriorityCurves(string[] curves) {
 		m_pri_ecc_curves ~= curves;
 	}
 	@property string[] priorityCurves() { return m_pri_ecc_curves[]; }
-	
+
 	/// Uses only priority curves passed through "add"
 	@property void priorityCurvesOnly(bool b) { m_pri_curves_exclusive = b; }
 	@property bool priorityCurvesOnly() { return m_pri_curves_exclusive; }
@@ -747,9 +752,9 @@ public:
 		static TLSProtocolVersion cache_version;
 		static bool has_cache;
 
-		if (has_cache && _version == cache_version && cache_have_srp == have_srp && cache_ret.length > 0) 
+		if (has_cache && _version == cache_version && cache_have_srp == have_srp && cache_ret.length > 0)
 			return cache_ret.clone;
-		
+
 
 		Vector!ushort ret;
 		if (m_pri_ciphersuites.length > 0) {
@@ -765,7 +770,7 @@ public:
 		has_cache = true;
 		cache_version = _version;
 		cache_have_srp = have_srp;
-		cache_ret = ret.clone();		
+		cache_ret = ret.clone();
 
 		return ret.move();
 	}
@@ -800,7 +805,7 @@ public:
 	}
 
 	/// Server constructor
-	this(X509Certificate server_cert, X509Certificate ca_cert, PrivateKey server_key) 
+	this(X509Certificate server_cert, X509Certificate ca_cert, PrivateKey server_key)
 	{
 		m_server_cert = server_cert;
 		m_ca_cert = ca_cert; // used for client certificate request
@@ -824,7 +829,7 @@ public:
             store.addCertificate(X509Certificate(cert_vec));
 		    m_stores.pushBack(store);
         }
-        else 
+        else
             (cast(CertificateStoreInMemory)m_stores[0]).addCertificate(X509Certificate(cert_vec));
 		return;
 	}
@@ -836,11 +841,11 @@ public:
 			return Vector!CertificateStore.init;
 		return m_stores.clone;
 	}
-	
-	override Vector!X509Certificate certChain(const ref Vector!string cert_key_types, in string type, in string) 
+
+	override Vector!X509Certificate certChain(const ref Vector!string cert_key_types, in string type, in string)
 	{
 		Vector!X509Certificate chain;
-		
+
 		if (type == "tls-server")
 		{
 			bool have_match = false;
@@ -850,37 +855,37 @@ public:
 					have_match = true;
 				}
 			}
-			
+
 			if (have_match)
 			{
 				chain.pushBack(m_server_cert);
 				if (m_ca_cert) chain.pushBack(m_ca_cert);
 			}
 		}
-		
+
 		return chain.move();
 	}
-	
+
 	override void verifyCertificateChain(in string type, in string purported_hostname, const ref Vector!X509Certificate cert_chain)
 	{
 		if (cert_chain.empty)
 			throw new InvalidArgument("Certificate chain was empty");
 
 		if (m_validationMode == TLSPeerValidationMode.validCert)
-		{      			
+		{
 			auto trusted_CAs = trustedCertificateAuthorities(type, purported_hostname);
-			
+
 			PathValidationRestrictions restrictions;
 			restrictions.maxCertChainLength = m_max_cert_chain_length;
 
 			auto result = x509PathValidate(cert_chain, restrictions, trusted_CAs);
-			
+
 			if (!result.successfulValidation())
 				throw new Exception("Certificate validation failure: " ~ result.resultString());
-			
+
 			if (trusted_CAs.length == 0 || !certInSomeStore(trusted_CAs, result.trustRoot()))
 				throw new Exception("Certificate chain roots in unknown/untrusted CA");
-			
+
 			if (purported_hostname != "" && !cert_chain[0].matchesDnsName(purported_hostname))
 				throw new Exception("Certificate did not match hostname");
 
@@ -889,10 +894,10 @@ public:
 
 		if (m_validationMode & TLSPeerValidationMode.checkTrust) {
 			auto trusted_CAs = trustedCertificateAuthorities(type, purported_hostname);
-			
+
 			PathValidationRestrictions restrictions;
 			restrictions.maxCertChainLength = m_max_cert_chain_length;
-			
+
 			PathValidationResult result;
 			try result = x509PathValidate(cert_chain, restrictions, trusted_CAs);
 			catch (Exception e) { }
@@ -907,7 +912,7 @@ public:
 			// Check all certs for valid time range
 			if (current_time < X509Time(cert_chain[0].startTime()))
 				throw new Exception("Certificate is not yet valid");
-			
+
 			if (current_time > X509Time(cert_chain[0].endTime()))
 				throw new Exception("Certificate has expired");
 
@@ -921,7 +926,7 @@ public:
 
 
 	}
-	
+
 	override PrivateKey privateKeyFor(in X509Certificate, in string, in string)
 	{
 		return m_key;
@@ -934,22 +939,22 @@ public:
             return m_cpk_del(hostname);
         return super.channelPrivateKey(hostname);
     }
-    
-	// Interface fallthrough	
+
+	// Interface fallthrough
 	override Vector!X509Certificate certChainSingleType(in string cert_key_type,
 		in string type,
 		in string context)
 	{ return super.certChainSingleType(cert_key_type, type, context); }
-	
+
 	override bool attemptSrp(in string type, in string context)
 	{ return super.attemptSrp(type, context); }
-	
+
 	override string srpIdentifier(in string type, in string context)
 	{ return super.srpIdentifier(type, context); }
-	
+
 	override string srpPassword(in string type, in string context, in string identifier)
 	{ return super.srpPassword(type, context, identifier); }
-	
+
 	override bool srpVerifier(in string type,
 		in string context,
 		in string identifier,
@@ -963,15 +968,15 @@ public:
 
 	override string pskIdentityHint(in string type, in string context)
 	{ return super.pskIdentityHint(type, context); }
-	
+
 	override string pskIdentity(in string type, in string context, in string identity_hint)
 	{ return super.pskIdentity(type, context, identity_hint); }
-	
+
 	override SymmetricKey psk(in string type, in string context, in string identity)
 	{ return super.psk(type, context, identity); }
 
-	~this() { 
-		m_key.destroy(); 
+	~this() {
+		m_key.destroy();
 		foreach (ref CertificateStore store; m_stores[]) {
 			store.destroy();
 		}
@@ -989,7 +994,7 @@ private:
 
 CustomTLSCredentials createCreds()
 {
-	
+
 	import botan.rng.auto_rng;
 	import botan.cert.x509.pkcs10;
 	import botan.cert.x509.x509self;
@@ -1006,29 +1011,29 @@ CustomTLSCredentials createCreds()
 	ca_opts.common_name = "Test CA";
 	ca_opts.country = "US";
 	ca_opts.CAKey(1);
-	
+
 	X509Certificate ca_cert = x509self.createSelfSignedCert(ca_opts, *ca_key, "SHA-256", *rng);
-	
+
 	auto server_key = RSAPrivateKey(*rng, 1024);
-	
+
 	X509CertOptions server_opts;
 	server_opts.common_name = "localhost";
 	server_opts.country = "US";
-	
+
 	PKCS10Request req = x509self.createCertReq(server_opts, *server_key, "SHA-256", *rng);
-	
+
 	X509CA ca = X509CA(ca_cert, *ca_key, "SHA-256");
-	
+
 	auto now = Clock.currTime(UTC());
 	X509Time start_time = X509Time(now);
 	X509Time end_time = X509Time(now + 365.days);
-	
+
 	X509Certificate server_cert = ca.signRequest(req, *rng, start_time, end_time);
-	
+
 	return new CustomTLSCredentials(server_cert, ca_cert, server_key.release());
 }
 
-/// Fastest but less secure ciphers. Good example of how to customize the policy. 
+/// Fastest but less secure ciphers. Good example of how to customize the policy.
 /// Be wary that this configuration has a level of security comparable to obfuscation
 final class LightTLSPolicy : TLSPolicy
 {
@@ -1041,7 +1046,7 @@ public:
 				"RC4"
 			]);
 	}
-	
+
 	override Vector!string allowedSignatureHashes() const
 	{
 		return Vector!string([
@@ -1049,7 +1054,7 @@ public:
 				"MD5"
 			]);
 	}
-	
+
 	override Vector!string allowedMacs() const
 	{
 		return Vector!string([
@@ -1057,21 +1062,21 @@ public:
 				"MD5"
 			]);
 	}
-	
+
 	override Vector!string allowedKeyExchangeMethods() const
 	{
 		return Vector!string([
 				"RSA"
 			]);
 	}
-	
+
 	override Vector!string allowedSignatureMethods() const
 	{
 		return Vector!string([
 				"RSA"
 			]);
 	}
-	
+
 	override Vector!string allowedEccCurves() const
 	{
 		return Vector!string([
@@ -1091,7 +1096,7 @@ public:
 				"secp160k1",
 			]);
 	}
-	
+
 }
 private:
 static ~this() {

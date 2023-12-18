@@ -305,7 +305,7 @@ abstract class MultiPartPart {
 		RandomAccessStream m_data;
 	}
 
-	@property MultiPartPart addSibling(MultiPartPart part) 
+	@property MultiPartPart addSibling(MultiPartPart part)
 	{
 		part.m_boundary = m_boundary;
 		MultiPartPart sib;
@@ -341,7 +341,7 @@ abstract class MultiPartPart {
 		return app.data;
 	}
 
-	final void read(OutputStream sink, bool first = true) { 
+	final void read(OutputStream sink, bool first = true) {
 		if (!first)
 			sink.write("\r\n");
 		sink.write(m_headers);
@@ -362,9 +362,9 @@ abstract class MultiPartPart {
 
 final class CustomMultiPart : MultiPartPart
 {
-	this(ref InetHeaderMap headers, string multipart_headers, ubyte[] data, string boundary = null) {		
+	this(ref InetHeaderMap headers, string multipart_headers, ubyte[] data, string boundary = null) {
 		super(headers, boundary);
-		m_headers = new MemoryStream(cast(ubyte[])multipart_headers, false);		
+		m_headers = new MemoryStream(cast(ubyte[])multipart_headers, false);
 		m_data = new MemoryStream(data, false);
 	}
 
@@ -437,7 +437,7 @@ final class MemoryMultiPart : MultiPartPart
 			app ~= field_name;
 			app ~= "\"\r\n";
 			app ~= "Content-Transfer-Encoding: 8bit\r\n\r\n";
-			
+
 			m_headers = new MemoryStream(cast(ubyte[])app.data, false);
 		}
 
@@ -467,14 +467,14 @@ string getBoundary(ref InetHeaderMap headers)
 private void resolveBoundary(ref InetHeaderMap headers, ref string boundary)
 {
 	if (headers.get("Content-Type", "").indexOf("boundary", CaseSensitive.no) == -1) {
-		if (!boundary) { // by default, we create a boundary 
+		if (!boundary) { // by default, we create a boundary
 			import std.uuid : randomUUID;
 			boundary = randomUUID().toString();
 		}
 		// and we assign it into the headers
 		headers["Content-Type"] = "multipart/form-data; boundary=" ~ boundary;
 	}
-	else { 
+	else {
 		if (!boundary)  // by default, we extract the boundary from the headers
 			boundary = headers.getBoundary();
 	}
@@ -557,9 +557,9 @@ final class ChunkedInputStream : InputStream {
 	{
 		assert(m_bytesInCurrentChunk == 0);
 		// read chunk header
-		logTrace("read next chunk header");
+		//logTrace("read next chunk header");
 		auto ln = cast(string)m_in.readLine();
-		logTrace("got chunk header: %s", ln);
+		//logTrace("got chunk header: %s", ln);
 		m_bytesInCurrentChunk = parse!ulong(ln, 16u);
 
 		if( m_bytesInCurrentChunk == 0 ){

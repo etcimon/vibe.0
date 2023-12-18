@@ -18,7 +18,7 @@ void main()
 	setLogLevel(LogLevel.trace);
 	auto settings = new HTTPServerSettings;
 	settings.port = 4343;
-	settings.disableHTTP2 = true;
+	settings.disableHTTP2 = false;
 	settings.bindAddresses = ["::1", "127.0.0.1"];
 	listenHTTP(settings, &handleRequest);
 	runEventLoop();

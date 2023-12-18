@@ -42,7 +42,7 @@ HTTPServerRequestDelegateS serveStaticFiles(Path local_path, HTTPFileServerSetti
 
 		auto rel_path = srv_path[settings.serverPathPrefix.length .. $];
 		auto rpath = Path(rel_path);
-		logTrace("Processing '%s'", srv_path);
+		//logTrace("Processing '%s'", srv_path);
 
 		rpath.normalize();
 
@@ -226,9 +226,9 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 		auto expireTime = Clock.currTime(UTC()) + settings.maxAge;
 		res.headers["Expires"] = toRFC822DateTimeString(expireTime);
 		import std.conv : to;
-		logTrace("Max-Age: %s", settings.maxAge.total!"seconds");
+		//logTrace("Max-Age: %s", settings.maxAge.total!"seconds");
 		res.headers["Cache-Control"] = "max-age="~to!string(settings.maxAge.total!"seconds");
-		logTrace("Cache-Control: %s", res.headers.get("Cache-Control"));
+		//logTrace("Cache-Control: %s", res.headers.get("Cache-Control"));
 	} else {
 		res.headers["Cache-Control"] = "must-revalidate, private";
 		res.headers["Expires"] = "-1";
@@ -278,7 +278,7 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 
 		// encoded file must be younger than original else warn
 		if (dirent.timeModified.toUTC() >= origLastModified){
-			logTrace("Using already encoded file '%s' -> '%s'", path, encodedFilepath);
+			//logTrace("Using already encoded file '%s' -> '%s'", path, encodedFilepath);
 			path = Path(encodedFilepath);
 			res.headers["Content-Length"] = to!string(dirent.size);
 		} else {
@@ -319,7 +319,7 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 		string[] rng = splitter(hdr, "-").array.to!(string[]);
 		ulong end = (rng[1] != "") ? rng[1].to!ulong : (dirent.size.to!ulong - 1);
 		ulong len = end - to!ulong(rng[0]) + 1;
-		res.headers["Content-Range"] = format("bytes %s-%s/%s", rng[0], to!string(end), to!string(dirent.size)); 
+		res.headers["Content-Range"] = format("bytes %s-%s/%s", rng[0], to!string(end), to!string(dirent.size));
 		res.headers["Content-Length"] = len.to!string;
 		// for HEAD responses, stop here
 		if( res.isHeadResponse() ){
@@ -328,7 +328,7 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 			return;
 		}
 		fil.seek(rng[0].to!ulong);
-		
+
 		res.writeRawBody(fil, 206, cast(size_t) len);
 	}
 	else {	// for HEAD responses, stop here
@@ -338,9 +338,9 @@ public void sendFile(scope HTTPServerRequest req, scope HTTPServerResponse res, 
 			return;
 		}
 		res.headers["Content-Length"] = to!string(dirent.size);
-		if (pce && !encodedFilepath.length) 
+		if (pce && !encodedFilepath.length)
 			res.bodyWriter.write(fil);
 		else res.writeRawBody(fil);
 	}
-	logTrace("sent file %d, %s!", fil.size, res.headers["Content-Type"]);
+	//logTrace("sent file %d, %s!", fil.size, res.headers["Content-Type"]);
 }

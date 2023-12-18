@@ -22,7 +22,7 @@ private SHA1HashMixerRNG g_rng;
 static this()
 {
 	import core.thread;
-	auto thisthr = Thread.getThis();	
+	auto thisthr = Thread.getThis();
 	if (thisthr.name.length < 2 || thisthr.name[0 .. 2] != "V|") return;
 	g_rng = new SHA1HashMixerRNG();
 }
@@ -222,13 +222,13 @@ final class MemorySessionStore : SessionStore {
 	void set(string id, string name, Variant value)
 	{
 		m_sessions[id][name] = value;
-		foreach(k, v; m_sessions[id]) logTrace("Csession[%s][%s] = %s", id, k, v);
+		//foreach(k, v; m_sessions[id]) logTrace("Csession[%s][%s] = %s", id, k, v);
 	}
 
 	Variant get(string id, string name, lazy Variant defaultVal)
 	{
 		assert(id in m_sessions, "session not in store");
-		foreach(k, v; m_sessions[id]) logTrace("Dsession[%s][%s] = %s", id, k, v);
+		//foreach(k, v; m_sessions[id]) logTrace("Dsession[%s][%s] = %s", id, k, v);
 		if (auto pv = name in m_sessions[id]) {
 			return *pv;
 		} else {

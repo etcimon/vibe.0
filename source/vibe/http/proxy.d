@@ -70,7 +70,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		mixin(Trace);
 		auto rurl = url;
 		rurl.localURI = req.requestURL;
-		logTrace("Enter proxy");
+		//logTrace("Enter proxy");
 		void setupClientRequest(scope HTTPClientRequest creq)
 		{
 			mixin(Trace);
@@ -193,7 +193,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			else
 				res.writeVoidBody();
 		}
-		logTrace("Proxy requestHTTP");
+		//logTrace("Proxy requestHTTP");
 		int failed;
 		bool success;
 		Exception ex;

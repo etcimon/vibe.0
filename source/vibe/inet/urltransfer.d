@@ -37,7 +37,7 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 	foreach( i; 0 .. 10 ){
 		bool ssl = url.schema == "https";
 		client.connect(url.host, url.port ? url.port : ssl ? 443 : 80, ssl);
-		logTrace("connect to %s", url.host);
+		//logTrace("connect to %s", url.host);
 		bool done = false;
 		client.request(
 			(scope HTTPClientRequest req) {
@@ -47,10 +47,10 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 				}
 				req.requestURL = url.localURI;
 				req.headers["Accept-Encoding"] = "gzip";
-				logTrace("REQUESTING %s!", req.requestURL);
+				//logTrace("REQUESTING %s!", req.requestURL);
 			},
 			(scope HTTPClientResponse res) {
-				logTrace("GOT ANSWER!");
+				//logTrace("GOT ANSWER!");
 
 				switch( res.statusCode ){
 					default:
@@ -63,12 +63,12 @@ void download(URL url, scope void delegate(scope InputStream) callback, HTTPClie
 					case HTTPStatus.found:
 					case HTTPStatus.seeOther:
 					case HTTPStatus.temporaryRedirect:
-						logTrace("Status code: %s", res.statusCode);
+						//logTrace("Status code: %s", res.statusCode);
 						auto pv = "Location" in res.headers;
 						enforce(pv !is null, format("Server responded with redirect but did not specify the redirect location for %s", url));
 						logDebug("Redirect to '%s'", *pv);
 						if( startsWith((*pv), "http:") || startsWith((*pv), "https:") ){
-						logTrace("parsing %s", *pv);
+						//logTrace("parsing %s", *pv);
 							url = URL(*pv);
 						} else url.localURI = *pv;
 						break;
@@ -103,7 +103,7 @@ void download(string url, string filename, scope void delegate(ulong kbps) poll_
 	{
 		auto fil = openFile(filename, FileMode.createTrunc);
 		scope(exit) fil.close();
-		
+
 		ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
 		scope(exit) ThreadMem.free(buffer);
 

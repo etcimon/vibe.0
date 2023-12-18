@@ -81,8 +81,8 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 
 	void consumeTimeouts(SysTime now, scope void delegate(size_t timer, bool periodic, ref DATA data) del)
 	{
-		//if (m_timeoutHeap.empty) logTrace("no timers scheduled");
-		//else logTrace("first timeout: %s", (m_timeoutHeap.front.timeout - now) * 1e-7);
+		//if (m_timeoutHeap.empty) //logTrace("no timers scheduled");
+		//else //logTrace("first timeout: %s", (m_timeoutHeap.front.timeout - now) * 1e-7);
 
 		while (!m_timeoutHeap.empty && (m_timeoutHeap.front.timeout - now.stdTime) / TIMER_RESOLUTION <= 0) {
 			auto tm = m_timeoutHeap.front;
@@ -90,7 +90,7 @@ struct TimerQueue(DATA, long TIMER_RESOLUTION = 10_000) {
 
 			auto pt = tm.id in m_timers;
 			if (!pt || !pt.pending || pt.timeout != tm.timeout) continue;
-	
+
 			if (pt.repeatDuration > 0) {
 
 				auto nskipped = (now.stdTime - pt.timeout) / pt.repeatDuration;

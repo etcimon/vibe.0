@@ -135,7 +135,7 @@ interface Stream : InputStream, OutputStream {
 
 /// Interface for streams allowing buffer overrides
 interface Buffered {
-	/// Reads at least 1 byte into buf and returns the slice, or 
+	/// Reads at least 1 byte into buf and returns the slice, or
 	/// returns an empty array if this operation is impossible.
 	ubyte[] readBuf(ubyte[] buf);
 }
@@ -187,7 +187,7 @@ interface ConnectionStream : Stream {
 interface CountedStream {
 	/// Returns total amount of bytes received with this connection
 	@property ulong received() const;
-	
+
 	/// Returns total amount of bytes sent with this connection
 	@property ulong sent() const;
 }

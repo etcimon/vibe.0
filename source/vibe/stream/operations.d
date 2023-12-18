@@ -79,7 +79,7 @@ void readLine(R)(InputStream stream, ref R dst, size_t max_bytes = size_t.max, s
 
 	Remarks:
 		This function uses an algorithm inspired by the
-		$(LINK2 http://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_string_search_algorithm, 
+		$(LINK2 http://en.wikipedia.org/wiki/Boyer%E2%80%93Moore_string_search_algorithm,
 		Boyer-Moore string search algorithm). However, contrary to the original
 		algorithm, it will scan the whole input string exactly once, without
 		jumping over portions of it. This allows the algorithm to work with
@@ -120,7 +120,7 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 	size_t[] nmatchoffset;
 	if (end_marker.length <= nmatchoffsetbuffer.length) nmatchoffset = nmatchoffsetbuffer[0 .. end_marker.length];
 	else nmatchoffset = new size_t[end_marker.length];
-	
+
 	// precompute the jump table
 	nmatchoffset[0] = 0;
 	foreach( i; 1 .. end_marker.length ){
@@ -197,7 +197,7 @@ void readUntil(R)(InputStream stream, ref R dst, in ubyte[] end_marker, ulong ma
 			if( nmatched <= i ) dst.put(end_marker[0 .. nmatched_start]);
 			else dst.put(end_marker[0 .. nmatched_start-nmatched+i]);
 		}
-		
+
 		// write out any unmatched part of the current block
 		if( nmatched < i ) dst.put(str[0 .. i-nmatched]);
 
@@ -241,7 +241,7 @@ unittest {
 		test("114", 70);
 		test("111111111114", 61);
 	}
-	// TODO: test 
+	// TODO: test
 }
 
 /**
@@ -267,7 +267,7 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 
 	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
 	scope(exit) ThreadMem.free(buffer);
-	
+
 	size_t n = 0;
 	while (!stream.empty) {
 		static if (hasMember!(Stream, "waitForData"))
@@ -302,7 +302,7 @@ void readAll(Stream, R)(Stream stream, ref R dst, size_t max_bytes = size_t.max,
 
 	ubyte[] buffer = ThreadMem.alloc!(ubyte[])(64*1024);
 	scope(exit) ThreadMem.free(buffer);
-	
+
 	size_t n = 0;
 	while (!stream.empty) {
 		static if (hasMember!(Stream, "waitForData"))
@@ -400,11 +400,11 @@ void pipeRealtime(OutputStream destination, ConnectionStream source, ulong nbyte
 		if (nbytes > 0) nbytes -= chunk;
 
 		if (max_latency <= 0.seconds || cast(Duration)sw.peek() >= max_latency || !source.waitForData(max_latency)) {
-			logTrace("pipeRealtime flushing.");
+			//logTrace("pipeRealtime flushing.");
 			destination.flush();
 			sw.reset();
 		} else {
-			logTrace("pipeRealtime not flushing.");
+			//logTrace("pipeRealtime not flushing.");
 		}
 
 		least_size = source.leastSize;

@@ -21,14 +21,14 @@ void runTest()
 	{
 		auto db = redis.getDatabase(0);
 		db.deleteAll();
-		
+
 		assert(db.setNX("setNXTest","foo", 30.seconds));
 		assert(!db.setNX("setNXTest","foo", 30.seconds));
 		assert(db.setNX("setNXTest2","foo"));
 		assert(!db.setNX("setNXTest2","foo"));
 		assert(db.setXX("setNXTest2","foo"));
 		assert(!db.setXX("setXXTestNegative","foo"));
-		
+
 		db.setEX("test1", 1000, "test1");
 		db.setEX("test2", 1000, "test2");
 		db.setEX("test3", 1000, "test3");
@@ -49,32 +49,32 @@ void runTest()
 		assert(db.get("test8") == "test8");
 		assert(db.get("test9") == "test9");
 		assert(db.get("test10") == "0");
-		
+
 		db.del("saddTests");
 		db.sadd("saddTests", "item1");
 		db.sadd("saddTests", "item2");
 		assert(sort(db.smembers("saddTests").array).equal(["item1", "item2"]));
-		
+
 		db.zadd("zaddTests", 0.5, "a", 1.0, "b", 2.0, "c", 1.5, "d");
 		assert(db.zrangeByScore("zaddTests", 0.5, 1.5).equal(["a", "b", "d"]));
 		assert(db.zrangeByScore!(string, "()")("zaddTests", 0.5, 1.5).equal(["b"]));
 		assert(db.zrangeByScore!(string, "[)")("zaddTests", 0.5, 1.5).equal(["a", "b"]));
 		assert(db.zrangeByScore!(string, "(]")("zaddTests", 0.5, 1.5).equal(["b", "d"]));
-		
+
 		db.append("test1", "test1append");
 		db.append("test2", "test2append");
 		assert(db.get!string("test1") == "test1test1append");
 		assert(db.get!string("test2") == "test2test2append");
-		
+
 		db.incr("test10");
 		assert(db.get!long("test10") == 1);
-		
+
 		db.del("test1", "test2","test3","test4","test5","test6","test7","test8","test9","test10");
 		db.del("saddTests", "zaddTests");
-		
+
 		db.srem("test1", "test1append");
 		db.srem("test2", "test2append");
-		
+
 		assert(db.smembers("test1").empty);
 		assert(db.smembers("test2").empty);
 		assert(!db.smembers("test1").hasNext());
@@ -83,18 +83,18 @@ void runTest()
 		logInfo("blpop: %s", db.blpop!(RedisReply!string)("test11",12));
 		logInfo("lpop: %s", db.lpop!string("test11") is null);
 	}
-	
+
 	logInfo("Redis Test Succeeded.");
 }
 
 void testLocking(RedisDatabase _db)
 {
 	logInfo("run lock test...");
-	
+
 	import vibe.db.redis.idioms;
-	
+
 	auto lock = RedisLock(_db,"lock_key");
-	
+
 	auto testMethod = {
 		foreach(i; 0..100)
 		{
@@ -104,19 +104,19 @@ void testLocking(RedisDatabase _db)
 			});
 		}
 	};
-	
+
 	auto t1 = runTask(testMethod);
 	auto t2 = runTask(testMethod);
-	
+
 	t1.join();
 	t2.join();
-	
+
 	logInfo("lock test finished");
 }
 
 int main()
 {
-	int ret = 0; 
+	int ret = 0;
 	runTask({
 		try runTest();
 		catch (Throwable th) {

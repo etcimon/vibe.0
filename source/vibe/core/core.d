@@ -29,6 +29,8 @@ import core.sync.mutex;
 import core.stdc.stdlib;
 import core.thread;
 import memutils.circularbuffer;
+import memutils.utils;
+import memutils.hashmap;
 
 alias TaskEventCb = void function(TaskEvent, Task) nothrow;
 
@@ -75,24 +77,33 @@ version (Windows)
 */
 int runEventLoop()
 {
-	logDebug("Starting event loop.");
 	s_eventLoopRunning = true;
 	scope (exit) {
+		logDebug("Returning from runEventLoop");
 		s_eventLoopRunning = false;
 		s_exitEventLoop = false;
 		st_threadShutdownCondition.notifyAll();
+	}
+	scope(failure) {
+		logDebug("Returning from runEventLoop in failure");
+
 	}
 
 	// runs any yield()ed tasks first
 	assert(!s_exitEventLoop);
 	s_exitEventLoop = false;
 	s_core.notifyIdle();
-	if (getExitFlag()) return 0;
+	if (getExitFlag()){
+		getEventDriver().processEvents();
+		return 0;
+	}
 
 	// handle exit flag in the main thread to exit when
 	// exitEventLoop(true) is called from a thread)
-	if (Thread.getThis() is st_threads[0].thread)
-		runTask(toDelegate(&watchExitFlag));
+	if (!s_exitFlagWatcherRunning && Thread.getThis() is st_threads[0].thread) {
+		s_exitFlagWatcherRunning = true;
+		g_watchExitFlagTask = runTask(toDelegate(&watchExitFlag));
+	}
 
 	if (auto err = getEventDriver().runEventLoop() != 0) {
 		if (err == 1) {
@@ -103,7 +114,6 @@ int runEventLoop()
 		return 1;
 	}
 
-	logDebug("Event loop done.");
 	return 0;
 }
 
@@ -180,7 +190,6 @@ Task runTask(ARGS...)(void delegate(ARGS) task, ARGS args)
 	auto tfi = makeTaskFuncInfo(task, args);
 	return runTask_internal(tfi);
 }
-
 private Task runTask_internal(ref TaskFuncInfo tfi)
 {
 	import std.typecons : Tuple, tuple;
@@ -195,10 +204,9 @@ private Task runTask_internal(ref TaskFuncInfo tfi)
 	if (f is null) {
 		// if there is no fiber available, create one.
 		if (s_availableFibers.capacity == 0) s_availableFibers.capacity = 1024;
-		f = new CoreTask;
+		f = ThreadMem.alloc!CoreTask(tfi);
 	}
-
-	f.m_taskFunc = tfi;
+	else f.m_taskFunc = tfi;
 
 	f.bumpTaskCounter();
 	auto handle = f.task();
@@ -232,9 +240,9 @@ string Trace(string info = null) {
 		scope(failure) popTrace(true); scope(success) popTrace(false);";
 }
 
-/// Advanced logging feature which allows debugging of release builds without recompiling. 
+/// Advanced logging feature which allows debugging of release builds without recompiling.
 /// It gives the user runtime control of the capture event using task filters.
-/// Use this everywhere possible, it doesn't slow down the program when you are not capturing. 
+/// Use this everywhere possible, it doesn't slow down the program when you are not capturing.
 string OnCapture(string keyword, string mixins)() {
 	version(VibeNoDebug) {
 		version(VibeRequestDebugger)
@@ -250,7 +258,7 @@ string OnCaptureIf(string condition, string keyword, string mixins)() {
 	} else {
 		return "if (" ~ condition ~ ") pushCaptured(`" ~ keyword ~ "`, " ~ mixins ~ ");";
 	}
-	
+
 }
 version(VibeNoDebug) {} else
 {
@@ -299,7 +307,7 @@ version(VibeNoDebug) {} else
 		void setPushTrace(void function(string) del) {
 			s_pushTrace = del;
 		}
-		
+
 		void setPopTrace(void function(bool) del) {
 			s_popTrace = del;
 		}
@@ -917,11 +925,11 @@ struct TaskLocal(T)
 	void opAssign(T value) { this.storage = value; }
 
 
-	@property ref T storage() const 
+	@property ref T storage() const
 	{
 		return (cast()this).storage();
 	}
-	
+
 	@property ref T storage()
 	{
 		auto fiber = CoreTask.getThis();
@@ -1039,12 +1047,17 @@ private class CoreTask : TaskFiber {
 	{
 		auto f = Fiber.getThis();
 		if (f) return cast(CoreTask)f;
-		if (!ms_coreTask) ms_coreTask = new CoreTask;
+		if (!ms_coreTask) ms_coreTask = ThreadMem.alloc!CoreTask();
 		return ms_coreTask;
 	}
 
-	this()
+	this() {
+		super(&run, s_taskStackSize);
+	}
+
+	this(ref TaskFuncInfo tfi)
 	{
+		m_taskFunc = tfi;
 		super(&run, s_taskStackSize);
 	}
 
@@ -1075,9 +1088,9 @@ private class CoreTask : TaskFiber {
 						if (s_taskEventCallback)
 							s_taskEventCallback(TaskEvent.start, handle);
 					if (!s_eventLoopRunning) {
-						logTrace("Event loop not running at task start - yielding.");
+						//logTrace("Event loop not running at task start - yielding.");
 						.yield();
-						logTrace("Initial resume of task.");
+						//logTrace("Initial resume of task.");
 					}
 					task.func(&task);
 					version(VibeNoDebug) {} else
@@ -1085,10 +1098,10 @@ private class CoreTask : TaskFiber {
 							s_taskEventCallback(TaskEvent.end, handle);
 				} catch ( ConnectionClosedException e) {
 					version(VibeNoDebug) {} else
-						if (s_taskEventCallback) 
+						if (s_taskEventCallback)
 							s_taskEventCallback(TaskEvent.end, handle);
 					//import std.encoding;
-					logTrace("Task was terminated because the connection was closed: %s", e.toString());
+					//logTrace("Task was terminated because the connection was closed: %s", e.toString());
 				} catch( Exception e ){
 					version(VibeNoDebug) {} else
 						if (s_taskEventCallback)
@@ -1128,7 +1141,6 @@ private class CoreTask : TaskFiber {
 
 				// clear the message queue for the next task
 				messageQueue.clear();
-
 				s_availableFibers.put(this);
 			}
 		} catch(UncaughtException th) {
@@ -1208,8 +1220,9 @@ private class VibeDriverCore : DriverCore {
 
 	void resumeTask(Task task, Exception event_exception = null)
 	{
-		if (Task.getThis() != Task.init)
+		if (Task.getThis() != Task.init) {
 			yieldAndResumeTask(task, event_exception);
+		}
 		else resumeTask(task, event_exception, false);
 	}
 
@@ -1268,22 +1281,27 @@ private class VibeDriverCore : DriverCore {
 
 	void notifyIdle()
 	{
+		static bool recursive_guard;
+		if (!recursive_guard)
+			recursive_guard = true;
+		else return;
+		scope(exit) recursive_guard = false;
 		bool again = !getExitFlag();
 		while (again) {
 			if (s_idleHandler)
 				again = s_idleHandler();
 			else again = false;
-
 			for (auto limit = s_yieldedTasks.length; limit > 0 && !s_yieldedTasks.empty; limit--) {
 				auto tf = s_yieldedTasks.front;
 				s_yieldedTasks.popFront();
-				if (tf.state == Fiber.State.HOLD) resumeCoreTask(tf);
+				if (tf.state == Fiber.State.HOLD) {
+					resumeCoreTask(tf);
+				}
 			}
 
 			again = (again || !s_yieldedTasks.empty) && !getExitFlag();
 
 			if (again && !getEventDriver().processEvents()) {
-				logDebug("Setting exit flag due to driver signalling exit");
 				s_exitEventLoop = true;
 				return;
 			}
@@ -1298,14 +1316,16 @@ private class VibeDriverCore : DriverCore {
 	private void yieldForEventDeferThrow(Task task)
 	nothrow {
 		if (task != Task.init) {
-			version(VibeNoDebug) {} else
-				if (s_taskEventCallback) 
+			version(VibeNoDebug) {} else {
+				if (s_taskEventCallback)
 					s_taskEventCallback(TaskEvent.yield, task);
+			}
 			static if (__VERSION__ < 2067) scope (failure) assert(false); // Fiber.yield() not nothrow on 2.066 and below
 			task.fiber.yield();
-			version(VibeNoDebug) {} else
-				if (s_taskEventCallback) 
+			version(VibeNoDebug) {} else {
+				if (s_taskEventCallback)
 					s_taskEventCallback(TaskEvent.resume, task);
+			}
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
 		} else {
 
@@ -1342,7 +1362,7 @@ private class VibeDriverCore : DriverCore {
 	private void collectGarbage()
 	{
 		import core.memory;
-		logTrace("gc idle collect");
+		//logTrace("gc idle collect");
 		GC.collect();
 		GC.minimize();
 		m_ignoreIdleForGC = true;
@@ -1413,6 +1433,8 @@ private {
 	}
 	shared bool st_term = false;
 
+	static bool s_exitFlagWatcherRunning;
+	static Task g_watchExitFlagTask;
 	bool s_exitEventLoop = false;
 	bool s_eventLoopRunning = false;
 	bool delegate() s_idleHandler;
@@ -1437,7 +1459,7 @@ shared static this()
 		else version(VibeWin32Driver) enum need_wsa = true;
 		else enum need_wsa = false;
 		static if (need_wsa) {
-			logTrace("init winsock");
+			//logTrace("init winsock");
 			// initialize WinSock2
 			import core.sys.windows.winsock2;
 			WSADATA data;
@@ -1453,14 +1475,14 @@ shared static this()
 
 	initializeLogModule();
 
-	logTrace("create driver core");
+	//logTrace("create driver core");
 
 	s_core = new VibeDriverCore;
 	st_threadsMutex = new Mutex;
 	st_threadShutdownCondition = new Condition(st_threadsMutex);
 
 	version(Posix){
-		logTrace("setup signal handler");
+		//logTrace("setup signal handler");
 		// support proper shutdown using signals
 		sigset_t sigset;
 		sigemptyset(&sigset);
@@ -1492,7 +1514,7 @@ shared static this()
 	st_threadsSignal = getEventDriver().createManualEvent();
 
 	version(VibeIdleCollect){
-		logTrace("setup gc");
+		//logTrace("setup gc");
 		s_core.setupGcTimer();
 	}
 
@@ -1519,29 +1541,14 @@ public static ulong s_totalConnections;
 shared static ~this()
 {
 	if (!s_core) return;
-	deleteEventDriver();
-
-	size_t tasks_left;
-
-	synchronized (st_threadsMutex) {
-		if( !st_workerTasks.empty ) tasks_left = st_workerTasks.length;
-	}
-	import memutils.utils;
-	if (!s_yieldedTasks.empty) tasks_left += s_yieldedTasks.length;
-	if (tasks_left > 0 || s_totalConnections > 0) {
-		logWarn("There were still %d connections %d tasks %d streams %d sessions running at exit.", s_totalConnections, tasks_left, s_totalStreams, s_totalSessions);
-		foreach (reg; s_http2Registry)
-			logWarn("Started %s uri: %s", reg.last_activity.to!string, reg.URI);
-	}
-
 	destroy(s_core);
 	s_core = null;
 }
 
 // per thread setup
 static this()
-{	
-	auto thisthr = Thread.getThis();	
+{
+	auto thisthr = Thread.getThis();
 	if (thisthr.name.length < 2 || thisthr.name[0 .. 2] != "V|") return;
 	assert(s_core !is null);
 
@@ -1549,14 +1556,13 @@ static this()
 		if (!st_threads.any!(c => c.thread is thisthr))
 			st_threads ~= ThreadContext(thisthr, false);
 
-	//CoreTask.ms_coreTask = new CoreTask;
+	CoreTask.ms_coreTask = ThreadMem.alloc!CoreTask();
 
 	setupDriver();
 }
 
 static ~this()
 {
-
 	auto thisthr = Thread.getThis();
 	if (thisthr.name.length < 2 || thisthr.name[0 .. 2] != "V|") return;
 
@@ -1590,9 +1596,36 @@ static ~this()
 		}
 	}
 
-	// delay deletion of the main event driver to "~shared static this()"
-	if (!is_main_thread) deleteEventDriver();
+	deleteEventDriver();
 
+	size_t tasks_left;
+
+	synchronized (st_threadsMutex) {
+		if( !st_workerTasks.empty ) tasks_left = st_workerTasks.length;
+	}
+	import memutils.utils;
+	if (!s_yieldedTasks.empty) tasks_left += s_yieldedTasks.length;
+	if (tasks_left > 0 || s_totalConnections > 0) {
+		logWarn("There were still %d connections %d tasks (%d workers) %d streams %d sessions running at exit.", s_totalConnections, tasks_left,st_workerTasks.length, s_totalStreams, s_totalSessions);
+		foreach (reg; s_http2Registry)
+			logWarn("Started %s uri: %s", reg.last_activity.to!string, reg.URI);
+	}
+	for (auto limit = s_yieldedTasks.length; limit > 0 && !s_yieldedTasks.empty; limit--) {
+		import std.stdio : writeln;
+		writeln(limit);
+		auto tf = s_yieldedTasks.front;
+		if (!tf) break;
+		ThreadMem.free(tf);
+		s_yieldedTasks.popFront();
+	}
+
+	foreach(task; s_availableFibers) {
+		ThreadMem.free(task);
+	}
+	s_availableFibers.destroy();
+	ThreadMem.free(CoreTask.ms_coreTask);
+	if (g_watchExitFlagTask.fiber !is null)
+		ThreadMem.free(cast(CoreTask)g_watchExitFlagTask.fiber);
 	st_threadShutdownCondition.notifyAll();
 }
 
@@ -1600,9 +1633,9 @@ private void setupDriver()
 {
 	if (getEventDriver(true) !is null) return;
 
-	logTrace("create driver");
+	//logTrace("create driver");
 	setupEventDriver(s_core);
-	logTrace("driver %s created", (cast(Object)getEventDriver()).classinfo.name);
+	//logTrace("driver %s created", (cast(Object)getEventDriver()).classinfo.name);
 }
 
 private void setupWorkerThreads()
@@ -1697,22 +1730,27 @@ private void handleWorkerTasks()
 private void watchExitFlag()
 {
 	mixin(Trace);
+	scope(exit) {
+		s_exitFlagWatcherRunning = false;
+		g_watchExitFlagTask = Task.init;
+	}
 	auto emit_count = st_threadsSignal.emitCount;
 	while (true) {
 		synchronized (st_threadsMutex) {
-			if (getExitFlag()) break;
+			if (getExitFlag() && s_eventLoopRunning) break;
 		}
 
 		emit_count = st_threadsSignal.wait(emit_count);
 	}
 
 	logDebug("main thread exit");
-	getEventDriver().exitEventLoop();
+	if (s_eventLoopRunning)
+		getEventDriver().exitEventLoop();
 }
 
 private extern(C) void extrap()
 nothrow {
-	logTrace("exception trap");
+	//logTrace("exception trap");
 }
 
 // backwards compatibility with DMD < 2.066
@@ -1721,18 +1759,18 @@ static if (__VERSION__ <= 2065) @property bool nogc() { return false; }
 private extern(C) void onSignal(int signal)
 nothrow {
 	atomicStore(st_term, true);
-	try st_threadsSignal.emit(); 
+	try st_threadsSignal.emit();
 	catch (Throwable e) {
 		import vibe.core.log : logError;
 		vibe.core.log.logError("onSignal assertion failure: %s", e.msg);
 	}
 
-	logTrace("Received signal %d. Shutting down.", signal);
+	//logTrace("Received signal %d. Shutting down.", signal);
 }
 
 private extern(C) void onBrokenPipe(int signal)
 nothrow {
-	logTrace("Broken pipe.");
+	//logTrace("Broken pipe.");
 }
 
 version(Posix)

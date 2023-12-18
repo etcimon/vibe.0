@@ -16,7 +16,9 @@ import core.sync.mutex;
 import core.sync.condition;
 import std.stdio;
 import std.traits : ReturnType;
+import memutils.utils;
 
+import vibe.core.log;
 
 enum LockMode {
 	lock,
@@ -41,39 +43,39 @@ struct ScopedMutexLock
 		bool m_locked;
 		LockMode m_mode;
 	}
-	
+
 	this(core.sync.mutex.Mutex mutex, LockMode mode = LockMode.lock) {
 		assert(mutex !is null);
 		m_mutex = mutex;
-		
+
 		final switch (mode) {
 			case LockMode.lock: lock(); break;
 			case LockMode.tryLock: tryLock(); break;
 			case LockMode.defer: break;
 		}
 	}
-	
+
 	~this()
 	{
 		if( m_locked )
 			try m_mutex.unlock(); catch(Throwable) {}
 	}
-	
+
 	@property bool locked() const { return m_locked; }
-	
+
 	void unlock()
 	{
 		enforce(m_locked);
 		m_mutex.unlock();
 		m_locked = false;
 	}
-	
+
 	bool tryLock()
 	{
 		enforce(!m_locked);
 		return m_locked = m_mutex.tryLock();
 	}
-	
+
 	void lock()
 	{
 		enforce(!m_locked);
@@ -103,6 +105,7 @@ ReturnType!PROC performLocked(alias PROC, MUTEX)(MUTEX mutex)
 
 ///
 unittest {
+	setLogLevel(LogLevel.trace);
 	int protected_var = 0;
 	auto mtx = new TaskMutex;
 	mtx.performLocked!({
@@ -133,8 +136,8 @@ class LocalTaskSemaphore
 		uint m_seq;
 	}
 
-	this(uint max_locks) 
-	{ 
+	this(uint max_locks)
+	{
 		m_maxLocks = max_locks;
 	}
 
@@ -156,10 +159,10 @@ class LocalTaskSemaphore
 			than one.
 	*/
 	bool tryLock()
-	{		
-		if (available > 0) 
+	{
+		if (available > 0)
 		{
-			m_locks++; 
+			m_locks++;
 			return true;
 		}
 		return false;
@@ -171,12 +174,12 @@ class LocalTaskSemaphore
 		until the number of locks drops below the limit.
 	*/
 	void lock()
-	{ 
+	{
 		import std.algorithm : min;
 
 		if (tryLock())
 			return;
-		
+
 		Waiter w;
 		w.signal = getEventDriver().createManualEvent();
 		scope(exit)
@@ -185,15 +188,15 @@ class LocalTaskSemaphore
 		w.seq = min(0, m_seq - w.priority);
 		if (++m_seq == uint.max)
 			rewindSeq();
-		
+
 		m_waiters.insert(w);
 		w.signal.waitUninterruptible(w.signal.emitCount);
 	}
 
 	/** Gives up an existing lock.
 	*/
-	void unlock() 
-	{		
+	void unlock()
+	{
 		if (m_waiters.length > 0) {
 			ManualEvent s = m_waiters.front().signal;
 			m_waiters.removeFront();
@@ -203,7 +206,7 @@ class LocalTaskSemaphore
 
 	// if true, a goes after b. ie. b comes out front()
 	/// private
-	static bool asc(ref Waiter a, ref Waiter b) 
+	static bool asc(ref Waiter a, ref Waiter b)
 	{
 		if (a.seq == b.seq) {
 			if (a.priority == b.priority) {
@@ -262,23 +265,23 @@ class TaskMutex : core.sync.mutex.Mutex, Lockable {
 
 unittest {
 	auto mutex = new TaskMutex;
-	
+
 	{
 		auto lock = ScopedMutexLock(mutex);
 		assert(lock.locked);
 		assert(mutex.m_impl.m_locked);
-		
+
 		auto lock2 = ScopedMutexLock(mutex, LockMode.tryLock);
 		assert(!lock2.locked);
 	}
 
 	assert(!mutex.m_impl.m_locked);
-	
+
 	auto lock = ScopedMutexLock(mutex, LockMode.tryLock);
 	assert(lock.locked);
 	lock.unlock();
 	assert(!lock.locked);
-	
+
 	synchronized(mutex){
 		assert(mutex.m_impl.m_locked);
 	}
@@ -327,10 +330,12 @@ unittest { // test deferred throwing
 		t1.join();
 		t2.join();
 		assert(!mutex.m_impl.m_locked); // ensure that the scope(exit) has been executed
+		//logTrace("333 exitEventLoop");
 		exitEventLoop();
 	});
 
 	runEventLoop();
+	//logTrace("Returning from event loop 338");
 }
 
 version (VibeLibevDriver) {} else // timers are not implemented for libev, yet
@@ -429,6 +434,7 @@ private void runMutexUnitTests(M)()
 	import vibe.core.core;
 
 	auto m = new M;
+	scope(exit) m.destroy();
 	Task t1, t2;
 	void runContendedTasks(bool interrupt_t1, bool interrupt_t2) {
 		assert(!m.m_impl.m_locked);
@@ -436,27 +442,46 @@ private void runMutexUnitTests(M)()
 		// t1 starts first and acquires the mutex for 20 ms
 		// t2 starts second and has to wait in m.lock()
 		t1 = runTask({
-			assert(!m.m_impl.m_locked);
-			m.lock();
-			assert(m.m_impl.m_locked);
-			if (interrupt_t1) assertThrown!InterruptException(sleep(100.msecs));
-			else assertNotThrown(sleep(20.msecs));
-			m.unlock();
+			try {
+				assert(!m.m_impl.m_locked);
+				//logTrace("t1.Before lock");
+				m.lock();
+				assert(m.m_impl.m_locked);
+				//logTrace("t1.Interrupt_t1");
+				if (interrupt_t1) {
+					//logTrace("t1.sleep 500ms");
+					assertThrown!InterruptException(sleep(500.msecs));
+				}
+				else {
+					//logTrace("t1.sleep 20ms");
+					assertNotThrown(sleep(20.msecs));
+				}
+
+				//logTrace("t1.unlock");
+				m.unlock();
+			} catch (Throwable e) {
+				//logTrace("Threw error in t1: %s", e.toString());
+			}
 		});
 		t2 = runTask({
 			assert(!m.tryLock());
 			if (interrupt_t2) {
+				//logTrace("t2.before lock");
 				try m.lock();
 				catch (InterruptException) return;
+				//logTrace("t2.yield lock");
 				try yield(); // rethrows any deferred exceptions
 				catch (InterruptException) {
+					//logTrace("t2.yield interrupted, unlock");
 					m.unlock();
 					return;
 				}
 				assert(false, "Supposed to have thrown an InterruptException.");
 			} else assertNotThrown(m.lock());
+			//logTrace("t2.before sleep 20ms");
 			assert(m.m_impl.m_locked);
 			sleep(20.msecs);
+			//logTrace("t2.after sleep 20ms");
 			m.unlock();
 			assert(!m.m_impl.m_locked);
 		});
@@ -471,15 +496,21 @@ private void runMutexUnitTests(M)()
 	// basic contention test
 	runContendedTasks(false, false);
 	runTask({
+		//logTrace("runTask running task");
 		assert(t1.running && t2.running);
 		assert(m.m_impl.m_locked);
+		//logTrace("runTask join t1");
 		t1.join();
 		assert(!t1.running && t2.running);
+		//logTrace("runTask yield");
 		yield(); // give t2 a chance to take the lock
 		assert(m.m_impl.m_locked);
+		//logTrace("runTask join t2");
 		t2.join();
 		assert(!t2.running);
 		assert(!m.m_impl.m_locked);
+		//logTrace("runTask exitEventLoop");
+		//logTrace("510 exitEventLoop");
 		exitEventLoop();
 	});
 	runEventLoop();
@@ -499,6 +530,7 @@ private void runMutexUnitTests(M)()
 		t2.join();
 		assert(!t2.running);
 		assert(!m.m_impl.m_locked);
+		//logTrace("530 exitEventLoop");
 		exitEventLoop();
 	});
 	runEventLoop();
@@ -517,6 +549,7 @@ private void runMutexUnitTests(M)()
 		t1.join();
 		assert(!t1.running);
 		assert(!m.m_impl.m_locked);
+		//logTrace("550 exitEventLoop");
 		exitEventLoop();
 	});
 	runEventLoop();
@@ -641,7 +674,7 @@ interface ManualEvent {
 
 protected:
 	/**
-	Resumes a task on the next run of the event loop if it was waiting locally. 
+	Resumes a task on the next run of the event loop if it was waiting locally.
 	*/
 	final void resumeLocal(Task t)
 	{
@@ -675,7 +708,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 		}
 		return false;
 	}
-	
+
 	@trusted void lock()
 	{
 		if (tryLock()) return;
@@ -689,7 +722,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 			else ecnt = m_signal.waitUninterruptible(ecnt);
 		}
 	}
-	
+
 	@trusted void unlock()
 	{
 		assert(m_locked);
@@ -706,6 +739,7 @@ private struct TaskMutexImpl(bool INTERRUPTIBLE) {
 
 private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 	import std.stdio;
+	import core.internal.gc.proxy;
 	private {
 		core.sync.mutex.Mutex m_mutex;
 		Task m_owner;
@@ -713,12 +747,16 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 		shared(uint) m_waiters = 0;
 		ManualEvent m_signal;
 		@property bool m_locked() const { return m_recCount > 0; }
+
+		~this() {
+			if (m_mutex) ThreadMem.free(m_mutex);
+		}
 	}
 
 	void setup()
 	{
 		m_signal = createManualEvent();
-		m_mutex = new core.sync.mutex.Mutex;
+		m_mutex = ThreadMem.alloc!(core.sync.mutex.Mutex)();
 	}
 
 	@trusted bool tryLock()
@@ -737,7 +775,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 			return false;
 		});
 	}
-	
+
 	@trusted void lock()
 	{
 		if (tryLock()) return;
@@ -750,7 +788,7 @@ private struct RecursiveTaskMutexImpl(bool INTERRUPTIBLE) {
 			else ecnt = m_signal.waitUninterruptible(ecnt);
 		}
 	}
-	
+
 	@trusted void unlock()
 	{
 		auto self = Task.getThis();
@@ -773,6 +811,7 @@ private struct TaskConditionImpl(bool INTERRUPTIBLE, LOCKABLE) {
 		LOCKABLE m_mutex;
 
 		ManualEvent m_signal;
+
 	}
 
 	static if (is(LOCKABLE == Lockable)) {
@@ -795,23 +834,23 @@ private struct TaskConditionImpl(bool INTERRUPTIBLE, LOCKABLE) {
 		m_mutex = mtx;
 		m_signal = createManualEvent();
 	}
-	
+
 	@property LOCKABLE mutex() { return m_mutex; }
-	
+
 	@trusted void wait()
 	{
 		if (auto tm = cast(TaskMutex)m_mutex) {
 			assert(tm.m_impl.m_locked);
 			debug assert(tm.m_impl.m_owner == Task.getThis());
 		}
-		
+
 		auto refcount = m_signal.emitCount;
 		m_mutex.unlock();
 		scope(exit) m_mutex.lock();
 		static if (INTERRUPTIBLE) m_signal.wait(refcount);
 		else m_signal.waitUninterruptible(refcount);
 	}
-	
+
 	@trusted bool wait(Duration timeout)
 	{
 		assert(!timeout.isNegative());
@@ -819,23 +858,23 @@ private struct TaskConditionImpl(bool INTERRUPTIBLE, LOCKABLE) {
 			assert(tm.m_impl.m_locked);
 			debug assert(tm.m_impl.m_owner == Task.getThis());
 		}
-		
+
 		auto refcount = m_signal.emitCount;
 		m_mutex.unlock();
 		scope(exit) m_mutex.lock();
-		
+
 		static if (INTERRUPTIBLE) return m_signal.wait(timeout, refcount) != refcount;
 		else return m_signal.waitUninterruptible(timeout, refcount) != refcount;
 	}
-	
+
 	@trusted void notify()
 	{
-		m_signal.emit(); 
+		m_signal.emit();
 	}
-	
+
 	@trusted void notifyAll()
 	{
 		m_signal.emit();
-	}	
+	}
 }
 

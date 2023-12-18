@@ -17,7 +17,7 @@ string computeHex(InputStream stream, BufferedComputation computer)
 	static struct Buffer { ubyte[64*1024] bytes = void; }
 	auto bufferobj = Unique!Buffer();
 	auto buffer = bufferobj.bytes[];
-	
+
 	//logTrace("default write %d bytes, empty=%s", nbytes, stream.empty);
 	while( !stream.empty ){
 		size_t chunk = min(stream.leastSize, buffer.length);
