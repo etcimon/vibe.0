@@ -48,7 +48,10 @@ static if (__VERSION__ >= 2071)
 
 static struct ConnInfo { string host; ushort port; HTTPClientSettings settings; }
 static CircularBuffer!(Tuple!(ConnInfo, ConnectionPool!HTTPClient), 16) g_connections;
+
+bool g_exiting;
 static ~this() {
+	g_exiting = true;
 	foreach (ref el; g_connections) {
 		ThreadMem.free(el[1]);
 	}
@@ -279,7 +282,11 @@ final class HTTPClient {
 	}
 
 	/*shared*/ ~this() {
-		if (g_exiting || gc_inFinalizer()) return;
+		if (g_exiting || gc_inFinalizer()) {
+			m_conn.destroy();
+			if (m_http2Context)	m_http2Context.destroy();
+			return;
+		}
 		// fixme: will be called from the GC, ie. from any thread
 		if (master) {
 			disconnect(false, "dtor", true);
@@ -1588,15 +1595,17 @@ class HTTPClientConnection {
 	int maxRequests = int.max;
 
     ~this() {
-		if (g_exiting) return;
 		keepAliveTimeout = Duration.zero;
-		if (gc_inFinalizer()) return;
         if (tlsStream && tlsStream.connected) {
-            tlsStream.notifyClose();
+
+			if (!g_exiting) tlsStream.notifyClose();
             tlsStream.destroy();
+			tlsContext.destroy();
         }
-        if (tcp && tcp.connected)
-            tcp.close();
+        if (tcp && tcp.connected) {
+           	if (!g_exiting) tcp.close();
+			tcp.destroy();
+		}
     }
 
 	void rearmKeepAlive() {
@@ -1643,10 +1652,6 @@ class HTTPClientConnection {
 
 }
 
-__gshared bool g_exiting;
-shared static ~this() {
-	g_exiting = true;
-}
 
 class HTTP2ClientContext {
 	int refcnt;
@@ -1667,6 +1672,9 @@ class HTTP2ClientContext {
 	Timer pinger;
 
 	~this() {
+		if (g_exiting) {
+			session.destroy();
+		}
 	}
 }
 

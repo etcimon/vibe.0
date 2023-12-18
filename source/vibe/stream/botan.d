@@ -26,12 +26,12 @@ import std.exception;
 import std.format;
 import botan.libstate.init;
 
-static this() {
-	LibraryInitializer.initialize();
-}
+
 static ~this() {
-	LibraryInitializer.deinitialize();
+    import botan.libstate.global_state;
+    setGlobalState(null);
 }
+
 class BotanTLSStream : TLSStream, Buffered
 {
 private:
@@ -135,14 +135,17 @@ public:
 			m_ctx.onAfterHandshake(cast(TLSStream)this);
 		}
 		catch(Exception e) {
-			//vibe.core.log.logError("Error in handshake: %s", e.msg);
+			logError("Error in handshake: %s", e.msg);
 			m_ex = e;
 		}
 	}
 
 	~this() {
-		try m_tls_channel.destroy();
+		try {
+			m_tls_channel.destroy();
+		}
 		catch (Exception e) {
+			logError("Error in TLSStream dtor: %s", e.msg);
 		}
 	}
 
@@ -399,6 +402,12 @@ private:
 			m_after_handshake(tls_stream);
 	}
 
+	~this() {
+		try if (m_rng) m_rng.destroy();
+		catch (Exception e) {
+			logError("Exception destroying rng");
+		}
+	}
 public:
 
 	this(TLSContextKind kind,
@@ -976,10 +985,11 @@ public:
 	{ return super.psk(type, context, identity); }
 
 	~this() {
-		m_key.destroy();
+		if (m_key) m_key.destroy();
 		foreach (ref CertificateStore store; m_stores[]) {
 			store.destroy();
 		}
+
 	}
 public:
 	X509Certificate m_server_cert, m_ca_cert;

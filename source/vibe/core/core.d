@@ -1327,19 +1327,6 @@ private class VibeDriverCore : DriverCore {
 					s_taskEventCallback(TaskEvent.resume, task);
 			}
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
-		} else {
-
-				assert(!s_eventLoopRunning, "Event processing outside of a fiber should only happen before the event loop is running!?");
-				m_eventException = null;
-			try if (auto err = getEventDriver().runEventLoopOnce()) {
-					logError("Error running event loop: %d", err);
-					assert(err != 1, "No events registered, exiting event loop.");
-					assert(false, "Error waiting for events.");
-			}
-			catch (Exception e) {
-				assert(false, "Driver.runEventLoopOnce() threw: "~e.msg);
-			}
-			// leave m_eventException untouched, so that it gets thrown on the next yieldForEvent call
 		}
 	}
 
@@ -1770,7 +1757,7 @@ nothrow {
 
 private extern(C) void onBrokenPipe(int signal)
 nothrow {
-	//logTrace("Broken pipe.");
+	logError("Broken pipe.");
 }
 
 version(Posix)

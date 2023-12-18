@@ -30,7 +30,7 @@ void main()
 			{
 				StopWatch sw;
 				sw.start();
-				requestHTTP("https://api.hubapi.com/contacts/v1/lists/all/contacts/all",
+				requestHTTP("https://httpbin.org/ip",
 					(scope req) {
 
 						logDebug("Callback called with Request");
