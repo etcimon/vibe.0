@@ -73,7 +73,7 @@ import memutils.scoped;
 	required to convert a JSON value to the corresponding static D type.
 */
 align(8)
-struct Json {	
+struct Json {
 	static assert(!hasElaborateDestructor!BigInt && !hasElaborateCopyConstructor!BigInt,
 		"struct Json is missing required ~this and/or this(this) members for BigInt.");
 
@@ -87,7 +87,7 @@ struct Json {
 		// Explicity initializing it works around this issue. Using a void[]
 		// array here to guarantee that it's scanned by the GC.
 		void[m_size] m_data = (void[m_size]).init;
-		
+
 		static assert(m_data.offsetof == 0, "m_data must be the first struct member.");
 		static assert(BigInt.alignof <= 8, "Json struct alignment of 8 isn't sufficient to store BigInt.");
 
@@ -285,7 +285,13 @@ struct Json {
 	/**
 		Allows direct indexing of array typed JSON values.
 	*/
-	ref inout(Json) opIndex(size_t idx) inout { checkType!(Json[])(); return m_array[idx]; }
+	ref inout(Json) opIndex(size_t idx) inout { version(JsonOptionalChaining) {
+			if (m_type != Json.Type.array || idx >= m_array.length)
+				return Json.undefined;
+		}
+		else checkType!(Json[])();
+
+		return m_array[idx]; }
 
 	///
 	unittest {
@@ -305,7 +311,11 @@ struct Json {
 	*/
 	const(Json) opIndex(string key)
 	const {
-		checkType!(Json[string])("opIndex", key);
+		version(JsonOptionalChaining) {
+			if (m_type != Json.Type.object)
+				return Json.undefined;
+		}
+		else checkType!(Json[string])("opIndex", key);
 		if( auto pv = key in m_object ) return *pv;
 		Json ret = Json.undefined;
 		ret.m_string = key;
@@ -315,7 +325,11 @@ struct Json {
 	/// ditto
 	ref Json opIndex(string key)
 	{
-		checkType!(Json[string])("opIndex", key);
+		version(JsonOptionalChaining) {
+			if (m_type != Json.Type.object)
+				return Json.undefined;
+		}
+		else checkType!(Json[string])("opIndex", key);
 		if( auto pv = key in m_object )
 			return *pv;
 		if (m_object is null) {
@@ -588,7 +602,7 @@ struct Json {
 			switch( m_type ){
 				default: return Json(["value": this]);
 				case Type.object: return m_object;
-			}		
+			}
 		} else static if( is(T == BigInt) ){
 			final switch( m_type ){
 				case Type.undefined: return BigInt(0);
@@ -1008,11 +1022,11 @@ struct Json {
 		// via m_bigInt(), we should explicitly initialize m_data with BigInt.init
 		m_data[0 .. BigInt.sizeof] = cast(void[])init_;
 	}
-	
+
 	private void runDestructors()
 	{
 		if (m_type != Type.bigInt) return;
-		
+
 		BigInt init_;
 		// After swaping, init_ contains the real number from Json, and it
 		// will be destroyed when this function is finished.
@@ -1020,7 +1034,7 @@ struct Json {
 		// be ommited for it.
 		swap(init_, m_bigInt);
 	}
-	
+
 	private long bigIntToLong() inout
 	{
 		assert(m_type == Type.bigInt, format("Converting non-bigInt type with bitIntToLong!?: %s", cast(Type)m_type));
@@ -1618,7 +1632,7 @@ struct JsonStringSerializer(R, bool pretty = false)
 			else static if (is(T : long)) m_range.formattedWrite("%s", value);
 			else static if (is(T == BigInt)) m_range.formattedWrite("%d", value);
 			else static if (is(T : real)) {
-				if (value != value) 
+				if (value != value)
 					m_range.put("null"); // JSON has no NaN value so set null
 				else {
 					string str = format("%.16g", value);
@@ -1802,9 +1816,9 @@ void writeJsonString(R, bool pretty = false)(ref R dst, in Json json, size_t lev
 		case Json.Type.bool_: dst.put(cast(bool)json ? "true" : "false"); break;
 		case Json.Type.int_: formattedWrite(dst, "%d", json.get!long); break;
 		case Json.Type.bigInt: () @trusted { formattedWrite(dst, "%d", json.get!BigInt); } (); break;
-		case Json.Type.float_: 
+		case Json.Type.float_:
 			auto d = json.get!double;
-			if (d != d) 
+			if (d != d)
 				dst.put("null"); // JSON has no NaN value so set null
 			else {
 				string str = format("%.16g", json.get!double);
@@ -2126,13 +2140,13 @@ private string skipNumber(R)(ref R s, out bool is_float, out bool is_long_overfl
 			idx++;
 		}
 	}
-	
+
 	if( idx < s.length && s[idx] == '.' ){
 		idx++;
 		is_float = true;
 		while( idx < s.length && isDigit(s[idx]) ) idx++;
 	}
-	
+
 	if( idx < s.length && (s[idx] == 'e' || s[idx] == 'E') ){
 		idx++;
 		is_float = true;
@@ -2141,7 +2155,7 @@ private string skipNumber(R)(ref R s, out bool is_float, out bool is_long_overfl
 		idx++;
 		while( idx < s.length && isDigit(s[idx]) ) idx++;
 	}
-	
+
 	string ret = s[0 .. idx];
 	s = s[idx .. $];
 	return ret;
