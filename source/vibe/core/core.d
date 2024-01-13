@@ -144,6 +144,10 @@ void exitEventLoop(bool shutdown_all_threads = false)
 	if (s_eventLoopRunning) getEventDriver().exitEventLoop();
 }
 
+bool eventLoopRunning() {
+	return s_eventLoopRunning;
+}
+
 /**
 	Process all pending events without blocking.
 
@@ -1327,6 +1331,22 @@ private class VibeDriverCore : DriverCore {
 					s_taskEventCallback(TaskEvent.resume, task);
 			}
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
+		} else {
+			logWarn("Running yielding operations from outside of a Task is not supported");
+			version(unittest) {
+				assert(!s_eventLoopRunning, "Event processing outside of a fiber should only happen before the event loop is running!?");
+				m_eventException = null;
+				try if (auto err = getEventDriver().runEventLoopOnce()) {
+								logError("Error running event loop: %d", err);
+								assert(err != 1, "No events registered, exiting event loop.");
+								assert(false, "Error waiting for events.");
+				}
+				catch (Exception e) {
+						assert(false, "Driver.runEventLoopOnce() threw: "~e.msg);
+				}
+				// leave m_eventException untouched, so that it gets thrown on the next yieldForEvent call
+
+			}
 		}
 	}
 

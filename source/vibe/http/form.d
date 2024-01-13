@@ -48,7 +48,7 @@ unittest {
 	import std.array;
 	import vibe.core.log;
 	import vibe.http.form;
-
+	setLogLevel(LogLevel.trace);
 	void test()
 	{
 		auto dst = appender!string();
@@ -143,7 +143,7 @@ struct StringLengthCountingRange {
 		string surname;
 		Address address;
    }
-   // Assume form data: [ "customer_name" : "John", "customer_surname" : "Smith", "customer_address_street" : "Broadway", "customer_address_door" : "12", "customer_address_zipCode" : "1002"] 
+   // Assume form data: [ "customer_name" : "John", "customer_surname" : "Smith", "customer_address_street" : "Broadway", "customer_address_door" : "12", "customer_address_zipCode" : "1002"]
    void postPerson(HTTPServerRequest req, HTTPServerResponse res) {
 		Person p;
 		// We have a default value for country if not provided, so we don't care that it is not:
@@ -155,7 +155,7 @@ struct StringLengthCountingRange {
 		assert(p.name=="John");
 		assert(p.surname=="Smith");
    }
-   --- 
+   ---
   * The mechanism is more useful in get requests, when you have good default values for unspecified parameters.
   * Params:
   *		req  = The HTTPServerRequest that contains the form data. (req.query or req.form will be used depending on HTTPMethod)
@@ -299,7 +299,7 @@ unittest {
 		Test1 e;
 		E f;
 	}
-	
+
 	Test t;
 	t.b=8;
 	t.e.a=9;

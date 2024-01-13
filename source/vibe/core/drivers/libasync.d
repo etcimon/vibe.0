@@ -46,8 +46,8 @@ static if (__VERSION__ >= 2071)
     extern (C) bool gc_inFinalizer();
 
 version(Windows) extern(C) {
-	FILE* _wfopen(const(wchar)* filename, in wchar* mode);
-	int _wchmod(in wchar*, int);
+	FILE* _wfopen(const(wchar)* filename, const wchar* mode);
+	int _wchmod(const wchar*, int);
 }
 
 EventLoop getEventLoop() nothrow

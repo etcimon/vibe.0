@@ -5,6 +5,6 @@
 	"dependencies": {
 		"vibe-0": {"version": "~master", "path": "../../"}
 	},
-	"versions": ["VibeDefaultMain", "DisableDebugger", "VibeNoDebug"],
+	"versions": ["VibeCustomMain", "DisableDebugger", "VibeNoDebug"],
 	"lflags": ["/verbose:lib", "/nodefaultlib:msvcrt"]
 }
