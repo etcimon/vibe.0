@@ -116,53 +116,71 @@ void registerWebInterface(C : Object, MethodStyle method_style = MethodStyle.low
 {
 	import std.algorithm : endsWith;
 	import std.traits;
+	import vibe.internal.meta.uda : findFirstUDA;
 
 	if (!settings) settings = new WebInterfaceSettings;
+
+	string url_prefix = settings.urlPrefix;
+	enum cls_path = findFirstUDA!(PathAttribute, C);
+	static if (cls_path.found) {
+		url_prefix = concatURL(url_prefix, cls_path.value, true);
+	}
 
 	foreach (M; __traits(allMembers, C)) {
 		/*static if (isInstanceOf!(SessionVar, __traits(getMember, instance, M))) {
 			__traits(getMember, instance, M).m_getContext = toDelegate({ return s_requestContext; });
 		}*/
-		static if (!is(typeof(__traits(getMember, Object, M)))) { // exclude Object's default methods and field
-			foreach (overload; MemberFunctionsTuple!(C, M)) {
-				alias RT = ReturnType!overload;
-				enum minfo = extractHTTPMethodAndName!(overload, true)();
-				enum url = minfo.hadPathUDA ? minfo.url : adjustMethodStyle(minfo.url, method_style);
 
-				static if (is(RT == class) || is(RT == interface)) {
-					// nested API
-					static assert(
-						ParameterTypeTuple!overload.length == 0,
-						"Instances may only be returned from parameter-less functions ("~M~")!"
-					);
-					auto subsettings = settings.dup;
-					subsettings.urlPrefix = concatURL(settings.urlPrefix, url, true);
-					registerWebInterface!RT(router, __traits(getMember, instance, M)(), subsettings);
-				} else {
-					auto fullurl = concatURL(settings.urlPrefix, url);
-					router.match(minfo.method, fullurl, (req, res) {
-						handleRequest!(M, overload)(req, res, instance, settings);
-					});
-					if (settings.ignoreTrailingSlash && !fullurl.endsWith("*")) {
-						auto m = fullurl.endsWith("/") ? fullurl[0 .. $-1] : fullurl ~ "/";
-						router.match(minfo.method, m, (req, res) {
-							static if (minfo.method == HTTPMethod.GET) {
-								URL redurl = req.fullURL;
-								auto redpath = redurl.path;
-								redpath.endsWithSlash = !redpath.endsWithSlash;
-								redurl.path = redpath;
-								res.redirect(redurl);
-							} else {
-								handleRequest!(M, overload)(req, res, instance, settings);
-							}
+		// Ignore special members, such as ctor, dtors, postblit, and opAssign,
+		// and object default methods and fields.
+		// See https://github.com/vibe-d/vibe.d/issues/2438
+		static if (M != "__ctor" && M != "__dtor" && M != "__xdtor" && M != "this"
+				   && M != "__postblit" && M != "__xpostblit" && M != "opAssign"
+				   && !is(typeof(__traits(getMember, Object, M))))
+		{
+			foreach (overload; __traits(getOverloads, C, M)) {
+				static if (isPublic!overload) {
+					alias RT = ReturnType!overload;
+					enum minfo = extractHTTPMethodAndName!(overload, true)();
+					enum url = minfo.hadPathUDA ? minfo.url : adjustMethodStyle(minfo.url, method_style);
+
+					static if (findFirstUDA!(NoRouteAttribute, overload).found) {
+						import vibe.core.log : logDebug;
+						logDebug("Method %s.%s annotated with @noRoute - not generating a route entry.", C.stringof, M);
+					} else static if (is(RT == class) || is(RT == interface)) {
+						// nested API
+						static assert(
+							ParameterTypeTuple!overload.length == 0,
+							"Instances may only be returned from parameter-less functions ("~M~")!"
+						);
+						auto subsettings = settings.dup;
+						subsettings.urlPrefix = concatURL(url_prefix, url, true);
+						registerWebInterface!RT(router, __traits(getMember, instance, M)(), subsettings);
+					} else {
+						auto fullurl = concatURL(url_prefix, url);
+						router.match(minfo.method, fullurl, (HTTPServerRequest req, HTTPServerResponse res) @trusted {
+							handleRequest!(M, overload)(req, res, instance, settings);
 						});
+						if (settings.ignoreTrailingSlash && !fullurl.endsWith("*") && fullurl != "/") {
+							auto m = fullurl.endsWith("/") ? fullurl[0 .. $-1] : fullurl ~ "/";
+							router.match(minfo.method, m, delegate void (HTTPServerRequest req, HTTPServerResponse res) {
+								static if (minfo.method == HTTPMethod.GET) {
+									URL redurl = req.fullURL;
+									auto redpath = redurl.path;
+									redpath.endsWithSlash = !redpath.endsWithSlash;
+									redurl.path = redpath;
+									res.redirect(redurl);
+								} else {
+									() @trusted { handleRequest!(M, overload)(req, res, instance, settings); } ();
+								}
+							});
+						}
 					}
 				}
 			}
 		}
 	}
 }
-
 
 /**
 	Gives an overview of the basic features. For more advanced use, see the
@@ -498,7 +516,7 @@ private void handleRequest(string M, alias overload, C, ERROR...)(HTTPServerRequ
 				}
 			}
 		} catch (HTTPStatusException e) {
-			throw e;		
+			throw e;
 		} catch (Exception ex) {
 			static if (erruda.found && ERROR.length == 0) {
 				auto err = erruda.value.getError(ex, param_names[i]);
@@ -587,4 +605,11 @@ private RequestContext createRequestContext(alias handler)(HTTPServerRequest req
 	ret.res = res;
 
 	return ret;
+}
+
+
+static if (__VERSION__ >= 2096) {
+	enum isPublic(alias symbol) = __traits(getVisibility, symbol) == "public";
+} else {
+	enum isPublic(alias symbol) = __traits(getProtection, symbol) == "public";
 }

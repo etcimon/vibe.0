@@ -319,6 +319,9 @@ PathAttribute path(string data)
 	return PathAttribute(data);
 }
 
+/// private
+package struct NoRouteAttribute {}
+
 /**
 	Scheduled for deprecation - use @$(D path) instead.
 
@@ -375,6 +378,20 @@ package struct WebParamAttribute {
 	string identifier;
 	/// The meaning of this field depends on the origin.
 	string field;
+}
+
+/**
+	Methods marked with this attribute will not be treated as web endpoints.
+
+	This attribute enables the definition of public methods that do not take
+	part in the interface genration process.
+*/
+@property NoRouteAttribute noRoute()
+{
+	import vibe.web.common : onlyAsUda;
+	if (!__ctfe)
+		assert(false, onlyAsUda!__FUNCTION__);
+	return NoRouteAttribute.init;
 }
 
 /**
