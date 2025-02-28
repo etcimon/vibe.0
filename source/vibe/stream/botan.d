@@ -695,7 +695,7 @@ private:
 */
 class CustomTLSPolicy : TLSPolicy
 {
-	TLSProtocolVersion m_min_ver = TLSProtocolVersion.TLS_V10;
+	TLSProtocolVersion m_min_ver = TLSProtocolVersion.TLS_V12;
 	int m_min_dh_group_size = 1024;
 	Vector!TLSCiphersuite m_pri_ciphersuites;
 	Vector!string m_pri_ecc_curves;
@@ -780,7 +780,6 @@ public:
 		cache_version = _version;
 		cache_have_srp = have_srp;
 		cache_ret = ret.clone();
-
 		return ret.move();
 	}
 
