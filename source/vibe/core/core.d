@@ -1333,7 +1333,8 @@ private class VibeDriverCore : DriverCore {
 			// leave fiber.m_exception untouched, so that it gets thrown on the next yieldForEvent call
 		} else {
 			logWarn("Running yielding operations from outside of a Task is not supported");
-			version(unittest) {
+			// version(unittest)
+			{
 				assert(!s_eventLoopRunning, "Event processing outside of a fiber should only happen before the event loop is running!?");
 				m_eventException = null;
 				try if (auto err = getEventDriver().runEventLoopOnce()) {
