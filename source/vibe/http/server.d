@@ -1892,6 +1892,8 @@ void handleRequest(TCPConnection tcp_conn,
 				   ref bool keep_alive)
 {
 	mixin(Trace);
+	// Used for the parser and the HTTPServerResponse
+	auto scoped_pool = ScopedPool(4096);
 	ConnectionStream topStream()
 	{
 		if (http2_stream !is null)
@@ -1952,8 +1954,6 @@ void handleRequest(TCPConnection tcp_conn,
 	bool parsed;
 	keep_alive = false;
 
-	// Used for the parser and the HTTPServerResponse
-	auto scoped_pool = ScopedPool(4096);
 	// parse the request
 	try {
 		bool is_upgrade;
@@ -2169,7 +2169,7 @@ void handleRequest(TCPConnection tcp_conn,
 		if (curr_time > last_time)
 		{
 			last_time = curr_time;
-			last_date_str = formatRFC822DateAlloc(req.timeCreated);
+			last_date_str = formatRFC822DateAlloc(req.timeCreated).idup;
 		}
 		res.headers["Date"] = last_date_str;
 
@@ -2192,14 +2192,20 @@ void handleRequest(TCPConnection tcp_conn,
 		// //logTrace("handle request (body %d)", req.bodyReader.leastSize);
 		res.httpVersion = http2_stream ? HTTPVersion.HTTP_2 : req.httpVersion;
 		//logTrace("Request handler");
-		scope(failure) {
+		//scope(failure) {
 			//logTrace("Failed request handler");
-		}
+		//}
 		{
-			PoolStack.freeze(1);
-			scope(exit)
-				PoolStack.unfreeze(1);
-			context.requestHandler(req, res);
+			scoped_pool.freeze();
+			try {
+
+				context.requestHandler(req, res);
+
+			} catch (Exception e) {
+				scoped_pool.unfreeze();
+				throw e;
+			}
+			scoped_pool.unfreeze();
 		}
 		//logTrace("Request handler done");
 

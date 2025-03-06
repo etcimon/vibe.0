@@ -15,7 +15,7 @@ void handleRequest(scope HTTPServerRequest req, scope HTTPServerResponse res)
 
 void main()
 {
-	setLogLevel(LogLevel.trace);
+	setLogLevel(LogLevel.error);
 	auto settings = new HTTPServerSettings;
 	settings.port = 4343;
 	settings.disableHTTP2 = false;

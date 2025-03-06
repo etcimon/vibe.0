@@ -257,7 +257,7 @@ ubyte[] readAll(Stream)(Stream stream, size_t max_bytes = size_t.max, size_t res
 	if (max_bytes == 0) logDebug("Deprecated behavior: readAll() called with max_bytes==0, use max_bytes==size_t.max instead.");
 
 	// prepare output buffer
-	auto dst = Vector!(ubyte, PoolStack)();
+	auto dst = Vector!(ubyte, ThreadMem)();
 
 	import std.traits : hasMember;
 	static if (hasMember!(Stream, "waitForData"))
