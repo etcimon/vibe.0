@@ -22,6 +22,7 @@ import vibe.stream.tls;
 import vibe.stream.operations;
 import vibe.stream.zlib;
 import vibe.stream.brotli;
+import vibe.stream.wrapper;
 import vibe.utils.array;
 import vibe.utils.string : icmp2;
 import vibe.http.http2;
@@ -1486,6 +1487,49 @@ final class HTTPClientResponse : HTTPResponse {
 	}
 
 	/**
+		Switches the connection to a new protocol and returns the resulting ConnectionStream.
+
+		The caller caller gets ownership of the ConnectionStream and is responsible
+		for closing it.
+
+		Notice:
+			When using the overload that returns a `ConnectionStream`, the caller
+			must make sure that the stream is not used after the
+			`HTTPClientRequest` has been destroyed.
+
+		Params:
+			new_protocol = The protocol to which the connection is expected to
+				upgrade. Should match the Upgrade header of the request. If an
+				empty string is passed, the "Upgrade" header will be ignored and
+				should be checked by other means.
+	*/
+	ConnectionStream switchProtocol(string new_protocol)
+	{
+		enforce(statusCode == HTTPStatus.switchingProtocols, "Server did not send a 101 - Switching Protocols response");
+		string *resNewProto = "Upgrade" in headers;
+		enforce(resNewProto, "Server did not send an Upgrade header");
+		enforce(!new_protocol.length || !icmp(*resNewProto, new_protocol),
+			"Expected Upgrade: " ~ new_protocol ~", received Upgrade: " ~ *resNewProto);
+		auto stream = new ConnectionProxyStream(m_client.topStream, m_client.m_conn.tcp);
+
+		m_keepAlive = false; // cannot reuse connection for further requests!
+		return stream;
+	}
+	/// ditto
+	void switchProtocol(string new_protocol, scope void delegate(ConnectionStream str) @safe del)
+	{
+		enforce(statusCode == HTTPStatus.switchingProtocols, "Server did not send a 101 - Switching Protocols response");
+		string *resNewProto = "Upgrade" in headers;
+		enforce(resNewProto, "Server did not send an Upgrade header");
+		enforce(!new_protocol.length || !icmp(*resNewProto, new_protocol),
+			"Expected Upgrade: " ~ new_protocol ~", received Upgrade: " ~ *resNewProto);
+		auto stream = new ConnectionProxyStream(m_client.topStream, m_client.m_conn.tcp);
+		scope (exit) () @trusted { destroy(stream); } ();
+		m_keepAlive = false;
+		del(stream);
+	}
+
+	/**
 		Provides unsafe means to read raw data from the connection.
 
 		No transfer decoding and no content decoding is done on the data.
@@ -1695,7 +1739,7 @@ private __gshared NullOutputStream s_sink;
 // This object is a placeholder and should to never be modified.
 private HTTPClientSettings g_defaultSettings;
 
-HTTPClientSettings defaultSettings() {
+package @property HTTPClientSettings defaultSettings() {
 	if (!g_defaultSettings)
 		g_defaultSettings = new HTTPClientSettings;
 	return g_defaultSettings;

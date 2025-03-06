@@ -1224,6 +1224,15 @@ final class HTTPServerResponse : HTTPResponse {
 		return topStream;
 	}
 
+	void switchProtocol(string protocol, scope void delegate(scope ConnectionStream) del)
+	{
+		statusCode = HTTPStatus.switchingProtocols;
+		headers["Upgrade"] = protocol;
+		writeVoidBody();
+		del(topStream);
+		finalize();
+	}
+
 	/** Sets the specified cookie value.
 
 		Params:
@@ -1337,7 +1346,7 @@ final class HTTPServerResponse : HTTPResponse {
 	}
 
 	// Finalizes the response. This is called automatically by the server.
-	private void finalize()
+	package void finalize()
 	{
 		mixin(Trace);
 		ulong bytes_written = bytesWritten();

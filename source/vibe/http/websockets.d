@@ -35,6 +35,9 @@ import vibe.core.log;
 import vibe.core.net;
 import vibe.stream.operations;
 import vibe.http.server;
+import vibe.http.client;
+import vibe.core.connectionpool;
+import vibe.crypto.cryptorand;
 
 import core.time;
 import std.array;
@@ -45,13 +48,16 @@ import std.bitmanip;
 import std.digest.sha;
 import std.string;
 import std.functional;
-
+import std.uni: asLowerCase;
+import std.algorithm;
 import memutils.vector;
 
 
 /// Exception thrown by $(D vibe.http.websockets).
 class WebSocketException: Exception
 {
+	@safe pure nothrow:
+
 	///
 	this(string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null)
 	{
@@ -65,6 +71,52 @@ class WebSocketException: Exception
 	}
 }
 
+/// ditto
+void connectWebSocketEx(URL url,
+	scope void delegate(scope HTTPClientRequest) request_modifier,
+	scope WebSocketHandshakeDelegate del,
+	HTTPClientSettings settings = defaultSettings)
+{
+	const use_tls = (url.schema == "wss" || url.schema == "https") ? true : false;
+	url.schema = use_tls ? "https" : "http";
+
+	/*scope*/auto rng = secureRNG();
+	auto challengeKey = generateChallengeKey(rng);
+	auto answerKey = computeAcceptKey(challengeKey);
+
+	requestHTTP(url,
+		(scope req) {
+			req.method = HTTPMethod.GET;
+			req.headers["Upgrade"] = "websocket";
+			req.headers["Connection"] = "Upgrade";
+			req.headers["Sec-WebSocket-Version"] = "13";
+			req.headers["Sec-WebSocket-Key"] = challengeKey;
+			request_modifier(req);
+		},
+		(scope res) {
+			enforce(res.statusCode == HTTPStatus.switchingProtocols, "Server didn't accept the protocol upgrade request.");
+			auto key = "sec-websocket-accept" in res.headers;
+			enforce(key !is null, "Response is missing the Sec-WebSocket-Accept header.");
+			enforce(*key == answerKey, "Response has wrong accept key");
+			res.switchProtocol("websocket", (scope conn) @trusted {
+				scope ws = new WebSocket(conn, rng, res);
+				del(ws);
+				if (ws.connected) ws.close();
+			});
+		},
+		settings
+	);
+}
+
+/// ditto
+void connectWebSocket(URL url, scope void delegate(scope WebSocket) del, HTTPClientSettings settings = defaultSettings)
+{
+	connectWebSocket(url, (scope ws) nothrow {
+		try del(ws);
+		catch (Exception e) logWarn("WebSocket handler failed: %s", e.msg);
+	}, settings);
+}
+
 /**
     Establishes a web socket conection and passes it to the $(D on_handshake) delegate.
 */
@@ -75,35 +127,40 @@ void handleWebSocket(scope WebSocketHandshakeDelegate on_handshake, scope HTTPSe
 	auto pKey = "Sec-WebSocket-Key" in req.headers;
 	//auto pProtocol = "Sec-WebSocket-Protocol" in req.headers;
 	auto pVersion = "Sec-WebSocket-Version" in req.headers;
-	
+
 	auto isUpgrade = false;
-	
+
 	if( pConnection ) {
-		auto connectionTypes = split(*pConnection, ",");
+		auto connectionTypes = splitter(*pConnection, ",");
 		foreach( t ; connectionTypes ) {
-			if( t.strip().toLower() == "upgrade" ) {
+			if( t.strip().asLowerCase().equal("upgrade") ) {
 				isUpgrade = true;
 				break;
 			}
 		}
 	}
-	if( !(isUpgrade &&
-	      pUpgrade && icmp(*pUpgrade, "websocket") == 0 &&
-	      pKey &&
-	      pVersion && *pVersion == "13") )
-	{
-		logDebug("Browser sent invalid WebSocket request.");
+
+	string req_error;
+	if (!isUpgrade) req_error = "WebSocket endpoint only accepts \"Connection: upgrade\" requests.";
+	else if (!pUpgrade || icmp(*pUpgrade, "websocket") != 0) req_error = "WebSocket endpoint requires \"Upgrade: websocket\" header.";
+	else if (!pVersion || *pVersion != "13") req_error = "Only version 13 of the WebSocket protocol is supported.";
+	else if (!pKey) req_error = "Missing \"Sec-WebSocket-Key\" header.";
+
+	if (req_error.length) {
+		logDebug("Browser sent invalid WebSocket request: %s", req_error);
 		res.statusCode = HTTPStatus.badRequest;
-		res.writeVoidBody();
+		res.writeBody(req_error);
 		return;
 	}
 
-	auto accept = cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid));
+	auto accept = () @trusted { return cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid)); } ();
 	res.headers["Sec-WebSocket-Accept"] = accept;
 	res.headers["Connection"] = "Upgrade";
 	ConnectionStream conn = res.switchProtocol("websocket");
 
-	WebSocket socket = new WebSocket(conn, req);
+	// NOTE: silencing scope warning here - WebSocket references the scoped
+	//       req/res objects throughout its lifetime, which has a narrower scope
+	scope socket = () @trusted { return new WebSocket(conn, req, res); } ();
 	try {
 		on_handshake(socket);
 	} catch (Exception e) {
@@ -119,6 +176,16 @@ HTTPServerRequestDelegateS handleWebSockets(void function(scope WebSocket) on_ha
 {
 	return handleWebSockets(toDelegate(on_handshake));
 }
+
+/**
+	Returns a HTTP request handler that establishes web socket conections.
+*/
+HTTPServerRequestDelegateS handleWebSockets(void function(scope WebSocket) nothrow on_handshake)
+{
+	return handleWebSockets(() @trusted { return toDelegate(on_handshake); } ());
+}
+
+
 /// ditto
 HTTPServerRequestDelegateS handleWebSockets(WebSocketHandshakeDelegate on_handshake)
 {
@@ -133,9 +200,9 @@ HTTPServerRequestDelegateS handleWebSockets(WebSocketHandshakeDelegate on_handsh
 		auto isUpgrade = false;
 
 		if( pConnection ) {
-			auto connectionTypes = split(*pConnection, ",");
+			auto connectionTypes = splitter(*pConnection, ",");
 			foreach( t ; connectionTypes ) {
-				if( t.strip().toLower() == "upgrade" ) {
+				if( t.strip().asLowerCase().equal("upgrade") ) {
 					isUpgrade = true;
 					break;
 				}
@@ -152,58 +219,247 @@ HTTPServerRequestDelegateS handleWebSockets(WebSocketHandshakeDelegate on_handsh
 			return;
 		}
 
-		auto accept = cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid));
+		auto accept = () @trusted { return cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid)); } ();
 		res.headers["Sec-WebSocket-Accept"] = accept;
 		res.headers["Connection"] = "Upgrade";
-		ConnectionStream conn = res.switchProtocol("websocket");
-
-		// TODO: put back 'scope' once it is actually enforced by DMD
-		/*scope*/ auto socket = new WebSocket(conn, req);
-		try on_handshake(socket);
-		catch (Exception e) {
-			logDiagnostic("WebSocket handler failed: %s", e.msg);
-		} catch (Throwable th) {
-			// pretend to have sent a closing frame so that any further sends will fail
-			socket.m_sentCloseFrame = true;
-			throw th;
-		}
-		socket.close();
+		res.switchProtocol("websocket", (scope conn) {
+			// TODO: put back 'scope' once it is actually enforced by DMD
+			/*scope*/ auto socket = new WebSocket(conn, req, res);
+			try on_handshake(socket);
+			catch (Exception e) {
+				logDiagnostic("WebSocket handler failed: %s", e.msg);
+			}
+			socket.close();
+		});
 	}
 	return &callback;
 }
 
 
 /**
-	Represents a single _WebSocket connection.
-*/
+ * Provides the reason that a websocket connection has closed.
+ *
+ * Further documentation for the WebSocket and it's codes can be found from:
+ * https://developer.mozilla.org/en-US/docs/Web/API/CloseEvent
+ *
+ * ---
+ *
+ * void echoSocket(scope WebSocket sock)
+ * {
+ *   import std.datetime : seconds;
+ *
+ *   while(sock.waitForData(3.seconds))
+ *   {
+ *     string msg = sock.receiveText;
+ *     logInfo("Got a message: %s", msg);
+ *     sock.send(msg);
+ *   }
+ *
+ *   if(sock.connected)
+ *     sock.close(WebSocketCloseReason.policyViolation, "timeout");
+ * }
+ * ---
+ */
+enum WebSocketCloseReason : short
+{
+	none = 0,
+	normalClosure = 1000,
+	goingAway = 1001,
+	protocolError = 1002,
+	unsupportedData = 1003,
+	noStatusReceived = 1005,
+	abnormalClosure = 1006,
+	invalidFramePayloadData = 1007,
+	policyViolation = 1008,
+	messageTooBig = 1009,
+	internalError = 1011,
+	serviceRestart = 1012,
+	tryAgainLater = 1013,
+	badGateway = 1014,
+	tlsHandshake = 1015
+}
+
+string closeReasonString(WebSocketCloseReason reason) @nogc
+{
+	import std.math : floor;
+
+	//round down to the nearest thousand to get category
+	switch(cast(short)(cast(float)reason / 1000f).floor)
+	{
+		case 0:
+			return "Reserved and Unused";
+		case 1:
+			switch(reason)
+			{
+				case 1000:
+					return "Normal Closure";
+				case 1001:
+					return "Going Away";
+				case 1002:
+					return "Protocol Error";
+				case 1003:
+					return "Unsupported Data";
+				case 1004:
+					return "RESERVED";
+				case 1005:
+					return "No Status Recvd";
+				case 1006:
+					return "Abnormal Closure";
+				case 1007:
+					return "Invalid Frame Payload Data";
+				case 1008:
+					return "Policy Violation";
+				case 1009:
+					return "Message Too Big";
+				case 1010:
+					return "Missing Extension";
+				case 1011:
+					return "Internal Error";
+				case 1012:
+					return "Service Restart";
+				case 1013:
+					return "Try Again Later";
+				case 1014:
+					return "Bad Gateway";
+				case 1015:
+					return "TLS Handshake";
+				default:
+					return "RESERVED";
+			}
+		case 2:
+			return "Reserved for extensions";
+		case 3:
+			return "Available for frameworks and libraries";
+		case 4:
+			return "Available for applications";
+		default:
+			return "UNDEFINED - Nasal Demons";
+	}
+}
+
+unittest
+{
+	assert((cast(WebSocketCloseReason)   0).closeReasonString == "Reserved and Unused");
+	assert((cast(WebSocketCloseReason)   1).closeReasonString == "Reserved and Unused");
+	assert(WebSocketCloseReason.normalClosure.closeReasonString == "Normal Closure");
+	assert(WebSocketCloseReason.abnormalClosure.closeReasonString == "Abnormal Closure");
+	assert((cast(WebSocketCloseReason)1020).closeReasonString == "RESERVED");
+	assert((cast(WebSocketCloseReason)2000).closeReasonString == "Reserved for extensions");
+	assert((cast(WebSocketCloseReason)3000).closeReasonString == "Available for frameworks and libraries");
+	assert((cast(WebSocketCloseReason)4000).closeReasonString == "Available for applications");
+	assert((cast(WebSocketCloseReason)5000).closeReasonString == "UNDEFINED - Nasal Demons");
+	assert((cast(WebSocketCloseReason)  -1).closeReasonString == "UNDEFINED - Nasal Demons");
+
+	//check the other spec cases
+	for(short i = 1000; i < 1017; i++)
+	{
+		if(i == 1004 || i > 1015)
+		{
+			assert(
+				(cast(WebSocketCloseReason)i).closeReasonString == "RESERVED",
+				"(incorrect) code %d = %s".format(i, closeReasonString(cast(WebSocketCloseReason)i))
+			);
+		}
+		else
+			assert(
+				(cast(WebSocketCloseReason)i).closeReasonString != "RESERVED",
+				"(incorrect) code %d = %s".format(i, closeReasonString(cast(WebSocketCloseReason)i))
+			);
+	}
+}
+
+/**
+ * Represents a single _WebSocket connection.
+ *
+ * ---
+ * int main (string[] args)
+ * {
+ *   auto taskHandle = runTask(() => connectToWS());
+ *   return runApplication(&args);
+ * }
+ *
+ * void connectToWS ()
+ * {
+ *   auto ws_url = URL("wss://websockets.example.com/websocket/auth_token");
+ *   auto ws = connectWebSocket(ws_url);
+ *   logInfo("WebSocket connected");
+ *
+ *   while (ws.waitForData())
+ *   {
+ *     auto txt = ws.receiveText;
+ *     logInfo("Received: %s", txt);
+ *   }
+ *   logFatal("Connection lost!");
+ * }
+ * ---
+ */
 final class WebSocket {
+
 	private {
 		ConnectionStream m_conn;
 		bool m_sentCloseFrame = false;
 		IncomingWebSocketMessage m_nextMessage = null;
-		const HTTPServerRequest m_request;
+		HTTPServerRequest m_request;
+		HTTPServerResponse m_serverResponse;
+		HTTPClientResponse m_clientResponse;
 		Task m_reader;
+		Task m_ownerTask;
 		InterruptibleTaskMutex m_readMutex, m_writeMutex;
 		InterruptibleTaskCondition m_readCondition;
 		Timer m_pingTimer;
 		uint m_lastPingIndex;
 		bool m_pongReceived;
-		bool m_pongSkipped;
+		short m_closeCode;
+		const(char)[] m_closeReason;
+		/// The entropy generator to use
+		/// If not null, it means this is a server socket.
+		RandomNumberStream m_rng;
 	}
 
-	this(ConnectionStream conn, in HTTPServerRequest request)
+scope:
+
+	/**
+	 * Private constructor, called from `connectWebSocket`.
+	 *
+	 * Params:
+	 *	 conn = Underlying connection string
+	 *	 request = HTTP request used to establish the connection
+	 *	 rng = Source of entropy to use.  If null, assume we're a server socket
+	 *   client_res = For client sockets, the response object (keeps the http client locked until the socket is done)
+	 */
+	private this(ConnectionStream conn, HTTPServerRequest request, HTTPServerResponse server_res, RandomNumberStream rng, HTTPClientResponse client_res)
 	{
+		m_ownerTask = Task.getThis();
 		m_conn = conn;
 		m_request = request;
+		m_clientResponse = client_res;
+		m_serverResponse = server_res;
 		assert(m_conn);
-		m_reader = runTask(&startReader);
+		m_rng = rng;
 		m_writeMutex = new InterruptibleTaskMutex;
 		m_readMutex = new InterruptibleTaskMutex;
 		m_readCondition = new InterruptibleTaskCondition(m_readMutex);
-		if (request !is null && request.serverSettings.webSocketPingInterval != Duration.zero) {
-			m_pingTimer = setTimer(request.serverSettings.webSocketPingInterval, &sendPing, true);
-			m_pongReceived = true;
-		}
+		m_readMutex.performLocked!({
+			// NOTE: Silencing scope warning here - m_reader MUST be stopped
+			//       before the end of the lifetime of the WebSocket object,
+			//       which is done in the mandatory call to close().
+			//       The same goes for m_pingTimer below.
+			m_reader = () @trusted { return runTask(&startReader); } ();
+			if (request !is null && request.serverSettings.webSocketPingInterval != Duration.zero) {
+				m_pongReceived = true;
+				m_pingTimer = () @trusted { return setTimer(request.serverSettings.webSocketPingInterval, &sendPing, true); } ();
+			}
+		});
+	}
+
+	private this(ConnectionStream conn, RandomNumberStream rng, HTTPClientResponse client_res)
+	{
+		this(conn, null, null, rng, client_res);
+	}
+
+	private this(ConnectionStream conn, HTTPServerRequest request, HTTPServerResponse res)
+	{
+		this(conn, request, res, null, null);
 	}
 
 	/**
@@ -215,12 +471,30 @@ final class WebSocket {
 
 		See_also: $(D waitForData)
 	*/
-	@property bool connected() { return m_conn.connected && !m_sentCloseFrame; }
+	@property bool connected() { return m_conn && m_conn.connected && !m_sentCloseFrame; }
+
+	/**
+		Returns the close code sent by the remote end.
+
+		Note if the connection was never opened, is still alive, or was closed
+		locally this value will be 0. If no close code was given by the remote
+		end in the close frame, the value will be 1005. If the connection was
+		not closed cleanly by the remote end, this value will be 1006.
+	*/
+	@property short closeCode() { return m_closeCode; }
+
+	/**
+		Returns the close reason sent by the remote end.
+
+		Note if the connection was never opened, is still alive, or was closed
+		locally this value will be an empty string.
+	*/
+	@property const(char)[] closeReason() { return m_closeReason; }
 
 	/**
 		The HTTP request that established the web socket connection.
 	*/
-	@property const(HTTPServerRequest) request() const { return m_request; }
+	@property inout(HTTPServerRequest) request() inout { return m_request; }
 
 	/**
 		Checks if data is readily available for read.
@@ -264,33 +538,44 @@ final class WebSocket {
 		Sends a text message.
 
 		On the JavaScript side, the text will be available as message.data (type string).
-		Throws: WebSocketException if the connection is closed.
+
+		Throws:
+			A `WebSocketException` is thrown if the connection gets closed
+			before or during the transfer of the message.
 	*/
-	void send(string data)
+	void send(scope const(char)[] data)
 	{
-		send((scope message){ message.write(cast(ubyte[])data); });
+		send(
+			(scope message) { message.write(cast(const ubyte[])data); },
+			FrameOpcode.text);
 	}
 
 	/**
 		Sends a binary message.
 
 		On the JavaScript side, the text will be available as message.data (type Blob).
-		Throws: WebSocketException if the connection is closed.
+
+		Throws:
+			A `WebSocketException` is thrown if the connection gets closed
+			before or during the transfer of the message.
 	*/
-	void send(ubyte[] data)
+	void send(in ubyte[] data)
 	{
 		send((scope message){ message.write(data); }, FrameOpcode.binary);
 	}
 
 	/**
 		Sends a message using an output stream.
-		Throws: WebSocketException if the connection is closed.
+
+		Throws:
+			A `WebSocketException` is thrown if the connection gets closed
+			before or during the transfer of the message.
 	*/
-	void send(scope void delegate(scope OutgoingWebSocketMessage) sender, FrameOpcode frameOpcode = FrameOpcode.text)
+	void send(scope void delegate(scope OutgoingWebSocketMessage) sender, FrameOpcode frameOpcode)
 	{
 		m_writeMutex.performLocked!({
 			enforce!WebSocketException(!m_sentCloseFrame, "WebSocket connection already actively closed.");
-			scope message = new OutgoingWebSocketMessage(m_conn, frameOpcode);
+			/*scope*/auto message = new OutgoingWebSocketMessage(m_conn, frameOpcode, m_rng);
 			scope(exit) message.finalize();
 			sender(message);
 		});
@@ -298,20 +583,56 @@ final class WebSocket {
 
 	/**
 		Actively closes the connection.
+
+		Params:
+			code = Numeric code indicating a termination reason.
+			reason = Message describing why the connection was terminated.
 	*/
-	void close()
+	void close(short code = WebSocketCloseReason.normalClosure, scope const(char)[] reason = "")
 	{
+		import std.algorithm.comparison : min;
+		if(reason !is null && reason.length == 0)
+			reason = (cast(WebSocketCloseReason)code).closeReasonString;
+
+		//control frame payloads are limited to 125 bytes
+		version(assert)
+			assert(reason.length <= 123);
+		else
+			reason = reason[0 .. min($, 123)];
+
 		if (connected) {
-			m_writeMutex.performLocked!({
-				m_sentCloseFrame = true;
-				Frame frame;
-				frame.opcode = FrameOpcode.close;
-				frame.fin = true;
-				frame.writeFrame(m_conn);
-			});
+			try {
+				send((scope msg) {
+					m_sentCloseFrame = true;
+					if (code != 0) {
+						msg.write(std.bitmanip.nativeToBigEndian(code));
+						msg.write(cast(const ubyte[])reason);
+					}
+				}, FrameOpcode.close);
+			} catch (Exception e) {
+				logDiagnostic("Failed to send active web socket close frame: %s", e.msg);
+			}
 		}
 		if (m_pingTimer) m_pingTimer.stop();
-		if (Task.getThis() != m_reader) m_reader.join();
+
+
+		if (Task.getThis() == m_ownerTask) {
+			m_writeMutex.performLocked!({
+				if (m_clientResponse) {
+					m_clientResponse.disconnect();
+					m_clientResponse = HTTPClientResponse.init;
+				}
+				if (m_serverResponse) {
+					m_serverResponse.finalize();
+					m_serverResponse = HTTPServerResponse.init;
+				}
+			});
+
+			m_reader.join();
+
+			() @trusted { destroy(m_conn); } ();
+			m_conn = ConnectionStream.init;
+		}
 	}
 
 	/**
@@ -324,24 +645,24 @@ final class WebSocket {
 	*/
 	ubyte[] receiveBinary(bool strict = true)
 	{
-		auto dst = appender!(ubyte[])();
+		ubyte[] ret;
 		receive((scope message){
 			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.binary,
 				"Expected a binary message, got "~message.frameOpcode.to!string());
-			message.readAll(dst);
+			ret = message.readAll();
 		});
-		return dst.data;
+		return ret;
 	}
 	/// ditto
 	string receiveText(bool strict = true)
 	{
-		auto dst = appender!string();
+		string ret;
 		receive((scope message){
 			enforce!WebSocketException(!strict || message.frameOpcode == FrameOpcode.text,
 				"Expected a text message, got "~message.frameOpcode.to!string());
-			message.readAllUTF8(dst);
+			ret = message.readAllUTF8();
 		});
-		return dst.data;
+		return ret;
 	}
 
 	/**
@@ -362,66 +683,98 @@ final class WebSocket {
 	}
 
 	private void startReader()
-	{
-		scope (exit) m_readCondition.notifyAll();
+	nothrow {
+		try m_readMutex.performLocked!({}); //Wait until initialization
+		catch (Exception e) {
+			logDiagnostic("WebSocket reader task failed to wait for initialization: %s", e.msg);
+			try m_conn.close();
+			catch (Exception e) logDiagnostic("Failed to close WebSocket connection after initialization failure: %s", e.msg);
+			m_closeCode = WebSocketCloseReason.abnormalClosure;
+			try m_readCondition.notifyAll();
+			catch (Exception e) assert(false, e.msg);
+			return;
+		}
+
 		try {
+			loop:
 			while (!m_conn.empty) {
 				assert(!m_nextMessage);
-				if (m_pingTimer) {
-					if (m_pongSkipped) {
-						logDebug("Pong not received, closing connection");
-						m_writeMutex.performLocked!({
-							m_conn.close();
+				/*scope*/auto msg = new IncomingWebSocketMessage(m_conn, m_rng);
+
+				switch (msg.frameOpcode) {
+					default: throw new WebSocketException("unknown frame opcode");
+					case FrameOpcode.ping:
+						send((scope pong_msg) { pong_msg.write(msg.peek()); }, FrameOpcode.pong);
+						break;
+					case FrameOpcode.pong:
+						// test if pong matches previous ping
+						if (msg.peek.length != uint.sizeof || m_lastPingIndex != littleEndianToNative!uint(msg.peek()[0..uint.sizeof])) {
+							logDebugV("Received PONG that doesn't match previous ping.");
+							break;
+						}
+						logDebugV("Received matching PONG.");
+						m_pongReceived = true;
+						break;
+					case FrameOpcode.close:
+						logDebug("Got closing frame (%s)", m_sentCloseFrame);
+
+						// If no close code was passed, we default to 1005
+						this.m_closeCode = WebSocketCloseReason.noStatusReceived;
+
+						// If provided in the frame, attempt to parse the close code/reason
+						if (msg.peek().length >= short.sizeof) {
+							this.m_closeCode = bigEndianToNative!short(msg.peek()[0..short.sizeof]);
+
+							if (msg.peek().length > short.sizeof) {
+								this.m_closeReason = cast(const(char) [])msg.peek()[short.sizeof..$];
+							}
+						}
+
+						if(!m_sentCloseFrame) close();
+						logDebug("Terminating connection (%s)", m_sentCloseFrame);
+						break loop;
+					case FrameOpcode.text:
+					case FrameOpcode.binary:
+					case FrameOpcode.continuation: // FIXME: add proper support for continuation frames!
+						m_readMutex.performLocked!({
+							m_nextMessage = msg;
+							m_readCondition.notifyAll();
+							while (m_nextMessage) m_readCondition.wait();
 						});
-						return;
-					}
-					if (!m_conn.waitForData(request.serverSettings.webSocketPingInterval))
-						continue;
+						break;
 				}
-				scope msg = new IncomingWebSocketMessage(m_conn);
-				if (msg.frameOpcode == FrameOpcode.pong) {
-					enforce(msg.peek().length == uint.sizeof, "Pong payload has wrong length");
-					enforce(m_lastPingIndex == littleEndianToNative!uint(msg.peek()[0..uint.sizeof]), "Pong payload has wrong value");
-					m_pongReceived = true;
-					continue;
-				}
-				if(msg.frameOpcode == FrameOpcode.close) {
-					logDebug("Got closing frame (%s)", m_sentCloseFrame);
-					if(!m_sentCloseFrame) close();
-					logDebug("Terminating connection (%s)", m_sentCloseFrame);
-					m_conn.close();
-					return;
-				}
-				m_readMutex.performLocked!({
-					m_nextMessage = msg;
-					m_readCondition.notifyAll();
-					while (m_nextMessage) m_readCondition.wait();
-				});
 			}
 		} catch (Exception e) {
 			logDiagnostic("Error while reading websocket message: %s", e.msg);
 			logDiagnostic("Closing connection.");
 		}
-		m_conn.close();
+
+		// If no close code was passed, e.g. this was an unclean termination
+		//  of our websocket connection, set the close code to 1006.
+		if (m_closeCode == 0) m_closeCode = WebSocketCloseReason.abnormalClosure;
+
+		try m_conn.close();
+		catch (Exception e) logDiagnostic("Failed to close WebSocket connection: %s", e.msg);
+		try m_readCondition.notifyAll();
+		catch (Exception e) assert(false, e.msg);
 	}
 
-	private void sendPing() {
-		if (!m_pongReceived) {
-			logDebug("Pong skipped");
-			m_pongSkipped = true;
-			m_pingTimer.stop();
-			return;
-		}
-		m_writeMutex.performLocked!({
+	private void sendPing()
+	nothrow {
+		try {
+			if (!m_pongReceived) {
+				logDebug("Pong skipped. Closing connection.");
+				close();
+				try m_readCondition.notifyAll();
+				catch (Exception e) assert(false, e.msg);
+				return;
+			}
 			m_pongReceived = false;
-			Frame ping;
-			ping.opcode = FrameOpcode.ping;
-			ping.fin = true;
-			auto last_ping_index = Vector!ubyte(nativeToLittleEndian(++m_lastPingIndex));
-			ping.payload = last_ping_index[];
-			ping.writeFrame(m_conn);
-			logDebug("Ping sent");
-		});
+			send((scope msg) { msg.write(nativeToLittleEndian(++m_lastPingIndex)); }, FrameOpcode.ping);
+			logDebugV("Ping sent");
+		} catch (Exception e) {
+			logError("Failed to acquire write mutex for sending a WebSocket ping frame: %s", e.msg);
+		}
 	}
 }
 
@@ -430,55 +783,77 @@ final class WebSocket {
 */
 final class OutgoingWebSocketMessage : OutputStream {
 	private {
+		RandomNumberStream m_rng;
 		Stream m_conn;
 		FrameOpcode m_frameOpcode;
 		Appender!(ubyte[]) m_buffer;
 		bool m_finalized = false;
 	}
 
-	this( Stream conn, FrameOpcode frameOpcode )
+	private this(Stream conn, FrameOpcode frameOpcode, RandomNumberStream rng)
 	{
 		assert(conn !is null);
 		m_conn = conn;
 		m_frameOpcode = frameOpcode;
+		m_rng = rng;
 	}
 
-	void write(in ubyte[] bytes)
+	override void write(in ubyte[] bytes_) { doWrite(bytes_); }
+
+	alias write = OutputStream.write;
+
+	private void doWrite(scope const(ubyte)[] bytes)
 	{
 		assert(!m_finalized);
+
+		if (!m_buffer.data.length) {
+			ubyte[Frame.maxHeaderSize] header_padding;
+			m_buffer.put(header_padding[]);
+		}
+
 		m_buffer.put(bytes);
 	}
 
 	void flush()
 	{
 		assert(!m_finalized);
-		Frame frame;
-		frame.opcode = m_frameOpcode;
-		frame.fin = false;
-		frame.payload = m_buffer.data;
-		frame.writeFrame(m_conn);
-		m_buffer.clear();
-		m_conn.flush();
+		if (m_buffer.data.length > 0)
+			sendFrame(false);
 	}
 
 	void finalize()
 	{
 		if (m_finalized) return;
 		m_finalized = true;
+		sendFrame(true);
+	}
+
+	private void sendFrame(bool fin)
+	{
+
+		//if (!m_buffer.data.length)
+		//	write(null);
+
+		assert(m_buffer.data.length >= Frame.maxHeaderSize);
 
 		Frame frame;
-		frame.fin = true;
+		frame.fin = fin;
 		frame.opcode = m_frameOpcode;
-		frame.payload = m_buffer.data;
-		frame.writeFrame(m_conn);
-		m_buffer.clear();
+		frame.payload = m_buffer.data[Frame.maxHeaderSize .. $];
+		auto hsize = frame.getHeaderSize(m_rng !is null);
+		auto msg = m_buffer.data[Frame.maxHeaderSize-hsize .. $];
+		frame.writeHeader(msg[0 .. hsize], m_rng);
+		m_conn.write(msg);
 		m_conn.flush();
+		m_buffer.clear();
 	}
 
 	void write(InputStream stream, ulong nbytes = 0)
 	{
 		writeDefault(stream, nbytes);
 	}
+
+	alias write = OutputStream.write;
 
 }
 
@@ -488,15 +863,17 @@ final class OutgoingWebSocketMessage : OutputStream {
 */
 final class IncomingWebSocketMessage : InputStream {
 	private {
+		RandomNumberStream m_rng;
 		Stream m_conn;
 		Frame m_currentFrame;
 	}
 
-	this(Stream conn)
+	private this(Stream conn, RandomNumberStream rng)
 	{
 		assert(conn !is null);
 		m_conn = conn;
-		readFrame();
+		m_rng = rng;
+		skipFrame(); // reads the first frame
 	}
 
 	@property bool empty() const { return m_currentFrame.payload.length == 0; }
@@ -510,53 +887,65 @@ final class IncomingWebSocketMessage : InputStream {
 
 	const(ubyte)[] peek() { return m_currentFrame.payload; }
 
+	/**
+	 * Retrieve the next websocket frame of the stream and discard the current
+	 * one
+	 *
+	 * This function is helpful if one wish to process frames by frames,
+	 * or minimize memory allocation, as `peek` will only return the current
+	 * frame data, and read requires a pre-allocated buffer.
+	 *
+	 * Returns:
+	 * `false` if the current frame is the final one, `true` if a new frame
+	 * was read.
+	 */
+	bool skipFrame()
+	{
+		if (m_currentFrame.fin)
+			return false;
+
+		m_currentFrame = Frame.readFrame(m_conn);
+		return true;
+	}
+
 	void read(ubyte[] dst)
 	{
-		while( dst.length > 0 ) {
-			enforce!WebSocketException( !empty , "cannot read from empty stream");
-			enforce!WebSocketException( leastSize > 0, "no data available" );
+		size_t nread = 0;
+
+		while (dst.length > 0) {
+			enforce!WebSocketException(!empty , "cannot read from empty stream");
+			enforce!WebSocketException(leastSize > 0, "no data available" );
 
 			import std.algorithm : min;
 			auto sz = cast(size_t)min(leastSize, dst.length);
 			dst[0 .. sz] = m_currentFrame.payload[0 .. sz];
 			dst = dst[sz .. $];
 			m_currentFrame.payload = m_currentFrame.payload[sz .. $];
+			nread += sz;
 
-			if( leastSize == 0 && !m_currentFrame.fin ) m_currentFrame = Frame.readFrame(m_conn);
+			if (leastSize == 0) {
+				this.skipFrame();
+			}
 		}
 	}
 
-	private void readFrame() {
-		Frame frame;
-		do {
-			frame = Frame.readFrame(m_conn);
-			switch(frame.opcode) {
-				case FrameOpcode.continuation:
-				case FrameOpcode.text:
-				case FrameOpcode.binary:
-				case FrameOpcode.close:
-				case FrameOpcode.pong:
-					m_currentFrame = frame;
-					break;
-				case FrameOpcode.ping:
-					Frame pong;
-					pong.opcode = FrameOpcode.pong;
-					pong.fin = true;
-					pong.payload = frame.payload;
-
-					pong.writeFrame(m_conn);
-					break;
-				default:
-					throw new WebSocketException("unknown frame opcode");
-			}
-		} while( frame.opcode == FrameOpcode.ping );
-	}
+	alias read = InputStream.read;
 }
 
 
-private immutable s_webSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
-enum FrameOpcode {
+/// Magic string defined by the RFC for challenging the server during upgrade
+private static immutable s_webSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+
+/**
+ * The Opcode is 4 bits, as defined in Section 5.2
+ *
+ * Values are defined in section 11.8
+ * Currently only 6 values are defined, however the opcode is defined as
+ * taking 4 bits.
+ */
+public enum FrameOpcode : ubyte {
 	continuation = 0x0,
 	text = 0x1,
 	binary = 0x2,
@@ -564,74 +953,221 @@ enum FrameOpcode {
 	ping = 0x9,
 	pong = 0xA
 }
+static assert(FrameOpcode.max < 0b1111, "FrameOpcode is only 4 bits");
 
 
-struct Frame {
+private struct Frame {
+	enum maxHeaderSize = 14;
+
 	bool fin;
 	FrameOpcode opcode;
 	ubyte[] payload;
 
-
-	void writeFrame(OutputStream stream)
+    /**
+     * Return the header length encoded with the expected amount of bits
+     *
+     * The WebSocket RFC define a variable-length payload length.
+     * In short, it means that:
+     * - If the length is <= 125, it is stored as the 7 least significant
+     *   bits of the second header byte.  The first bit is reserved for MASK.
+     * - If the length is <= 65_536 (so it fits in 2 bytes), a magic value of
+     *   126 is stored in the aforementioned 7 bits, and the actual length
+     *   is stored in the next two bytes, resulting in a 4 bytes header
+     *   ( + masking key, if any).
+     * - If the length is > 65_536, a magic value of 127 will be used for
+     *   the 7-bit field, and the next 8 bytes are expected to be the length,
+     *   resulting in a 10 bytes header ( + masking key, if any).
+     *
+     * Those functions encapsulate all this logic and allow to just get the
+     * length with the desired size.
+     *
+     * Return:
+     * - For `ubyte`, the value to store in the 7 bits field, either the
+     *   length or a magic value (126 or 127).
+     * - For `ushort`, a value in the range [126; 65_536].
+     *   If payload.length is not in this bound, an assertion will be triggered.
+     * - For `ulong`, a value in the range [65_537; size_t.max].
+     *   If payload.length is not in this bound, an assertion will be triggered.
+     */
+	size_t getHeaderSize(bool mask)
 	{
-		import vibe.stream.wrapper;
+		size_t ret = 1;
+		if (payload.length < 126) ret += 1;
+		else if (payload.length < 65536) ret += 3;
+		else ret += 9;
+		if (mask) ret += 4;
+		return ret;
+	}
 
-		auto rng = StreamOutputRange(stream);
-
+	void writeHeader(ubyte[] dst, RandomNumberStream sys_rng)
+	{
+		ubyte[4] buff;
 		ubyte firstByte = cast(ubyte)opcode;
 		if (fin) firstByte |= 0x80;
-		rng.put(firstByte);
+		dst[0] = firstByte;
+		dst = dst[1 .. $];
 
-		if( payload.length < 126 ) {
-			rng.put(std.bitmanip.nativeToBigEndian(cast(ubyte)payload.length));
-		} else if( payload.length <= 65536 ) {
-			rng.put(cast(ubyte[])[126]);
-			rng.put(std.bitmanip.nativeToBigEndian(cast(ushort)payload.length));
+		auto b1 = sys_rng ? 0x80 : 0x00;
+
+		if (payload.length < 126) {
+			dst[0] = cast(ubyte)(b1 | payload.length);
+			dst = dst[1 .. $];
+		} else if (payload.length < 65536) {
+			dst[0] = cast(ubyte) (b1 | 126);
+			dst[1 .. 3] = std.bitmanip.nativeToBigEndian(cast(ushort)payload.length);
+			dst = dst[3 .. $];
 		} else {
-			rng.put(cast(ubyte[])[127]);
-			rng.put(std.bitmanip.nativeToBigEndian(payload.length));
+			dst[0] = cast(ubyte) (b1 | 127);
+			dst[1 .. 9] = std.bitmanip.nativeToBigEndian(cast(ulong)payload.length);
+			dst = dst[9 .. $];
 		}
-		rng.put(payload);
-		rng.flush();
-		stream.flush();
+
+		if (sys_rng) {
+			sys_rng.read(dst[0 .. 4]);
+			for (size_t i = 0; i < payload.length; i++)
+				payload[i] ^= dst[i % 4];
+		}
 	}
 
 	static Frame readFrame(InputStream stream)
 	{
 		Frame frame;
-		ubyte[2] data2;
-		ubyte[8] data8;
-		stream.read(data2);
-		//enforce!WebSocketException( (data[0] & 0x70) != 0, "reserved bits must be unset" );
-		frame.fin = (data2[0] & 0x80) == 0x80;
-		bool masked = (data2[1] & 0x80) == 0x80;
-		frame.opcode = cast(FrameOpcode)(data2[0] & 0xf);
+		ubyte[8] data;
 
-		logDebug("Read frame: %s %s", frame.opcode, frame.fin);
+		stream.read(data[0 .. 2]);
+		frame.fin = (data[0] & 0x80) != 0;
+		frame.opcode = cast(FrameOpcode)(data[0] & 0x0F);
+
+		bool masked = !!(data[1] & 0b1000_0000);
+
 		//parsing length
-		ulong length = data2[1] & 0x7f;
-		if( length == 126 ) {
-			stream.read(data2);
-			length = bigEndianToNative!ushort(data2);
-		} else if( length == 127 ) {
-			stream.read(data8);
-			length = bigEndianToNative!ulong(data8);
+		ulong length = data[1] & 0b0111_1111;
+		if (length == 126) {
+			stream.read(data[0 .. 2]);
+			length = bigEndianToNative!ushort(data[0 .. 2]);
+		} else if (length == 127) {
+			stream.read(data);
+			length = bigEndianToNative!ulong(data);
+
+			// RFC 6455, 5.2, 'Payload length': If 127, the following 8 bytes
+			// interpreted as a 64-bit unsigned integer (the most significant
+			// bit MUST be 0)
+			enforce!WebSocketException(!(length >> 63),
+				"Received length has a non-zero most significant bit");
+
 		}
+		logDebug("Read frame: %s %s %s length=%d",
+				 frame.opcode,
+				 frame.fin ? "final frame" : "continuation",
+				 masked ? "masked" : "not masked",
+				 length);
 
-		//masking key
-		ubyte[4] maskingKey;
-		if( masked ) stream.read(maskingKey);
+		// Masking key is 32 bits / uint
+		if (masked)
+			stream.read(data[0 .. 4]);
 
-		//payload
+		// Read payload
+		// TODO: Provide a way to limit the size read, easy
+		// DOS for server code here (rejectedsoftware/vibe.d#1496).
 		enforce!WebSocketException(length <= size_t.max);
-		frame.payload = new ubyte[cast(size_t)length];
+		frame.payload = new ubyte[](cast(size_t)length);
 		stream.read(frame.payload);
 
 		//de-masking
-		for( size_t i = 0; i < length; ++i ) {
-			frame.payload[i] = frame.payload[i] ^ maskingKey[i % 4];
-		}
+		if (masked)
+			foreach (size_t i; 0 .. cast(size_t)length)
+				frame.payload[i] = frame.payload[i] ^ data[i % 4];
 
 		return frame;
 	}
+}
+
+
+unittest {
+	import std.algorithm.searching : all;
+
+	final class DummyRNG : RandomNumberStream {
+	@safe:
+		@property bool empty() { return false; }
+		@property ulong leastSize() { return ulong.max; }
+		@property bool dataAvailableForRead() { return true; }
+		const(ubyte)[] peek() { return null; }
+		void read(ubyte[] buffer) @trusted { buffer[] = 13; }
+		alias read = RandomNumberStream.read;
+	}
+
+	ubyte[14] hdrbuf;
+	auto rng = new DummyRNG;
+
+	Frame f;
+	f.payload = new ubyte[125];
+
+	assert(f.getHeaderSize(false) == 2);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 2], null);
+	assert(hdrbuf[0 .. 2] == [0, 125]);
+
+	assert(f.getHeaderSize(true) == 6);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 6], rng);
+	assert(hdrbuf[0 .. 2] == [0, 128|125]);
+	assert(hdrbuf[2 .. 6].all!(b => b == 13));
+
+	f.payload = new ubyte[126];
+	assert(f.getHeaderSize(false) == 4);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 4], null);
+	assert(hdrbuf[0 .. 4] == [0, 126, 0, 126]);
+
+	assert(f.getHeaderSize(true) == 8);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 8], rng);
+	assert(hdrbuf[0 .. 4] == [0, 128|126, 0, 126]);
+	assert(hdrbuf[4 .. 8].all!(b => b == 13));
+
+	f.payload = new ubyte[65535];
+	assert(f.getHeaderSize(false) == 4);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 4], null);
+	assert(hdrbuf[0 .. 4] == [0, 126, 255, 255]);
+
+	assert(f.getHeaderSize(true) == 8);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 8], rng);
+	assert(hdrbuf[0 .. 4] == [0, 128|126, 255, 255]);
+	assert(hdrbuf[4 .. 8].all!(b => b == 13));
+
+	f.payload = new ubyte[65536];
+	assert(f.getHeaderSize(false) == 10);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 10], null);
+	assert(hdrbuf[0 .. 10] == [0, 127, 0, 0, 0, 0, 0, 1, 0, 0]);
+
+	assert(f.getHeaderSize(true) == 14);
+	hdrbuf[] = 0;
+	f.writeHeader(hdrbuf[0 .. 14], rng);
+	assert(hdrbuf[0 .. 10] == [0, 128|127, 0, 0, 0, 0, 0, 1, 0, 0]);
+	assert(hdrbuf[10 .. 14].all!(b => b == 13));
+}
+
+/**
+ * Generate a challenge key for the protocol upgrade phase.
+ */
+private string generateChallengeKey(RandomNumberStream rng)
+{
+	ubyte[16] buffer;
+	rng.read(buffer);
+	return Base64.encode(buffer);
+}
+
+private string computeAcceptKey(string challengekey)
+{
+	immutable(ubyte)[] b = challengekey.representation;
+	immutable(ubyte)[] a = s_webSocketGuid.representation;
+	SHA1 hash;
+	hash.start();
+	hash.put(b);
+	hash.put(a);
+	auto result = Base64.encode(hash.finish());
+	return to!(string)(result);
 }
