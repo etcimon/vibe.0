@@ -83,9 +83,9 @@ void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) re
 void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
 {
 	if (!settings) settings = defaultSettings();
-	enforce(url.schema == "http" || url.schema == "https", "URL schema must be http(s).");
+	enforce(url.schema == "http" || url.schema == "https" || url.schema == "ws" || url.schema == "wss", "URL schema must be http(s).");
 	enforce(url.host.length > 0, "URL must contain a host name.");
-	bool use_tls = url.schema == "https";
+	bool use_tls = url.schema == "https" || url.schema == "wss";
 
 	auto cli = connectHTTP(url.host, url.port, use_tls, settings, url.ip);
 
@@ -193,7 +193,7 @@ class HTTPClientSettings {
 	URL proxyURL;
 
 	/// Maximum amount of time the client should wait for the next request when there are none active (observed by HTTP/1.1 and HTTP/2)
-	Duration defaultKeepAliveTimeout = 20.seconds;
+	Duration defaultKeepAliveTimeout = 115.seconds;
 
 	/// If set to a value > 0, the client will auto-follow to request any URL returned in the "Location" header.
 	/// The request callback will be called once for every redirect, for up to maxRedirects times.
@@ -225,11 +225,24 @@ class HTTPClientSettings {
 		/// fixme: Make this private and use properties?
 		HTTP2Settings settings;
 		/// ALPN Suggestions
-		string[] alpn = ["h2", "h2-14", "h2-16", "spdy/3.1", "http/1.1"];
+		string[] alpn = ["h2", "h2-14", "h2-16", "http/1.1"];
 	} HTTP2 http2;
 
 	/// Custom TLS context for this client
 	TLSContext tlsContext;
+
+	size_t clonedFromAsPtrID;
+
+	HTTPClientSettings clone() {
+		auto settings = new HTTPClientSettings;
+		settings.proxyURL = proxyURL;
+		settings.defaultKeepAliveTimeout = defaultKeepAliveTimeout;
+		settings.maxRedirects = maxRedirects;
+		settings.userAgent = userAgent;
+		settings.cookieJar = cookieJar;
+		settings.http2 = http2;
+		return settings;
+	}
 }
 
 ///
@@ -355,7 +368,7 @@ final class HTTPClient {
 		m_conn.forceTLS = true;
 
 		// use TLS either if the web server or the proxy has it
-		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https")) {
+		if (m_conn.forceTLS || (m_settings.proxyURL.schema !is null && m_settings.proxyURL.schema == "https" || m_settings.proxyURL.schema == "wss")) {
 			m_conn.tlsContext = m_settings.tlsContext;
 
 			if (!m_settings.tlsContext) {
@@ -394,7 +407,7 @@ final class HTTPClient {
 				proxyAddr.port = m_settings.proxyURL.port;
 				// we connect to the proxy directly
 				m_conn.tcp = connectTCP(proxyAddr);
-				if (m_settings.proxyURL.schema == "https" || m_conn.forceTLS) {
+				if (m_settings.proxyURL.schema == "https" || m_settings.proxyURL.schema == "wss" || m_conn.forceTLS) {
 					if (!m_conn.tlsContext)
 					{
 						bool force_tls = m_conn.forceTLS;
@@ -1149,7 +1162,7 @@ final class HTTPClientRequest : HTTPRequest {
 				headers.remove("Connection");
 			}
 			//logTrace("Writing HTTP/2 headers");
-			http2Stream.writeHeader(requestURL, tlsStream ? "https" : "http", method, headers, m_cookieJar, m_concatCookies);
+			http2Stream.writeHeader(requestURL, m_location.schema, method, headers, m_cookieJar, m_concatCookies);
 			return;
 		}
 
@@ -1418,6 +1431,10 @@ final class HTTPClientResponse : HTTPResponse {
 		return Duration.zero;
 	}
 
+	void rearmKeepAlive() {
+		m_client.extendKeepAliveTimeout();
+	}
+
 	/**
 		An input stream suitable for reading the response body.
 	*/
@@ -1510,21 +1527,20 @@ final class HTTPClientResponse : HTTPResponse {
 		enforce(resNewProto, "Server did not send an Upgrade header");
 		enforce(!new_protocol.length || !icmp(*resNewProto, new_protocol),
 			"Expected Upgrade: " ~ new_protocol ~", received Upgrade: " ~ *resNewProto);
-		auto stream = new ConnectionProxyStream(m_client.topStream, m_client.m_conn.tcp);
+		auto stream = m_client.topStream;
 
 		m_keepAlive = false; // cannot reuse connection for further requests!
 		return stream;
 	}
 	/// ditto
-	void switchProtocol(string new_protocol, scope void delegate(ConnectionStream str) @safe del)
+	void switchProtocol(string new_protocol, scope void delegate(ConnectionStream str) del)
 	{
 		enforce(statusCode == HTTPStatus.switchingProtocols, "Server did not send a 101 - Switching Protocols response");
 		string *resNewProto = "Upgrade" in headers;
 		enforce(resNewProto, "Server did not send an Upgrade header");
 		enforce(!new_protocol.length || !icmp(*resNewProto, new_protocol),
 			"Expected Upgrade: " ~ new_protocol ~", received Upgrade: " ~ *resNewProto);
-		auto stream = new ConnectionProxyStream(m_client.topStream, m_client.m_conn.tcp);
-		scope (exit) () @trusted { destroy(stream); } ();
+		auto stream = m_client.topStream;
 		m_keepAlive = false;
 		del(stream);
 	}

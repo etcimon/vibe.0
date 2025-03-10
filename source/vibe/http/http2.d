@@ -72,7 +72,7 @@ struct PingData
 
 
 /// If TLS is used in the underlying connection, this value is set to LockMemory, however
-/// it will be reset to None on the first read attempt if the user does not 
+/// it will be reset to None on the first read attempt if the user does not
 /// call HTTP2Stream.MemoryLevel with a value different than None before reading data.
 enum SafetyLevel {
 	// Let the memory pool hold the data until it is overwritten by other chunks (fastest, insecure)
@@ -88,7 +88,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	@property bool isOpener() const { return m_opener; }
 	@property bool headersWritten() const { return m_headersWritten; }
 	/// Returns total amount of bytes received with this connection
-	@property ulong received() const { return m_bytesRecv; }	
+	@property ulong received() const { return m_bytesRecv; }
 	/// Returns total amount of bytes sent with this connection
 	@property ulong sent() const { return m_bytesSend; }
 	static @property ulong totalStreams() { return s_totalStreams; }
@@ -284,7 +284,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			int old_stream_id = m_stream_id;
 			m_stream_id = stream_id;
 
-			if (stream_id > 0) 
+			if (stream_id > 0)
 				m_session.m_totConnected++;
 			else if (old_stream_id > 0 && stream_id <= 0) {
 				s_totalStreams--;
@@ -351,17 +351,17 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 		catch (Exception th) {
 			vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
-		} 
+		}
 	}
 
 	/// Set the memory safety to > None to secure memory operations for the active stream.
-	/// This may be important if you wish to add a layer of security for sensitive 
+	/// This may be important if you wish to add a layer of security for sensitive
 	/// data (password or private information) to counter possible memory attacks.
-	/// 
+	///
 	/// Note: Higher safety levels may slow down the application quite a bit.
 	/// The buffers will not adapt to new safety levels while they contain data.
-	@property void memorySafety(SafetyLevel sl) { 
-		m_safety_level = sl; 
+	@property void memorySafety(SafetyLevel sl) {
+		m_safety_level = sl;
 		m_safety_level_changed = true;
 	}
 
@@ -385,11 +385,11 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 			enforce!TimeoutException(Clock.currTime() - ref_time < 20.seconds);
 			processExceptions();
 		}
-		
+
 		assert(m_active, "Stream is not active, but headers were received.");
 
 		foreach (HeaderField hf; m_rx.headers) {
-			if (hf.name == ":path") 
+			if (hf.name == ":path")
 				url.localURI = hf.value.copy();
 			else if (hf.name == ":scheme")
 				url.schema = hf.value.copy();
@@ -408,7 +408,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				}
 				header.insert("Host", hf.value.copy());
 			}
-			else
+			else if (hf.name != "")
 				header.insert(hf.name.copy(), hf.value.copy());
 		}
 		s_http2Registry[cast(size_t)cast(void*)m_session] = Registry(url.localURI, Clock.currTime(UTC()));
@@ -475,7 +475,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		m_tx.headers ~= HeaderField(":status", cast(string) status_str);
 
 		// write headers
-		foreach (const string name, const string value; header) 
+		foreach (const string name, const string value; header)
 		{
 			if (icmp2(name, "Host") == 0)
 				m_tx.headers ~= HeaderField(":authority", value);
@@ -562,7 +562,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		bool wrote_cookie;
 
 		// write headers
-		foreach (const string name, const string value; header) 
+		foreach (const string name, const string value; header)
 		{
 			if (icmp2(name, "Host") == 0) continue;
 			if (cookie_jar && icmp2(name, "Cookie") == 0 && concatenate_cookies && value.length > 0) {
@@ -590,7 +590,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 						m_tx.headers ~= HeaderField("Cookie", cast(string) cookie_val);
 					}
 					wrote_cookie = true;
-				} 
+				}
 			}
 			else m_tx.headers ~= HeaderField(name, value);
 		}
@@ -604,7 +604,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 
 		//commit
-		logDebug(m_tx.headers[].to!string); 
+		logDebug(m_tx.headers[].to!string);
 		//assert(len == i);
 
 		dirty();
@@ -625,7 +625,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		stream.m_push = true;
 		stream.setParent(this, false);
 		// cookies must be in the headers already
-		stream.writeHeader(url.localURI, url.schema, method, header, null, false); 
+		stream.writeHeader(url.localURI, url.schema, method, header, null, false);
 	}
 
 	/// can produce multiple concurrent requests by calling it with using multiple tasks simultaneously
@@ -640,7 +640,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		SysTime recv;
 
 		PingData data = PingData(sent, &recv, cb);
-		logDebug("send ping data"); 
+		logDebug("send ping data");
 		m_session.ping(data);
 		logDebug("Waitlocal");
 		cb.wait();
@@ -668,13 +668,13 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	void unpaused() { m_session.get().consumeStream(streamId, m_tx.windowUpdatePaused); m_session.m_tx.notify(); m_unpaused = true; }
 
 	/// The parent stream will not close if this stream is active, and this stream
-	/// will automatically close if the parent stream dies. 
+	/// will automatically close if the parent stream dies.
 	/// This is useful to settle the lifetime of Tasks actively working together.
-	/// 
+	///
 	/// Params:
 	///   parent = The stream that this stream depends on
 	///   exclusive = true causes children of parent to depend on this stream
-	void setParent(HTTP2Stream parent, bool exclusive) 
+	void setParent(HTTP2Stream parent, bool exclusive)
 	{
 		acquireWriter();
 		scope(exit) releaseWriter();
@@ -696,12 +696,12 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		dirty();
 	}
 
-	private @property HTTP2Session session() {		
+	private @property HTTP2Session session() {
 		return m_session;
 	}
 
 	@property bool connected() const { return m_connected && m_session.get() && !m_rx.close && !m_tx.close; }
-	
+
 	@property bool dataAvailableForRead(){
 		logDebug("HTTP2: data available for read");
 		acquireReader();
@@ -709,16 +709,16 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		return m_rx.bufs.length > 0;
 	}
 
-	@property bool empty() { 
+	@property bool empty() {
 		return leastSize == 0; }
-	
+
 	@property ulong leastSize()
 	{
 		mixin(Trace);
 		logDebug("HTTP/2: Leastsize");
 		acquireReader();
 		scope(exit) releaseReader();
-		
+
 		while( m_rx.bufs !is null && m_rx.bufs.length == 0 )
 		{
 			if (!connected)
@@ -768,8 +768,8 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	{
 		close(FrameError.NO_ERROR);
 	}
-	
-	bool waitForData(Duration timeout = 0.seconds) 
+
+	bool waitForData(Duration timeout = 0.seconds)
 	{
 		mixin(Trace);
 		logDebug("HTTP2: wait for data");
@@ -797,10 +797,10 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	{
 		acquireReader();
 		scope(exit) releaseReader();
-		
-		if (m_rx.bufs.length > 0) 
+
+		if (m_rx.bufs.length > 0)
 			return m_rx.bufs.head.buf[];
-		
+
 		return null;
 	}
 
@@ -808,7 +808,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	const(ubyte)[] peek() {
 
 		// we must block if dst is not filled
-		logDebug("HTTP/2: Peek"); 
+		logDebug("HTTP/2: Peek");
 		acquireReader();
 		scope(exit) releaseReader();
 
@@ -831,7 +831,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 	{
 		mixin(Trace);
 		// we must block if dst is not filled
-		logDebug("HTTP/2: Read, dst len: ", dst.length); 
+		logDebug("HTTP/2: Read, dst len: ", dst.length);
 		assert(dst !is null);
 		m_bytesRecv += dst.length;
 		acquireReader();
@@ -880,7 +880,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 				break;
 			}
 			processExceptions();
-		
+
 		}
 
 		//logDebug("Finished reading with ", bufs.length, " bytes left in the buffers, data: ", dst);
@@ -888,9 +888,9 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		// we can read again
 		if (m_session.m_rx.paused)
 			m_session.m_rx.signal.emit();
-		
+
 	}
-	
+
 	void write(in ubyte[] src)
 	{
 		mixin(Trace);
@@ -933,7 +933,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	/// Calling finalize on a stream that has never yielded will half-close it and allow a full atomic request or response
 	void finalize()
-	{ 
+	{
 		if (!connected) {
 			m_tx.halfClosed = true;
 			if (m_session && m_session.isServer) {
@@ -970,7 +970,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 		}
 		processExceptions();
 	}
-	
+
 	void write(InputStream stream, ulong nbytes = 0)
 	{
 		dirty();
@@ -986,7 +986,7 @@ final class HTTP2Stream : ConnectionStream, CountedStream
 
 	invariant() { }
 private:
-		
+
 	void notifyClose(FrameError error_code) {
 		m_rx.close = true;
 		// in case of an error, the reading will fail
@@ -1019,11 +1019,11 @@ private:
 					bufs = Mem.alloc!Buffers(old.chunk_length, old.max_chunk, 1, 0, false, false);
 					Mem.free(old);
 				}
-				
+
 				if (m_safety_level & SafetyLevel.ZeroizeBuffers)
 					bufs.zeroize_on_free = true;
 				else bufs.zeroize_on_free = false;
-				
+
 				m_safety_level_changed = false;
 			}
 		}
@@ -1060,7 +1060,7 @@ private:
 	void dirty() {
 		if (m_tx.dirty)
 			return;
-		
+
 		if (Task.getThis().priority != m_priSpec.weight)
 			m_tx.priSpec.weight = Task.getThis().priority;
 
@@ -1069,7 +1069,7 @@ private:
 			m_session.m_tx.schedule(this);
 	}
 
-	void acquireReader() { 
+	void acquireReader() {
 		logDebug("HTTP2 Reader Acquired");
 		if (Task.getThis() == Task()) {
 			logDebug("Reading without task");
@@ -1078,20 +1078,20 @@ private:
 		/*try enforce(!m_rx.waitingData && !m_rx.waitingHeaders && !m_rx.waitingStreamExit, "Another task is waiting.");
 		catch (Exception e) { import std.stdio : writeln; writeln("Getting call stack"); writeln(TaskDebugger.getCallStack(Task.getThis(), true)[], TaskDebugger.getCallStack(m_rx.owner, false)[]); }
 		*/
-		assert(!m_rx.owner || m_rx.owner == Task.getThis()); 
+		assert(!m_rx.owner || m_rx.owner == Task.getThis());
 		m_rx.owner = Task.getThis();
 		processExceptions();
 		checkSafetyLevel();
 	}
-	
-	void releaseReader() { 
+
+	void releaseReader() {
 		logDebug("HTTP2 Reader Released");
 		if (Task.getThis() == Task() || m_tx.owner == Task.init) return;
 		assert(m_rx.owner == Task.getThis());
 		m_rx.owner = Task();
 	}
-		
-	void acquireWriter() { 
+
+	void acquireWriter() {
 		if (Task.getThis() == Task()) return;
 		assert(!m_tx.waitingData, "Another task is waiting.");
 		assert(m_tx.owner == Task() || m_tx.owner == Task.getThis());
@@ -1101,10 +1101,10 @@ private:
 		checkConnected();
 		checkSafetyLevel();
 	}
-	
-	void releaseWriter() { 
+
+	void releaseWriter() {
 		if (Task.getThis() == Task() || m_tx.owner == Task.init) return;
-		assert(m_tx.owner == Task.getThis()); 
+		assert(m_tx.owner == Task.getThis());
 		m_tx.owner = Task();
 	}
 
@@ -1173,7 +1173,7 @@ private:
 		data_flags |= DataFlags.NO_COPY; // dst is unused
 		if (!m_rx.bufs)
 			return ErrorCode.CALLBACK_FAILURE;
-		// this function may be called many times for a single send operation		
+		// this function may be called many times for a single send operation
 		Buffers bufs = m_tx.bufs;
 		int wlen;
 		scope(exit) { if (wlen > 0) m_tx.last_write = Clock.currTime(UTC()); }
@@ -1210,7 +1210,7 @@ private:
 
 			m_tx.queued_len += wlen;
 		}
-		
+
 		if (m_tx.close || (m_tx.halfClosed && bufs.length == 0))
 		{
 			dirty();
@@ -1257,7 +1257,7 @@ struct HTTP2Settings {
 		iva[3].value = enablePush;
 		iva[4].id = Setting.MAX_HEADER_LIST_SIZE;
 		iva[4].value = maxHeadersListSize;
-		
+
 		Settings settings = Settings(FrameFlags.NONE, iva);
 		//import libhttp2.constants : FRAME_HDLEN;
 		const FRAME_HDLEN = 9;
@@ -1272,7 +1272,7 @@ struct HTTP2Settings {
 		return Mem.copy(bufs.cur.buf[][FRAME_HDLEN .. $]);
 	}
 
-	/// Serializes this for client HTTP2-Settings header data. 
+	/// Serializes this for client HTTP2-Settings header data.
 	string toBase64Settings() {
 		ubyte[] buf = toSettingsPayload();
 		scope(exit) Mem.free(buf);
@@ -1445,7 +1445,7 @@ final class HTTP2Session
 		update(local_settings);
 		m_rx.buffer = Mem.alloc!(ubyte[])(local_settings.connectionWindowSize);
 	}
-	
+
 
 	/// Starts a client "HTTP/2 over cleartext" session using upgrade mechanism and returns the stream in parameter
 	/// The `run()` method must be run after the initial HTTP/1.1 headers are sent with the base64 encoded HTTP2Settings.
@@ -1471,7 +1471,7 @@ final class HTTP2Session
 		options.setPeerMaxConcurrentStreams(local_settings.maxConcurrentStreams); // safer value
 		m_session = new Session(m_server, m_connector, options);
 		scope(failure) m_session.destroy();
-		
+
 		stream = new HTTP2Stream(this, 1);
 		scope(failure) stream.destroy();
 
@@ -1483,13 +1483,13 @@ final class HTTP2Session
 		m_rx.buffer = Mem.alloc!(ubyte[])(local_settings.connectionWindowSize);
 	}
 
-	~this() { 
+	~this() {
 		// fixme: This needs to defer destruction instead
-		if (m_tcpConn !is null) { 
-			try onClose(); 
+		if (m_tcpConn !is null) {
+			try onClose();
 			catch (Exception th) {
 				vibe.core.log.logError("HTTP2Stream ~this error: %s", th.msg);
-			} 
+			}
 		}
 	}
 
@@ -1519,8 +1519,8 @@ final class HTTP2Session
 			onClose();
 		}
 		Task reader = runTask(&readLoop, is_upgrade);
-		scope(exit) { 
-			if (!isServer && reader != Task.init) 
+		scope(exit) {
+			if (!isServer && reader != Task.init)
 				reader.interrupt();
 			else if (isServer && reader != Task.init)
 				reader.join();
@@ -1529,7 +1529,7 @@ final class HTTP2Session
 	}
 
 	/// Used when trying upgrade from HTTP/1.1 and the remote peer doesn't support HTTP/2
-	void abort(HTTP2Stream stream) 
+	void abort(HTTP2Stream stream)
 	in { assert(!m_tlsStream, "Aborting is only available when a client was initially waiting for an h2c upgrade"); }
 	do {
 		m_aborted = true;
@@ -1568,7 +1568,7 @@ final class HTTP2Session
 
 	/// Stop the session gracefully, waiting for existing streams to close by themselves and refusing new instances
 	/// Must be a server to use this.
-	void stop() 
+	void stop()
 	{
 		assert(isServer, "Use stop(error) to shutdown client connections");
 		m_tx.notify();
@@ -1599,7 +1599,7 @@ final class HTTP2Session
 	void update(HTTP2Settings settings)
 	{
 		Setting[] iva = Mem.alloc!(Setting[])(5);
-		scope(exit) 
+		scope(exit)
 			Mem.free(iva);
 		with(settings) {
 			iva[0].id = Setting.INITIAL_WINDOW_SIZE;
@@ -1615,7 +1615,7 @@ final class HTTP2Session
 			m_maxConcurrency = settings.maxConcurrentStreams;
 		}
 		ErrorCode rv = submitSettings(m_session, iva);
-		if (rv != ErrorCode.OK) 
+		if (rv != ErrorCode.OK)
 			throw new Exception("Could not update settings: " ~ rv.to!string);
 	}
 
@@ -1673,7 +1673,7 @@ private:
 		logDebug("HTTP/2: GoAway received: %s %s %s", error, " reason: ", reason);
 		m_closing = true;
 		m_forcedClose = true;
-		if (reason) 
+		if (reason)
 			m_rx.ex = new ConnectionClosedException("GoAway received: " ~ error.to!string ~ " reason: "  ~ reason);
 		m_rx.error = error;
 		m_tx.closed = true;
@@ -1702,7 +1702,7 @@ private:
 		mixin(Trace);
 		scope(exit) {
 			if (m_session) {
-				m_session.closeStream(stream_id, FrameError.NO_ERROR); 
+				m_session.closeStream(stream_id, FrameError.NO_ERROR);
 			}
 			stream.destroy();
 		}
@@ -1712,7 +1712,7 @@ private:
 	void onPushPromise(int stream_id)
 	in { assert(!isServer); }
 	do {
-		logDebug("Got push promise on stream %d", stream_id); 
+		logDebug("Got push promise on stream %d", stream_id);
 		HTTP2Stream stream;
 		foreach (HTTP2Stream el; m_pushResponses[])
 		{
@@ -1735,13 +1735,13 @@ private:
 	}
 
 	void onClose() {
-		if (cast(size_t)cast(void*)this in s_http2Registry) 
+		if (cast(size_t)cast(void*)this in s_http2Registry)
 			s_http2Registry.remove(cast(size_t)cast(void*)this);
 		if (!m_tcpConn) return;
 		try if (!isServer) m_tcpConn.close(); catch(Throwable) {}
 		m_tcpConn = null;
-		foreach(HTTP2Stream stream; m_pushResponses) 
-			if (stream.m_connected) 
+		foreach(HTTP2Stream stream; m_pushResponses)
+			if (stream.m_connected)
 				stream.notifyClose();
 		m_pushResponses.clear();
 		foreach(HTTP2Stream stream; m_tx.dirty)
@@ -1769,7 +1769,7 @@ private:
 		m_settingsUpdater = null;
 	}
 
-	void pong(long sent) 
+	void pong(long sent)
 	{
 		logDebug("Got pong");
 		foreach (i, PingData ping; m_pong[])
@@ -1778,23 +1778,23 @@ private:
 				*ping.recv = Clock.currTime();
 
 				// should resume the task on the next run of the event loop
-				ping.cb.emit(); 
-				
+				ping.cb.emit();
+
 				if (m_pong.length == 1) {
 					m_pong.clear();
 					break;
 				}
-				
+
 				Vector!PingData tmp = Vector!PingData(m_pong[][0 .. i]);
-				
+
 				if (m_pong.length-1 == i) {
 					m_pong = tmp.move();
 					break;
 				}
-				
+
 				tmp ~= m_pong[][i .. $];
 				m_pong = tmp.move();
-				
+
 				break;
 			}
 		}
@@ -1827,7 +1827,7 @@ private:
 		logDebug("HTTP/2: Starting ReadLoop");
 		size_t offset;
 		ConnectionStream stream = topStream();
-		try while((!m_closing || m_totConnected > 0) && (stream.dataAvailableForRead() || stream.waitForData(m_readTimeout))) 
+		try while((!m_closing || m_totConnected > 0) && (stream.dataAvailableForRead() || stream.waitForData(m_readTimeout)))
 		{
 			ubyte[] buf;
 
@@ -1863,7 +1863,7 @@ private:
 
 			// drain the buffer:
 			int rv;
-			// if memRecv can't drain it all we try to pause for stream reads until 
+			// if memRecv can't drain it all we try to pause for stream reads until
 			// everything is processed correctly. We also prevent forever loops by keeping an eye on rv
 			do {
 				rv = m_session.memRecv(buf);
@@ -1933,7 +1933,7 @@ private:
 			}
 		}
 
-		// write is more simple, the sendWrite() and send() Connector callbacks are called and 
+		// write is more simple, the sendWrite() and send() Connector callbacks are called and
 		// they block in the underlying stream until everything is sent.
 
 		// We can loop until all streams are closed when session is closing
@@ -1946,7 +1946,7 @@ private:
 					stream.m_tx.notify();
 				}
 			}
-			logDebug("HTTP/2: Processing dirty streams"); 
+			logDebug("HTTP/2: Processing dirty streams");
 			processDirtyStreams();
 
 			ErrorCode rv = m_session.send();
@@ -1954,7 +1954,7 @@ private:
 
 			if (m_rx.ex) // rethrow anything caught in Connector.write.
 				throw m_rx.ex;
-			
+
 			if (m_forcedClose) break;
 			if (rv == ErrorCode.PAUSE) {
 				m_tx.paused = true;
@@ -1983,7 +1983,7 @@ private:
 	{
 		// fixme: Is this the best way to implement connection-level pausing?
 		if (m_paused) return;
-		
+
 		mixin(Trace);
 		scope(exit) {
 			logDebug("HTTP/2: Processed dirty streams");
@@ -1991,14 +1991,14 @@ private:
 		}
 		foreach (HTTP2Stream stream; m_tx.dirty)
 		{
-			if (stream.m_tx.bufs) with (stream.m_tx) 
+			if (stream.m_tx.bufs) with (stream.m_tx)
 			{
 				bool close_processed;
 				bool headers_processed;
 				bool prispec_processed;
 				bool data_processed;
 
-				logDebug("Stream information: %s", stream.toString()); 
+				logDebug("Stream information: %s", stream.toString());
 				if (!dirty) continue;
 				//if (finalized && isServer) close = true;
 				if (stream.m_rx.close)
@@ -2032,7 +2032,7 @@ private:
 
 					// Push promise must be sent by a server only
 					if (isServer && stream.m_push) {
-					
+
 						// Make sure remote stream is accepting it
 						if (!m_session.getRemoteSettings(Setting.ENABLE_PUSH))
 						{
@@ -2058,7 +2058,7 @@ private:
 						else stream.streamId = rv;
 					}
 					// finalized stream with headers. The request/response can be sent all at once here
-					else if (halfClosed) 
+					else if (halfClosed)
 					{
 						if (isServer) {
 							// handle full server response
@@ -2095,7 +2095,7 @@ private:
 
 					}
 					// Regular stream headers, we send them
-					else 
+					else
 					{
 						FrameFlags fflags = FrameFlags.END_HEADERS;
 
@@ -2125,8 +2125,8 @@ private:
 								}
 							}
 							// header request/response
-							if (!was_push) 
-							{ 
+							if (!was_push)
+							{
 								if (close) close_processed = true;
 								prispec_processed = true;
 								if (m_session.isOutgoingConcurrentStreamsMax())
@@ -2137,7 +2137,7 @@ private:
 								int rv;
 								if (!isServer) {
 									rv = submitRequest(m_session, stream.m_tx.priSpec, headers[], (bufs.length>0)?&stream.dataProvider:null, cast(void*)stream);
-								
+
 									data_processed = true;
 								}
 								else rv = submitHeaders(m_session, fflags, stream.m_stream_id, stream.m_priSpec, headers[], cast(void*)stream);
@@ -2157,7 +2157,7 @@ private:
 				}
 
 				// Send the data if it wasn't done earlier
-				if ((!data_processed && !finalized && (!isServer || halfClosed) && stream.m_connected && stream.m_stream_id > 0) || 
+				if ((!data_processed && !finalized && (!isServer || halfClosed) && stream.m_connected && stream.m_stream_id > 0) ||
 					(!data_processed && stream.m_stream_id > 0 && stream.m_active))
 				{
 					data_processed = true;
@@ -2185,7 +2185,7 @@ private:
 				}
 
 				// This stream was closed and we didn't "submit" this info earlier
-				if (close && !close_processed) 
+				if (close && !close_processed)
 				{
 					bufs.reset();
 					ErrorCode rv = submitRstStream(m_session, stream.m_stream_id, FrameError.NO_ERROR);
@@ -2242,7 +2242,7 @@ private final class HTTP2Connector : Connector {
 	}
 
 override:
-	
+
 	bool onStreamExit(int stream_id, FrameError error_code)
 	{
 		HTTP2Stream stream = getStream(stream_id);
@@ -2318,20 +2318,20 @@ override:
 
 		return true;
 	}
-	
+
 	bool onFrameHeader(in FrameHeader hd)
 	{
 		HTTP2Stream stream = getStream(hd.stream_id);
 
 		if (hd.type == FrameType.PUSH_PROMISE)
 			m_session.onPushPromise(hd.stream_id);
-		logDebug("HTTP/2: On frame header stream: %d", hd.stream_id); 
+		logDebug("HTTP/2: On frame header stream: %d", hd.stream_id);
 		if (stream && stream.m_paused && stream.m_unpaused && !stream.m_rx.close && !stream.m_tx.close)
 		{
 			// resume stream
 			stream.m_paused = false;
 			stream.m_unpaused = false;
-			
+
 			// if data was pending, process it
 			if (stream.m_tx.dirty) {
 				m_session.m_tx.schedule(stream);
@@ -2340,7 +2340,7 @@ override:
 		}
 		return true;
 	}
-	
+
 	bool onHeaders(in Frame frame)
 	{
 		m_expectHeaderFields = true;
@@ -2361,7 +2361,7 @@ override:
 		}
 		return true;
 	}
-	
+
 	bool onHeaderField(in Frame frame, HeaderField hf, ref bool pause, ref bool rst_stream)
 	{
 		//import std.stdio : writeln;
@@ -2377,10 +2377,10 @@ override:
 			//if (hf_copy.name == ":path") writeln(m_stream_id, " ", hf_copy.value);
 			stream.m_rx.headers ~= hf_copy;
 		} else logDebug("Empty header found: %s", hf.name);
-		logDebug("Got response header: %s", hf_copy); 
+		logDebug("Got response header: %s", hf_copy);
 		return true;
 	}
-	
+
 	bool onDataChunk(FrameFlags flags, int stream_id, in ubyte[] data, ref bool pause)
 	{
 		HTTP2Stream stream = getStream(stream_id);
@@ -2403,7 +2403,7 @@ override:
 
 		return true;
 	}
-	
+
 	bool onInvalidFrame(in Frame frame, FrameError error_code, string reason)
 	{
 		import vibe.core.log : logError;
@@ -2418,7 +2418,7 @@ override:
 
 		return true;
 	}
-	
+
 	bool onFrameFailure(in Frame frame, ErrorCode error_code)
 	{
 		import vibe.core.log : logError;
@@ -2429,12 +2429,12 @@ override:
 		stream.notifyClose();
 		return true;
 	}
-	
+
 	bool onFrameReady(in Frame frame)
 	{
 		return true;
 	}
-	
+
 	bool onFrameSent(in Frame frame)
 	{
 		if (frame.hd.type == FrameType.PUSH_PROMISE) {
@@ -2467,7 +2467,7 @@ override:
 		}
 		return true;
 	}
-	
+
 	int selectPaddingLength(in Frame frame, int max_payloadlen)
 	{
 		return frame.hd.length;
@@ -2486,7 +2486,7 @@ override:
 		Buffer* buf = &stream.m_tx.bufs.head.buf;
 
 		// write the header
-		write(framehd); 
+		write(framehd);
 		// tag for pad
 		if (frame.data.padlen > 0) {
 			ubyte[1] padlen;
@@ -2503,7 +2503,7 @@ override:
 		if (remove_one) {
 			stream.m_tx.bufs.removeOne();
 			stream.m_tx.queued--;
-		} 
+		}
 		stream.m_tx.queued_len -= length;
 		stream.m_tx.notify();
 		// add padding bytes
@@ -2516,7 +2516,7 @@ override:
 		return ErrorCode.OK;
 	}
 
-	int write(in ubyte[] data) 
+	int write(in ubyte[] data)
 	{
 		mixin(Trace);
 		ConnectionStream stream = m_session.topStream;
@@ -2526,9 +2526,9 @@ override:
 		catch (Exception e) { m_session.m_rx.ex = e; return ErrorCode.CALLBACK_FAILURE; }
 		return cast(int)data.length;
 	}
-	
-	int read(ubyte[] data) 
-	{  
+
+	int read(ubyte[] data)
+	{
 		assert(false, "The read callback should not have been called, because Session.memRecv() is being used directly!");
 	}
 }

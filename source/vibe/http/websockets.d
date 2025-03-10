@@ -78,7 +78,7 @@ void connectWebSocketEx(URL url,
 	HTTPClientSettings settings = defaultSettings)
 {
 	const use_tls = (url.schema == "wss" || url.schema == "https") ? true : false;
-	url.schema = use_tls ? "https" : "http";
+	url.schema = use_tls ? "wss" : "ws";
 
 	/*scope*/auto rng = secureRNG();
 	auto challengeKey = generateChallengeKey(rng);
@@ -88,16 +88,16 @@ void connectWebSocketEx(URL url,
 		(scope req) {
 			req.method = HTTPMethod.GET;
 			req.headers["Upgrade"] = "websocket";
-			req.headers["Connection"] = "Upgrade";
+			req.headers["Connection"] = "keep-alive, Upgrade";
 			req.headers["Sec-WebSocket-Version"] = "13";
-			req.headers["Sec-WebSocket-Key"] = challengeKey;
 			request_modifier(req);
+			req.headers["Sec-WebSocket-Key"] = challengeKey;
 		},
 		(scope res) {
 			enforce(res.statusCode == HTTPStatus.switchingProtocols, "Server didn't accept the protocol upgrade request.");
 			auto key = "sec-websocket-accept" in res.headers;
 			enforce(key !is null, "Response is missing the Sec-WebSocket-Accept header.");
-			enforce(*key == answerKey, "Response has wrong accept key");
+			enforce(*key == answerKey, "Response has wrong accept key, expected " ~ answerKey ~ ", got " ~ *key);
 			res.switchProtocol("websocket", (scope conn) @trusted {
 				scope ws = new WebSocket(conn, rng, res);
 				del(ws);
@@ -125,17 +125,20 @@ void handleWebSocket(scope WebSocketHandshakeDelegate on_handshake, scope HTTPSe
 	auto pUpgrade = "Upgrade" in req.headers;
 	auto pConnection = "Connection" in req.headers;
 	auto pKey = "Sec-WebSocket-Key" in req.headers;
-	//auto pProtocol = "Sec-WebSocket-Protocol" in req.headers;
+	auto pProtocol = "Sec-WebSocket-Protocol" in req.headers;
 	auto pVersion = "Sec-WebSocket-Version" in req.headers;
 
 	auto isUpgrade = false;
+	bool keepAlive = false;
 
 	if( pConnection ) {
 		auto connectionTypes = splitter(*pConnection, ",");
 		foreach( t ; connectionTypes ) {
 			if( t.strip().asLowerCase().equal("upgrade") ) {
 				isUpgrade = true;
-				break;
+			}
+			else if (t.strip().asLowerCase().equal("keep-alive")) {
+				keepAlive = true;
 			}
 		}
 	}
@@ -153,9 +156,11 @@ void handleWebSocket(scope WebSocketHandshakeDelegate on_handshake, scope HTTPSe
 		return;
 	}
 
-	auto accept = () @trusted { return cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid)); } ();
+	auto accept = () @trusted { return cast(string)Base64.encode(sha1Of((*pKey) ~ s_webSocketGuid)); } ();
 	res.headers["Sec-WebSocket-Accept"] = accept;
-	res.headers["Connection"] = "Upgrade";
+	if (pProtocol) res.headers["Sec-WebSocket-Protocol"] = *pProtocol;
+	if (keepAlive) res.headers["Connection"] = "keep-alive, Upgrade";
+	else res.headers["Connection"] = "Upgrade";
 	ConnectionStream conn = res.switchProtocol("websocket");
 
 	// NOTE: silencing scope warning here - WebSocket references the scoped
@@ -194,7 +199,7 @@ HTTPServerRequestDelegateS handleWebSockets(WebSocketHandshakeDelegate on_handsh
 		auto pUpgrade = "Upgrade" in req.headers;
 		auto pConnection = "Connection" in req.headers;
 		auto pKey = "Sec-WebSocket-Key" in req.headers;
-		//auto pProtocol = "Sec-WebSocket-Protocol" in req.headers;
+		auto pProtocol = "Sec-WebSocket-Protocol" in req.headers;
 		auto pVersion = "Sec-WebSocket-Version" in req.headers;
 
 		auto isUpgrade = false;
@@ -221,6 +226,7 @@ HTTPServerRequestDelegateS handleWebSockets(WebSocketHandshakeDelegate on_handsh
 
 		auto accept = () @trusted { return cast(string)Base64.encode(sha1Of(*pKey ~ s_webSocketGuid)); } ();
 		res.headers["Sec-WebSocket-Accept"] = accept;
+		if (pProtocol) res.headers["Sec-WebSocket-Protocol"] = *pProtocol;
 		res.headers["Connection"] = "Upgrade";
 		res.switchProtocol("websocket", (scope conn) {
 			// TODO: put back 'scope' once it is actually enforced by DMD
@@ -574,6 +580,8 @@ scope:
 	void send(scope void delegate(scope OutgoingWebSocketMessage) sender, FrameOpcode frameOpcode)
 	{
 		m_writeMutex.performLocked!({
+			if (m_clientResponse)
+				m_clientResponse.rearmKeepAlive();
 			enforce!WebSocketException(!m_sentCloseFrame, "WebSocket connection already actively closed.");
 			/*scope*/auto message = new OutgoingWebSocketMessage(m_conn, frameOpcode, m_rng);
 			scope(exit) message.finalize();
@@ -619,18 +627,16 @@ scope:
 		if (Task.getThis() == m_ownerTask) {
 			m_writeMutex.performLocked!({
 				if (m_clientResponse) {
-					m_clientResponse.disconnect();
+					m_clientResponse.dropBody();
 					m_clientResponse = HTTPClientResponse.init;
 				}
-				if (m_serverResponse) {
-					m_serverResponse.finalize();
-					m_serverResponse = HTTPServerResponse.init;
+				if (m_serverResponse && !m_serverResponse.headerWritten) {
+					m_serverResponse.writeVoidBody();
 				}
+				m_serverResponse = HTTPServerResponse.init;
 			});
 
 			m_reader.join();
-
-			() @trusted { destroy(m_conn); } ();
 			m_conn = ConnectionStream.init;
 		}
 	}
@@ -701,9 +707,11 @@ scope:
 				assert(!m_nextMessage);
 				/*scope*/auto msg = new IncomingWebSocketMessage(m_conn, m_rng);
 
+
 				switch (msg.frameOpcode) {
 					default: throw new WebSocketException("unknown frame opcode");
 					case FrameOpcode.ping:
+						// send pong
 						send((scope pong_msg) { pong_msg.write(msg.peek()); }, FrameOpcode.pong);
 						break;
 					case FrameOpcode.pong:
@@ -746,13 +754,13 @@ scope:
 			}
 		} catch (Exception e) {
 			logDiagnostic("Error while reading websocket message: %s", e.msg);
-			logDiagnostic("Closing connection.");
+			logDiagnostic("Closing connection. (close code: %s) (close reason: %s)", m_closeCode, m_closeReason);
 		}
 
 		// If no close code was passed, e.g. this was an unclean termination
 		//  of our websocket connection, set the close code to 1006.
 		if (m_closeCode == 0) m_closeCode = WebSocketCloseReason.abnormalClosure;
-
+		logDebug("Websocket connection close code: %s", m_closeCode);
 		try m_conn.close();
 		catch (Exception e) logDiagnostic("Failed to close WebSocket connection: %s", e.msg);
 		try m_readCondition.notifyAll();
@@ -1077,7 +1085,7 @@ private struct Frame {
 		if (masked)
 			foreach (size_t i; 0 .. cast(size_t)length)
 				frame.payload[i] = frame.payload[i] ^ data[i % 4];
-
+		logDebug(cast(string)frame.payload);
 		return frame;
 	}
 }
@@ -1162,8 +1170,8 @@ private string generateChallengeKey(RandomNumberStream rng)
 
 private string computeAcceptKey(string challengekey)
 {
-	immutable(ubyte)[] b = challengekey.representation;
-	immutable(ubyte)[] a = s_webSocketGuid.representation;
+	immutable(ubyte)[] b = cast(immutable(ubyte)[])challengekey;
+	immutable(ubyte)[] a = cast(immutable(ubyte)[])s_webSocketGuid;
 	SHA1 hash;
 	hash.start();
 	hash.put(b);

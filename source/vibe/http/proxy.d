@@ -15,7 +15,13 @@ import vibe.stream.operations;
 
 import std.conv;
 import std.exception;
+import std.string : format;
+import std.conv : to;
+import std.datetime : seconds;
 import vibe.core.core;
+import vibe.textfilter.urlencode;
+import vibe.http.websockets;
+import vibe.core.task : InterruptException;
 
 
 /*
@@ -53,7 +59,7 @@ void listenHTTPReverseProxy(HTTPServerSettings settings, string destination_host
 HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings)
 {
 	mixin(Trace);
-	static immutable string[] non_forward_headers = ["Content-Length", "Transfer-Encoding", "Content-Encoding", "Connection"];
+	static immutable string[] non_forward_headers = ["te", "Content-Length", "Transfer-Encoding", "Content-Encoding", "Connection"];
 	static InetHeaderMap non_forward_headers_map;
 	if (non_forward_headers_map.length == 0)
 		foreach (n; non_forward_headers)
@@ -75,14 +81,22 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		{
 			mixin(Trace);
 			creq.method = req.method;
-			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"];
+			if ("Connection" in creq.headers) req.headers["Connection"] = creq.headers["Connection"] == "keep-alive" ? (settings.clientSettings.defaultKeepAliveTimeout ? "keep-alive" : "close") : creq.headers["Connection"];
 			if ("Upgrade" in creq.headers) req.headers["Upgrade"] = creq.headers["Upgrade"];
 			if ("HTTP2-Settings" in creq.headers) req.headers["HTTP2-Settings"] = creq.headers["HTTP2-Settings"];
 			creq.headers = req.headers.clone();
+
+			foreach (k, v; creq.headers) {
+				if ((k == "" || k == "Sec-WebSocket-Extensions") && k in creq.headers) {
+					creq.headers.remove(k);
+				}
+			}
+
 			foreach (k, v; settings.defaultHeaders) {
 				creq.headers[k] = v;
 			}
-			creq.headers["Host"] = settings.destinationHost;
+
+			creq.headers["Host"] = format("%s%s", settings.destinationHost, settings.destinationPort == 80 ? "" : format("%s%s", ":", settings.destinationPort.to!string));
 			if (settings.avoidCompressedRequests && "Accept-Encoding" in creq.headers)
 				creq.headers.remove("Accept-Encoding");
 			if (!settings.anonymous) {
@@ -108,6 +122,9 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				creq.headers["Content-Type"] = "application/x-www-form-urlencoded";
 				creq.writeBody(cast(ubyte[])req_form_string);
 			}
+			foreach (k, v; creq.headers) {
+				logDebug("Header: %s: %s", k, v);
+			}
 			enforce(!req.files.length, "File upload through proxy is not supported");
 		}
 
@@ -115,6 +132,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 		{
 			mixin(Trace);
 			import vibe.utils.string;
+
 			foreach (k, v; settings.defaultResponseHeaders) {
 				res.headers[k] = v;
 			}
@@ -161,7 +179,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			if ("Content-Length" in cres.headers) {
 				if ("Content-Encoding" in res.headers) res.headers.remove("Content-Encoding");
 				foreach (key, value; cres.headers) {
-					if (icmp2(key, "Connection") != 0)
+					if (key !in non_forward_headers_map)
 						res.headers[key] = value;
 				}
 				auto size = cres.headers["Content-Length"].to!size_t();
@@ -173,6 +191,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 				can_retry = false;
 				cres.readRawBody((scope reader) { res.writeRawBody(reader, size); });
 				if (!res.headerWritten) res.writeVoidBody();
+				res.finalize();
 				return;
 			}
 
@@ -188,32 +207,179 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 			}
 
 			can_retry = false;
-			if (!cres.bodyReader.empty)
+			if (!cres.bodyReader.empty && !res.headerWritten)
 				res.bodyWriter.write(cres.bodyReader);
-			else
+			else if (!res.headerWritten)
 				res.writeVoidBody();
 		}
 		//logTrace("Proxy requestHTTP");
 		int failed;
 		bool success;
 		Exception ex;
-		do {
-			try {
-				requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
-				success = true;
-			}
-			catch (Exception e) {
-				if (!can_retry) throw e;
-				else {
-					ex = e;
+		//do {
+		try {
+			if ("Upgrade" in req.headers && req.headers["Upgrade"] == "websocket") {
+				static HTTPClientSettings ws_settings;
+				if (!ws_settings || ws_settings.clonedFromAsPtrID != cast(size_t)&settings.clientSettings) {
+					ws_settings = settings.clientSettings.clone();
+					ws_settings.clonedFromAsPtrID = cast(size_t)&settings.clientSettings;
+					ws_settings.defaultKeepAliveTimeout = 115.seconds;
+					ws_settings.http2.alpn = ["http/1.1"];
+					ws_settings.http2.disable = true;
 				}
-			}
-			import std.datetime : msecs;
-			sleep(500.msecs);
+				handleWebSocket((scope ssock) {
+					connectWebSocketEx(rurl, &setupClientRequest, (scope WebSocket csock) {
+						// simple echo server
+						Task ctask;
+						Task stask;
+						auto mtx = new InterruptibleTaskMutex();
+						auto xchg_mtx = new InterruptibleTaskMutex();
+						InterruptibleTaskCondition tcond = new InterruptibleTaskCondition(mtx);
+						Exception w_ex;
+						ctask = runTask({
+							try {
+								while(csock.connected && csock.waitForData()) {
+									logDebug("csock got data, receiving");
+									xchg_mtx.performLocked!({
+										csock.receive((scope IncomingWebSocketMessage message) {
+											logDebug("csock received message: %d", message.frameOpcode);
+											switch (message.frameOpcode) {
+												case FrameOpcode.binary:
+													auto w_msg = message.readAll();
+													logDebug("ssock.send: %s", w_msg);
+													ssock.send( w_msg );
+													logDebug("ssock sent.");
+													break;
+												case FrameOpcode.text:
+													auto w_msg = message.readAllUTF8();
+													logDebug("ssock.send: %s", w_msg);
+													ssock.send( w_msg );
+													logDebug("ssock sent.");
+													break;
+												case FrameOpcode.close:
+													logDebug("ssock.close: %d: %s", csock.closeCode, csock.closeReason);
+													ssock.close(csock.closeCode, csock.closeReason);
+													stask.interrupt();
+													if (tcond) tcond.notify();
+													return;
+												default:
+													logDebug("ssock.receive: unknown opcode %s", message.frameOpcode);
+													break;
+											}
 
-		} while(!success && ++failed < 3);
-		if (!success)
+										});
+									});
+								}
+							}
+							catch (ConnectionClosedException e) {
+								logDebug("csock was closed: %d: %s", csock.closeCode, csock.closeReason);
+								if (csock.closeCode)
+									ssock.close(csock.closeCode, csock.closeReason);
+								else ssock.close(WebSocketCloseReason.normalClosure, "Normal closure");
+								ctask.interrupt();
+								if (tcond) tcond.notify();
+								return;
+							}
+							catch (InterruptException e) {
+								return;
+							}
+							catch (Exception e) {
+								w_ex = e;
+								logDebug("ctask got exception: %s", e.toString());
+							}
+							catch (Throwable t) {
+								w_ex = new Exception(t.toString());
+								logDebug("ctask got assert error: %s", t.toString());
+							}
+
+							if (tcond) tcond.notify();
+							stask.interrupt();
+
+						});
+						stask = runTask({
+							try {
+								while(ssock.connected && ssock.waitForData()) {
+									logDebug("ssock got data, receiving");
+									xchg_mtx.performLocked!({
+										ssock.receive((scope IncomingWebSocketMessage message) {
+											logDebug("ssock received message: %d", message.frameOpcode);
+											switch (message.frameOpcode) {
+												case FrameOpcode.binary:
+													auto w_msg = message.readAll();
+													logDebug("csock.send: %s", w_msg);
+													csock.send( w_msg );
+													logDebug("csock sent.");
+													break;
+
+												case FrameOpcode.text:
+													auto w_msg = message.readAllUTF8();
+													logDebug("csock.send: %s", w_msg);
+													csock.send( w_msg );
+													logDebug("csock sent.");
+													break;
+												case FrameOpcode.close:
+													logDebug("csock.close: %d: %s", ssock.closeCode, ssock.closeReason);
+													csock.close(ssock.closeCode, ssock.closeReason);
+													ctask.interrupt();
+													if (tcond) tcond.notify();
+													return;
+												default:
+													logDebug("ssock.receive: unknown opcode %s", message.frameOpcode);
+													break;
+											}
+
+										});
+									});
+								}
+							}
+							catch (ConnectionClosedException e) {
+								logDebug("ssock was closed: %d: %s", ssock.closeCode, ssock.closeReason);
+								if (ssock.closeCode)
+									csock.close(ssock.closeCode, ssock.closeReason);
+								else ssock.close(WebSocketCloseReason.normalClosure, "Normal closure");
+								if (tcond) tcond.notify();
+								return;
+							}
+							catch (InterruptException e) {
+								return;
+							}
+							catch (Exception e) {
+								w_ex = e;
+								logDebug("stask got exception: %s", e.toString());
+							}
+							catch (Throwable t) {
+								w_ex = new Exception(t.toString());
+								logDebug("stask got assert error: %s", t.toString());
+							}
+							if (tcond) tcond.notifyAll();
+							stask.interrupt();
+						});
+						mtx.performLocked!({
+							tcond.wait();
+						});
+						tcond = null;
+						if (w_ex) {
+							logDebug("Closing websocket connection due to exception: %s", ex.toString());
+						}
+
+					}, ws_settings);
+				}, req, res);
+				return;
+			}
+			else requestHTTP(rurl, &setupClientRequest, &handleClientResponse, settings.clientSettings);
+			success = true;
+		}
+		catch (Exception e) {
+			//if (!can_retry) throw e;
+			//else {
+			ex = e;
+			//}
+		}
+
+		//} while(!success && ++failed < 3);
+		if (!success) {
 			throw ex;
+		}
 	}
 
 	return &handleRequest;

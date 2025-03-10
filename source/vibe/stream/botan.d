@@ -149,7 +149,7 @@ public:
 		}
 	}
 
-	@property bool connected() const { return m_tcp_conn.connected && !m_ex; }
+	@property bool connected() const { return m_tcp_conn !is null && m_tcp_conn.connected && !m_ex; }
 
 	void close()
 	{

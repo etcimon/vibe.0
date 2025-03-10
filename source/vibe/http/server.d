@@ -1084,7 +1084,7 @@ final class HTTPServerResponse : HTTPResponse {
 	 * requested, such as a HEAD request. For an empty body, just use writeBody,
 	 * as this method causes problems with some keep-alive connections.
 	 */
-	void writeVoidBody()
+	void writeVoidBody(bool doFinalize = true)
 	{
 		//logTrace("WriteVoidBody");
 		if (!m_isHeadResponse) {
@@ -1092,7 +1092,9 @@ final class HTTPServerResponse : HTTPResponse {
 			assert("Transfer-Encoding" !in headers);
 		}
 		if (!headerWritten) {
-			headers["Content-Length"] = "0";
+			if ("Upgrade" !in headers)
+				headers["Content-Length"] = "0";
+			else if ("Keep-Alive" in headers) headers.remove("Keep-Alive");
 			if ("Transfer-Encoding" in headers)
 				headers.remove("Transfer-Encoding");
 			if ("Content-Encoding" in headers)
@@ -1101,7 +1103,7 @@ final class HTTPServerResponse : HTTPResponse {
 			writeHeader();
 		}
 
-		finalize();
+		if (doFinalize) finalize();
 	}
 
 	/** A stream for writing the body of the HTTP response.
@@ -1220,7 +1222,7 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		statusCode = HTTPStatus.SwitchingProtocols;
 		headers["Upgrade"] = protocol;
-		writeVoidBody();
+		writeVoidBody(false);
 		return topStream;
 	}
 
@@ -1228,7 +1230,7 @@ final class HTTPServerResponse : HTTPResponse {
 	{
 		statusCode = HTTPStatus.switchingProtocols;
 		headers["Upgrade"] = protocol;
-		writeVoidBody();
+		writeVoidBody(false);
 		del(topStream);
 		finalize();
 	}
@@ -1411,6 +1413,7 @@ final class HTTPServerResponse : HTTPResponse {
 		else topStream.flush();
 		m_conn.stack = ConnectionStack.init;
 		m_settings = null;
+		m_timeFinalized = Clock.currTime(UTC());
 	}
 
 	private void writeHeader(OutputStream ostream) {
@@ -1963,7 +1966,7 @@ void handleRequest(TCPConnection tcp_conn,
 		// so we define the InputStream before the upgrade starts
 		reqReader.reader = cast(InputStream) topStream;
 
-		if (!http2_stream) {
+		if (!http2_stream && (topStream.connected || topStream.dataAvailableForRead)) {
 			// HTTP/1.1 headers
 			try parseRequestHeader(req, reqReader.reader, context.settings.maxRequestHeaderSize);
 			catch (InterruptException e) { throw new HTTPStatusException(HTTPStatus.requestTimeout); }
@@ -1999,7 +2002,7 @@ void handleRequest(TCPConnection tcp_conn,
 				}
 			}
 		}
-		else
+		else if (topStream.connected || topStream.dataAvailableForRead)
 		{
 			// HTTP/2 headers
 			enforce(http2_handler.started, "HTTP/2 session is invalid");
@@ -2060,7 +2063,7 @@ void handleRequest(TCPConnection tcp_conn,
 			}
 		}
 		scope(success) {
-			if (topStream.connected) if (res) res.finalize();
+			if (topStream && topStream.connected) res.finalize();
 		}
 		if (req.tls)
 			req.clientCertificate = tls_stream.peerCertificate;
@@ -2197,15 +2200,10 @@ void handleRequest(TCPConnection tcp_conn,
 		//}
 		{
 			scoped_pool.freeze();
-			try {
-
-				context.requestHandler(req, res);
-
-			} catch (Exception e) {
+			scope(exit)
 				scoped_pool.unfreeze();
-				throw e;
-			}
-			scoped_pool.unfreeze();
+			context.requestHandler(req, res);
+
 		}
 		//logTrace("Request handler done");
 

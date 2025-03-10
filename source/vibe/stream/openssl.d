@@ -7,7 +7,6 @@
 */
 module vibe.stream.openssl;
 
-pragma(msg, "***********You must use OpenSSL from https://github.com/etcimon/openssl due to bio_method_st updates in 1.1.x*************");
 import vibe.core.log;
 import vibe.core.net;
 import vibe.core.stream;

@@ -84,8 +84,8 @@ class ConnectionProxyStream : ProxyStream, ConnectionStream {
 		m_connection = connection_stream;
 	}
 
-	@property bool connected() const { 
-		if (!m_connection) 
+	@property bool connected() const {
+		if (!m_connection)
 			return true;
 
 		return m_connection.connected;
@@ -93,16 +93,16 @@ class ConnectionProxyStream : ProxyStream, ConnectionStream {
 
 	void close()
 	{
-		if (!m_connection) 
+		if (!m_connection)
 			return;
-		
+
 		if (m_connection.connected) finalize();
 		m_connection.close();
 	}
 
 	void notifyClose()
 	{
-		if (!m_connection) 
+		if (!m_connection)
 			return;
 
 		m_connection.notifyClose();
@@ -200,7 +200,7 @@ struct StreamOutputRange {
 	~this()
 	{
 		try flush();
-		catch(Exception) { } 
+		catch(Exception) { }
 	}
 
 	@property size_t length() { return m_fill; }
