@@ -276,7 +276,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 								if (csock.closeCode)
 									ssock.close(csock.closeCode, csock.closeReason);
 								else ssock.close(WebSocketCloseReason.normalClosure, "Normal closure");
-								ctask.interrupt();
+								stask.interrupt();
 								if (tcond) tcond.notify();
 								return;
 							}
@@ -352,7 +352,7 @@ HTTPServerRequestDelegateS reverseProxyRequest(HTTPReverseProxySettings settings
 								logDebug("stask got assert error: %s", t.toString());
 							}
 							if (tcond) tcond.notifyAll();
-							stask.interrupt();
+							ctask.interrupt();
 						});
 						mtx.performLocked!({
 							tcond.wait();
