@@ -1,5 +1,7 @@
 vibe.0 is a high-performance asynchronous I/O, concurrency and web application toolkit written in D. It achieves more than 2x higher throughput vs Nginx in benchmarks, using the HTTP static server example at `examples/http_static_server`.
 
+You can see a fully vibe & libwasm frontend-backend D stack at https://github.com/etcimon/slideshow3dai (currently a WIP)
+
 It has forked off Vibe.d in 2015 and shares only the same core, with some additions to make it fully capable of developing mobile, desktop and server applications:
 
 - Integrates with libasync for event loop and networking
