@@ -74,13 +74,13 @@ static ~this() {
 	of the function it is recommended to put a $(D scope(exit)) right after the call in which
 	HTTPClientResponse.dropBody is called to avoid this.
 */
-void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
+void requestHTTP(string url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse res) responder, HTTPClientSettings settings = null)
 {
 	if (!settings) settings = defaultSettings();
 	requestHTTP(URL(url), requester, responder, settings);
 }
 /// ditto
-void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse req) responder, HTTPClientSettings settings = null)
+void requestHTTP(URL url, scope void delegate(scope HTTPClientRequest req) requester, scope void delegate(scope HTTPClientResponse res) responder, HTTPClientSettings settings = null)
 {
 	if (!settings) settings = defaultSettings();
 	enforce(url.schema == "http" || url.schema == "https" || url.schema == "ws" || url.schema == "wss", "URL schema must be http(s).");
