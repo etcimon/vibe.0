@@ -22,6 +22,7 @@ __dummy.html
 
 .dub
 dub.selections.json
+/third-party/
 
 # Mono-D files
 *.userprefs
