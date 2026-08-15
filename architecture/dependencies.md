@@ -1,6 +1,6 @@
 # Dependencies
 
-Pin: `eb51b27` / `v1.2.1`. Source of truth: `dub.json` plus what the D sources actually `import`.
+Pin: `v1.2.2`. Source of truth: `dub.json` plus what the D sources actually `import`.
 
 ## DUB packages (`dub.json` `dependencies`)
 
@@ -9,9 +9,8 @@ Pin: `eb51b27` / `v1.2.1`. Source of truth: `dub.json` plus what the D sources a
 | `libhttp2` | `~>1.0.0` | HTTP/2 framing, HPACK, sessions. Imported by `vibe.http.http2` (`libhttp2.types`, `.connector`, `.session`, `.buffers`, `.frame`, `.constants`, `.helpers`). |
 | `botan` | `~>1.13.0` | Default TLS implementation (`vibe.stream.botan`) and the full crypto suite the README advertises. Also pulled into example apps that construct `BotanTLSContext` / `X509Certificate` directly. |
 | `libasync` | `~>0.9.0` | Event loop, TCP/UDP, signals, timers, `NetworkAddress`. `vibe.core.drivers.libasync` is a backend, not a peer. `vibe.core.net` re-exports `libasync.events.NetworkAddress`. Worker teardown calls `libasync.threads.destroyAsyncThreads`. |
-| `openssl` | `~>3.3.4` | deimos OpenSSL bindings used by `vibe.stream.openssl`. **Not sufficient as shipped:** README requires a patched fork (`etcimon/openssl` branch `http2fix`, PR D-Programming-Deimos/openssl#115) registered with `dub add-local`, plus version `DeimosOpenSSL_3_0`. |
-
-There is **no** `memutils` entry in `dub.json`. The sources import it everywhere (`memutils.utils`, `.circularbuffer`, `.hashmap`, `.vector`, `.scoped`, `.refcounted`, `.dictionarylist`, `.allocators`, `.unique`, `.rbtree`). It arrives transitively (botan and/or libasync historically depend on it). That is an **undeclared direct dependency**: this library’s API and internals are unusable without it. A packaging cleanup would add `memutils` explicitly; that is an interface change for DUB resolution, not done here.
+| `openssl` | `>=3.3.4` from `git+https://github.com/etcimon/openssl.git` | deimos OpenSSL bindings used by `vibe.stream.openssl`. Registry OpenSSL does not carry 3.3.4 / `library-manual-link`. Version `DeimosOpenSSL_3_0` stays on this package. |
+| `memutils` | `>=1.0.12` from `git+https://github.com/etcimon/memutils.git` | Direct dependency (`memutils.utils`, `.vector`, `.scoped`, …). **1.0.12** is the first tag that compiles on LDC 1.43 (`defaultInit` / const `opEquals`). Registry still stops at 1.0.11, so the git repository is the version floor, not `~>1.0.0`. |
 
 No `vibe-d` dependency. This package **is** the framework. Tests that still depend on `"vibe-d"` are stale (see [build-test.md](build-test.md)).
 
