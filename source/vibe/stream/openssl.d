@@ -418,6 +418,7 @@ final class OpenSSLContext : SSLContext {
 		int m_verifyDepth;
 		TLSServerNameCallback m_sniCallback;
 		TLSALPNCallback m_alpnCallback;
+		bool m_ocspChecking;
 	}
 
 	this(TLSContextKind kind, TLSVersion ver = TLSVersion.any)
@@ -792,6 +793,34 @@ final class OpenSSLContext : SSLContext {
 			SSL_CTX_set_client_CA_list(m_ctx, certNames);
 		}
 	}
+
+	void useSystemCertificateStore()
+	{
+		if (SSL_CTX_set_default_verify_paths(m_ctx) == 1)
+			return;
+
+		static immutable paths = [
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/ssl/ca-bundle.pem",
+			"/etc/ssl/cert.pem",
+		];
+		foreach (path; paths) {
+			import std.file : exists;
+			if (!exists(path))
+				continue;
+			if (SSL_CTX_load_verify_locations(m_ctx, toStringz(path), null))
+				return;
+		}
+	}
+
+	@property void ocspChecking(bool enabled)
+	{
+		m_ocspChecking = enabled;
+		enum SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE = 65;
+		SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_TLSEXT_STATUS_REQ_TYPE, enabled ? 1 : 0, null);
+	}
+	@property bool ocspChecking() const { return m_ocspChecking; }
 
 	void setUserData(void* udata)
 	{

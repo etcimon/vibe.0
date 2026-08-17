@@ -1,20 +1,22 @@
 # TLS and crypto
 
-Pin: `eb51b27` / `v1.2.1`. Loci: `source/vibe/stream/tls.d`, `ssl.d`, `botan.d` (~940), `openssl.d` (~980), `vibe/crypto/cryptorand.d`, `passwordhash.d`.
+Pin: `7b77638` / branch `feature/botan-delegate-sync`. Loci: `source/vibe/stream/tls.d`, `ssl.d`, `botan.d` (~940), `openssl.d` (~980), `vibe/crypto/cryptorand.d`, `passwordhash.d`. Delegate contract: [botan-delegates.md](botan-delegates.md).
 
 ## Factory: Botan by default, OpenSSL for TLS 1.3
 
 `createTLSContext(kind, ver = TLSVersion.any)` in `vibe.stream.tls`:
 
 ```
-if (ver == TLSVersion.tls1_3)
-    factory ??= OpenSSLContext
-else
-    factory ??= BotanTLSContext   // note: Botan ctor ignores `ver` here
+factory ??= BotanTLSContext(kind, ver)   // honours TLSVersion every call
 gs_tlsContextFactory(kind, ver)
 ```
 
-The factory is a process-global function pointer (`setTLSContextFactory` / `setSSLContextFactory`). The first `createTLSContext` call **wins** if the app has not set one. Mixing “first context was TLS 1.3” with “later context wants Botan defaults” is therefore order-dependent. Apps that care (README sample) construct `BotanTLSContext` **directly** and assign `settings.tlsContext`, bypassing the factory.
+`TLSVersion.any` still offers botan `latestTlsVersion()` (1.2). `tls1_3` sets
+`defaultProtocolOffer = TLS_V13` and a 1.3-only `CustomTLSPolicy`. The factory
+is a process-global function pointer (`setTLSContextFactory` / `setSSLContextFactory`).
+The first `createTLSContext` call **wins** if the app has not set one. Apps that
+care (README sample) construct `BotanTLSContext` **directly** and assign
+`settings.tlsContext`, bypassing the factory.
 
 `createTLSStream(underlying, ctx, …)` delegates to `ctx.createStream`. State is inferred from `TLSContextKind` (client → connecting, server → accepting) or passed explicitly (`TLSStreamState.{connecting,accepting,connected}`).
 
@@ -34,6 +36,7 @@ The factory is a process-global function pointer (`setTLSContextFactory` / `setS
 - `peerValidationMode`, `maxCertChainLength`, `peerValidationCallback`
 - `sniCallback` / `alpnCallback` / `setClientALPN`
 - `useCertificateChainFile` / `usePrivateKeyFile` / `useTrustedCertificateFile`
+- `useSystemCertificateStore` / `ocspChecking`
 - `setUserData`
 - `createStream`
 
@@ -135,6 +138,6 @@ No other hash/KDF module lives under `vibe.crypto`. Botan is the intended “ful
 - Most of `OpenSSLContext` (cipher lists, verify, session ids).
 - Botan credential/policy/session-manager customization.
 - `stream.botan` handshake error paths and `OnAlert` / `OnHandshakeComplete`.
-- Whether `TLSVersion.any` on Botan actually offers 1.3 (botan policy) or stops at 1.2 — **open**.
+- Whether `TLSVersion.any` on Botan actually offers 1.3 — **closed**: botan `latestTlsVersion()` is 1.2; factory `any` stays 1.2. `TLSVersion.tls1_3` offers 1.3 on the same `BotanTLSStream`.
 - SMTP TLS details, PostgreSQL `ssl=require`.
 - `crypto.cryptorand` Windows CAPI vs BCrypt exact API.

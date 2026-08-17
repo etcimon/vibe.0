@@ -1,0 +1,12 @@
+{
+	"name": "botan-tls13-test",
+	"description": "In-process Botan TLS 1.3 loopback (vibe.0 stream)",
+	"targetType": "executable",
+	"dependencies": {
+		"vibe-0": { "path": "../.." }
+	},
+	"subConfigurations": {
+		"botan": "full"
+	},
+	"versions": ["VibeCustomMain", "Have_vibe_d"]
+}

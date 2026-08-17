@@ -9,8 +9,8 @@ It has forked off Vibe.d in 2015 and shares only the same core, with some additi
 - PostgreSQL support
 - DOM/XML Parsing support
 - CookieJars
-- TLS 1.3 through OpenSSL
-- Full Botan crypto suite integration
+- TLS 1.2 (default) and TLS 1.3 through Botan (`createTLSContext(..., TLSVersion.tls1_3)`); OpenSSL remains available via `setTLSContextFactory`
+- Full Botan crypto suite integration (package 3.13, TLS 1.3, system CAs, OCSP)
 - Uses memutils for all memory operations
 - Thrives to avoid all GC allocations internally
 - Daemonize library embedded for launching as background services in windows or daemons in linux
@@ -39,9 +39,9 @@ name "my-app-server"
 description "The remote end server."
 copyright "Copyright © 2025, My Company Inc"
 authors "Etienne"
-dependency "vibe-0" version="~>1.1.0"
-dependency "memutils" version="~>1.0.0"
-dependency "botan" version="~>1.13.0"
+dependency "vibe-0" version="~>1.3.0"
+dependency "memutils" version="~>1.0.13"
+dependency "botan" version="~>3.13.0"
 dependency "dmaxminddb" version="~>0.1.2"
 targetType "executable"
 targetName "my-app-server"

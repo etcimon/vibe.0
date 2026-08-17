@@ -3,8 +3,9 @@
 ```
 id: vibe.0
 upstream: https://github.com/etcimon/vibe.0.git
-pin: master @ eb51b27 (tag v1.2.1)
-     eb51b2704674317ff8b10062d7907ba43fd973db
+pin: feature/botan-delegate-sync @ 7b77638c (from master; tag v1.2.1+)
+     7b77638c Require memutils >=1.0.12 from git so LDC 1.43 host builds resolve.
+botan_work: ../botan feature/randombit-sync
 mechanism: nested-clone
 purpose: Async I/O / web toolkit (2015 vibe.d fork) with libasync, botan, libhttp2
 green_command: dub build --compiler=ldc2

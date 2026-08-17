@@ -80,22 +80,19 @@ unittest {
 */
 TLSContext createTLSContext(TLSContextKind kind, TLSVersion ver = TLSVersion.any) @trusted
 {
-	if (ver == TLSVersion.tls1_3) {
-		static TLSContext createOpenSSLContext(TLSContextKind kind, TLSVersion ver) {
-			import vibe.stream.openssl;
-			return new OpenSSLContext(kind, ver);
-		}
-		if (!gs_tlsContextFactory)
-			setTLSContextFactory(&createOpenSSLContext);
-	} else {
-		static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
-			import vibe.stream.botan;
-			return new BotanTLSContext(kind);
-		}
-
-		if (!gs_tlsContextFactory)
-			setTLSContextFactory(&createBotanContext);
+	// One factory that honours `ver` on every call. The previous split
+	// latched on the first createTLSContext (tls1_3 vs anything else) and
+	// then ignored later version arguments. Botan latestTlsVersion() stays
+	// 1.2; TLS 1.3 is offered only when ver == tls1_3 (or the app sets
+	// BotanTLSContext.defaultProtocolOffer). OpenSSL remains available via
+	// setTLSContextFactory.
+	static TLSContext createBotanContext(TLSContextKind kind, TLSVersion ver) {
+		import vibe.stream.botan;
+		return new BotanTLSContext(kind, ver);
 	}
+
+	if (!gs_tlsContextFactory)
+		setTLSContextFactory(&createBotanContext);
 	assert(gs_tlsContextFactory !is null, "No TLS context factory registered.");
 	return gs_tlsContextFactory(kind, ver);
 }
@@ -303,6 +300,27 @@ interface TLSContext {
 		"/etc/pki/tls/certs/ca-bundle.crt", or "/etc/ssl/ca-bundle.pem".
 	*/
 	void useTrustedCertificateFile(string path);
+
+	/** Load the operating system's trust anchors.
+
+		Windows: CryptoAPI `Root` and `CA` stores. POSIX: the first existing
+		well-known CA bundle (`/etc/ssl/certs/ca-certificates.crt`, …).
+
+		Client contexts with $(D TLSPeerValidationMode.checkTrust) also try
+		this automatically when no trusted file has been added yet.
+	*/
+	void useSystemCertificateStore();
+
+	/** Enable OCSP when validating peer certificate chains.
+
+		Soft-fail (missing/unreachable responders do not abort the handshake)
+		unless the implementation is configured to require revocation data.
+		Botan uses $(D setHttpExchangeHandler) + vibe.http.client with
+		$(D maxRedirects = 0).
+	*/
+	@property void ocspChecking(bool enabled);
+	/// ditto
+	@property bool ocspChecking() const;
 
 	/// Keep an object pointer in memory to retrieve once SNI is resolved and a stream is negotiated.
 	/// Allows to have access to the HTTPServerSettings before looking at the headers for example.

@@ -1761,6 +1761,56 @@ package @property HTTPClientSettings defaultSettings() {
 	return g_defaultSettings;
 }
 
+shared static this()
+{
+	// Botan OCSP/CRL HTTP: one request, no Location follow (S4).
+	// Kept out of vibe.stream.botan to avoid a module-ctor cycle
+	// (client imports BotanTLSStream; botan must not import client).
+	import botan.utils.http_util.http_util;
+	import std.functional : toDelegate;
+	if (httpExchangeHandler() is null)
+		setHttpExchangeHandler(toDelegate(&vibeBotanOcspHttpExchange));
+}
+
+private import botan.utils.http_util.http_util : BotanHTTPResponse = HTTPResponse;
+
+private BotanHTTPResponse vibeBotanOcspHttpExchange(
+	in string method, in string url, in string content_type, const(ubyte)[] body)
+{
+	import botan.utils.http_util.http_util : HTTPResponse;
+	import memutils.hashmap;
+	import vibe.http.status : httpStatusText;
+	import vibe.stream.operations : readAllUTF8;
+
+	static bool in_flight;
+	if (in_flight)
+		return HTTPResponse(0, "nested OCSP HTTP", "", HashMapRef!(string, string).init);
+	in_flight = true;
+	scope (exit) in_flight = false;
+
+	auto settings = new HTTPClientSettings;
+	settings.maxRedirects = 0;
+	uint code = 0;
+	string msg;
+	string reply_body;
+	try {
+		requestHTTP(url, (scope req) {
+			req.method = method == "POST" ? HTTPMethod.POST : HTTPMethod.GET;
+			if (body.length)
+				req.writeBody(cast(ubyte[]) body, content_type);
+			else if (content_type.length)
+				req.headers["Content-Type"] = content_type;
+		}, (scope res) {
+			code = res.statusCode;
+			msg = httpStatusText(res.statusCode);
+			reply_body = res.bodyReader.readAllUTF8();
+		}, settings);
+	} catch (Exception e) {
+		return HTTPResponse(0, e.msg, "", HashMapRef!(string, string).init);
+	}
+	return HTTPResponse(code, msg, reply_body, HashMapRef!(string, string).init);
+}
+
 static this()
 {
 	import core.thread;

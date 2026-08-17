@@ -8,6 +8,7 @@ import botan.constants;
 import botan.cert.x509.x509cert;
 import botan.cert.x509.certstor;
 import botan.cert.x509.x509path;
+import botan.cert.x509.key_constraint : UsageType;
 import botan.math.bigint.bigint: BigInt;
 import botan.tls.blocking;
 import botan.tls.channel;
@@ -17,6 +18,8 @@ import botan.tls.server;
 import botan.tls.session_manager;
 import botan.tls.server_info;
 import botan.tls.ciphersuite;
+import botan.tls.policy;
+import botan.tls.version_;
 import botan.rng.auto_rng;
 import vibe.core.stream;
 import vibe.stream.tls;
@@ -107,7 +110,12 @@ public:
 		if (state == TLSStreamState.accepting)
 		{
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
-			m_server_info = TLSServerInformation(peer_address.toAddressString(), peer_address.port);
+			string host = peer_name.length ? peer_name : "localhost";
+			try {
+				if (peer_address != NetworkAddress.init)
+					host = peer_address.toAddressString();
+			} catch (Exception) {}
+			m_server_info = TLSServerInformation(host, peer_address.port);
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
 
 		}
@@ -416,12 +424,25 @@ public:
 		 TLSSessionManager session_manager = null,
 		 bool is_datagram = false)
 	{
+		this(kind, TLSVersion.any, credentials, policy, session_manager, is_datagram);
+	}
+
+	/// Same as the 5-argument constructor, but applies $(D ver) to a
+	/// $(D CustomTLSPolicy) (min/offer/max) and the client offer version.
+	/// $(D TLSVersion.any) still offers botan $(D latestTlsVersion()) (1.2).
+	this(TLSContextKind kind, TLSVersion ver,
+		 TLSCredentialsManager credentials = null,
+		 TLSPolicy policy = null,
+		 TLSSessionManager session_manager = null,
+		 bool is_datagram = false)
+	{
 		m_owner = Thread.getThis();
+		const bool default_creds = credentials is null;
 		if (!credentials)
 			credentials = new CustomTLSCredentials();
 		m_kind = kind;
 		m_credentials = credentials;
-		m_is_datagram = is_datagram;
+		m_is_datagram = is_datagram || ver == TLSVersion.dtls1;
 
 		m_rng = new AutoSeededRNG;
 		if (!session_manager)
@@ -429,20 +450,44 @@ public:
 		m_session_manager = session_manager;
 
 		if (!policy) {
-			if (!gs_default_policy) {
-				import core.thread : Thread;
-				gs_ctor = Thread.getThis();
-				gs_default_policy = new CustomTLSPolicy();
+			if (ver == TLSVersion.any && !m_is_datagram) {
+				if (!gs_default_policy) {
+					import core.thread : Thread;
+					gs_ctor = Thread.getThis();
+					gs_default_policy = new CustomTLSPolicy();
+				}
+				policy = cast(TLSPolicy)gs_default_policy;
+			} else {
+				auto dedicated = new CustomTLSPolicy();
+				dedicated.applyTlsVersion(ver);
+				policy = dedicated;
 			}
-			policy = cast(TLSPolicy)gs_default_policy;
+		} else if (auto custom = cast(CustomTLSPolicy) policy) {
+			if (ver != TLSVersion.any)
+				custom.applyTlsVersion(ver);
 		}
 		m_policy = policy;
+		applyProtocolOffer(ver);
 
-		if (is_datagram)
-			m_offer_version = policy.latestSupportedVersion(true);
+		if (default_creds && m_kind == TLSContextKind.client)
+			peerValidationMode = TLSPeerValidationMode.trustedCert;
+	}
+
+	private void applyProtocolOffer(TLSVersion ver)
+	{
+		if (auto custom = cast(CustomTLSPolicy) m_policy) {
+			if (custom.offerProtocolVersion.valid)
+				m_offer_version = custom.offerProtocolVersion;
+			else
+				m_offer_version = m_policy.latestSupportedVersion(m_is_datagram);
+			return;
+		}
+		if (ver == TLSVersion.tls1_3)
+			m_offer_version = TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
+		else if (ver == TLSVersion.dtls1 || m_is_datagram)
+			m_offer_version = m_policy.latestSupportedVersion(true);
 		else
-			m_offer_version = policy.latestSupportedVersion(false);
-
+			m_offer_version = m_policy.latestSupportedVersion(false);
 	}
 
 	/// The kind of TLS context (client/server)
@@ -560,8 +605,16 @@ public:
 		else assert(false, "Cannot handle maxCertChainLength if CustomTLSCredentials is not used");
 	}
 
-	void setCipherList(string list = null) { assert(false, "Incompatible interface method requested"); }
-	void setCipherSuites(string list = null) { assert(false, "Incompatible interface method requested"); }
+	void setCipherList(string list = null) {
+		if (auto policy = cast(CustomTLSPolicy)m_policy) {
+			policy.setPriorityCiphersFromList(list);
+			return;
+		}
+		assert(false, "Cannot handle setCipherList if CustomTLSPolicy is not used");
+	}
+	void setCipherSuites(string list = null) {
+		setCipherList(list);
+	}
 
 	/** Set params to use for DH cipher.
 	 *
@@ -582,13 +635,28 @@ public:
 	 *    function without argument will restore the default.
 	 *
 	 */
-	void setECDHCurve(string curve=null) { assert(false, "Incompatible interface method requested"); }
+	void setECDHCurve(string curve=null) {
+		if (auto policy = cast(CustomTLSPolicy)m_policy) {
+			if (curve is null || !curve.length) {
+				policy.priorityCurvesOnly = false;
+				return;
+			}
+			policy.addPriorityCurves([curve]);
+			policy.priorityCurvesOnly = true;
+			return;
+		}
+		assert(false, "Cannot handle setECDHCurve if CustomTLSPolicy is not used");
+	}
 
 	/// Sets a certificate file to use for authenticating to the remote peer
 	void useCertificateChainFile(string path) {
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			m_cert_checked = false;
-			credentials.m_server_cert = X509Certificate(path);
+			auto loaded = loadCertificatesFromFile(path);
+			enforce(!loaded.empty, "No certificates in chain file " ~ path);
+			credentials.m_server_cert = loaded[0];
+			if (loaded.length > 1)
+				credentials.m_ca_cert = loaded[1];
 			return;
 		}
 		else assert(false, "Cannot handle useCertificateChainFile if CustomTLSCredentials is not used");
@@ -618,12 +686,33 @@ public:
 	void useTrustedCertificateFile(string path) {
 		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
 			auto store = new CertificateStoreInMemory;
-
-			store.addCertificate(X509Certificate(path));
+			store.addFromFile(path);
 			credentials.m_stores.pushBack(store);
 			return;
 		}
 		else assert(false, "Cannot handle useTrustedCertificateFile if CustomTLSCredentials is not used");
+	}
+
+	void useSystemCertificateStore() {
+		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+			credentials.useSystemCertificateStore();
+			return;
+		}
+		assert(false, "Cannot handle useSystemCertificateStore if CustomTLSCredentials is not used");
+	}
+
+	@property void ocspChecking(bool enabled) {
+		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+			credentials.m_ocsp_checking = enabled;
+			return;
+		}
+		assert(false, "Cannot handle ocspChecking if CustomTLSCredentials is not used");
+	}
+	@property bool ocspChecking() const {
+		if (auto credentials = cast(CustomTLSCredentials)m_credentials) {
+			return credentials.m_ocsp_checking;
+		}
+		assert(false, "Cannot handle ocspChecking if CustomTLSCredentials is not used");
 	}
 
     /// Use the CA root certificate with this client to validate the peer cert
@@ -696,7 +785,9 @@ private:
 class CustomTLSPolicy : TLSPolicy
 {
 	TLSProtocolVersion m_min_ver = TLSProtocolVersion.TLS_V12;
-	int m_min_dh_group_size = 1024;
+	TLSProtocolVersion m_max_ver;
+	TLSProtocolVersion m_offer_ver;
+	int m_min_dh_group_size = 2048;
 	Vector!TLSCiphersuite m_pri_ciphersuites;
 	Vector!string m_pri_ecc_curves;
 	Duration m_session_lifetime = 24.hours;
@@ -709,6 +800,66 @@ public:
 
 	/// Get the minimum acceptable protocol version
 	@property TLSProtocolVersion minProtocolVersion() { return m_min_ver; }
+
+	@property void maxProtocolVersion(TLSProtocolVersion ver) { m_max_ver = ver; }
+	@property TLSProtocolVersion maxProtocolVersion() { return m_max_ver; }
+
+	@property void offerProtocolVersion(TLSProtocolVersion ver) { m_offer_ver = ver; }
+	@property TLSProtocolVersion offerProtocolVersion() { return m_offer_ver; }
+
+	/// Map a vibe $(D TLSVersion) onto min / offer / max. Does not change
+	/// botan $(D latestTlsVersion()) (stays 1.2).
+	void applyTlsVersion(TLSVersion ver)
+	{
+		m_max_ver = TLSProtocolVersion.init;
+		final switch (ver) {
+			case TLSVersion.any:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
+				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				break;
+			case TLSVersion.ssl3:
+			case TLSVersion.tls1:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V10);
+				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				break;
+			case TLSVersion.tls1_1:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V11);
+				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				break;
+			case TLSVersion.tls1_2:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
+				m_offer_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
+				break;
+			case TLSVersion.tls1_3:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
+				m_offer_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
+				m_max_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
+				break;
+			case TLSVersion.dtls1:
+				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.DTLS_V12);
+				m_offer_ver = TLSProtocolVersion.latestDtlsVersion();
+				break;
+		}
+	}
+
+	void setPriorityCiphersFromList(string list)
+	{
+		m_pri_ciphersuites.clear();
+		if (list is null || !list.length) {
+			m_pri_ciphers_exclusive = false;
+			return;
+		}
+		import std.algorithm : splitter;
+		import std.string : strip;
+		foreach (tok; list.splitter(':')) {
+			auto name = tok.strip;
+			if (!name.length) continue;
+			auto suite = TLSCiphersuite.byName(name);
+			if (suite != TLSCiphersuite.init)
+				m_pri_ciphersuites ~= suite;
+		}
+		m_pri_ciphers_exclusive = !m_pri_ciphersuites.empty;
+	}
 
 	@property void minDHGroupSize(int sz) { m_min_dh_group_size = sz; }
 	@property int minDHGroupSize() { return m_min_dh_group_size; }
@@ -785,9 +936,44 @@ public:
 
 	override bool acceptableProtocolVersion(TLSProtocolVersion _version) const
 	{
-		if (m_min_ver != TLSProtocolVersion.init)
-			return _version >= m_min_ver;
-		return super.acceptableProtocolVersion(_version);
+		if (m_min_ver != TLSProtocolVersion.init) {
+			if (_version.isDatagramProtocol() != m_min_ver.isDatagramProtocol())
+				return false;
+			if (_version < m_min_ver)
+				return false;
+		}
+		if (m_max_ver != TLSProtocolVersion.init) {
+			if (_version.isDatagramProtocol() != m_max_ver.isDatagramProtocol())
+				return false;
+			if (_version > m_max_ver)
+				return false;
+		}
+		if (m_min_ver == TLSProtocolVersion.init && m_max_ver == TLSProtocolVersion.init)
+			return super.acceptableProtocolVersion(_version);
+		return true;
+	}
+
+	override TLSProtocolVersion latestSupportedVersion(bool datagram) const
+	{
+		if (m_offer_ver.valid)
+			return m_offer_ver;
+		return super.latestSupportedVersion(datagram);
+	}
+
+	override bool allowServerInitiatedRenegotiation() const {
+		return false;
+	}
+
+	override Vector!string allowedSignatureMethods() const {
+		Vector!string sigs = Vector!string([
+			"ECDSA",
+			"ECDHE_ECDSA",
+			"RSA",
+			"ECDHE_RSA",
+		]);
+		static if (is(typeof(BOTAN_HAS_ED25519)) && BOTAN_HAS_ED25519)
+			sigs.pushBack("Ed25519");
+		return sigs.move;
 	}
 
 	override Duration sessionTicketLifetime() const {
@@ -842,9 +1028,55 @@ public:
 		return;
 	}
 
+	void useSystemCertificateStore()
+	{
+		if (m_system_store_loaded)
+			return;
+		m_system_store_loaded = true;
+		static if (BOTAN_HAS_CERTSTORE_SYSTEM) {
+			import botan.cert.x509.certstor_system;
+			try {
+				m_stores.pushBack(new CertificateStoreSystem);
+				return;
+			} catch (Exception e) {
+				import vibe.core.log : logWarn;
+				logWarn("System certificate store unavailable: %s", e.msg);
+			}
+		}
+		loadPosixCaBundles();
+	}
+
+	private void loadPosixCaBundles()
+	{
+		import std.file : exists, isFile;
+		static immutable paths = [
+			"/etc/ssl/certs/ca-certificates.crt",
+			"/etc/pki/tls/certs/ca-bundle.crt",
+			"/etc/ssl/ca-bundle.pem",
+			"/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+			"/etc/ssl/cert.pem",
+			"/usr/local/etc/openssl/cert.pem",
+			"/opt/homebrew/etc/openssl@3/cert.pem",
+		];
+		foreach (path; paths) {
+			if (!exists(path) || !isFile(path))
+				continue;
+			try {
+				auto store = new CertificateStoreInMemory;
+				store.addFromFile(path);
+				m_stores.pushBack(store);
+				return;
+			} catch (Exception e) {
+				import vibe.core.log : logWarn;
+				logWarn("Failed to load CA bundle %s: %s", path, e.msg);
+			}
+		}
+	}
+
 	override Vector!CertificateStore trustedCertificateAuthorities(in string, in string)
 	{
-		// todo: Check machine stores for client mode
+		if (m_stores.length == 0 && (m_validationMode & TLSPeerValidationMode.checkTrust))
+			useSystemCertificateStore();
 		if (m_stores.length == 0)
 			return Vector!CertificateStore.init;
 		return m_stores.clone;
@@ -879,14 +1111,15 @@ public:
 		if (cert_chain.empty)
 			throw new InvalidArgument("Certificate chain was empty");
 
+		auto usage = usageTypeFor(type);
+		auto restrictions = pathRestrictions();
+
 		if (m_validationMode == TLSPeerValidationMode.validCert)
 		{
 			auto trusted_CAs = trustedCertificateAuthorities(type, purported_hostname);
 
-			PathValidationRestrictions restrictions;
-			restrictions.maxCertChainLength = m_max_cert_chain_length;
-
-			auto result = x509PathValidate(cert_chain, restrictions, trusted_CAs);
+			auto result = x509PathValidate(cert_chain, restrictions, trusted_CAs,
+				purported_hostname, usage);
 
 			if (!result.successfulValidation())
 				throw new Exception("Certificate validation failure: " ~ result.resultString());
@@ -894,20 +1127,15 @@ public:
 			if (trusted_CAs.length == 0 || !certInSomeStore(trusted_CAs, result.trustRoot()))
 				throw new Exception("Certificate chain roots in unknown/untrusted CA");
 
-			if (purported_hostname != "" && !cert_chain[0].matchesDnsName(purported_hostname))
-				throw new Exception("Certificate did not match hostname");
-
 			return;
 		}
 
 		if (m_validationMode & TLSPeerValidationMode.checkTrust) {
 			auto trusted_CAs = trustedCertificateAuthorities(type, purported_hostname);
 
-			PathValidationRestrictions restrictions;
-			restrictions.maxCertChainLength = m_max_cert_chain_length;
-
 			PathValidationResult result;
-			try result = x509PathValidate(cert_chain, restrictions, trusted_CAs);
+			try result = x509PathValidate(cert_chain, restrictions, trusted_CAs,
+				purported_hostname, usage);
 			catch (Exception e) { }
 			if (trusted_CAs.length == 0 || !certInSomeStore(trusted_CAs, result.trustRoot()))
 				throw new Exception("Certificate chain roots in unknown/untrusted CA");
@@ -933,6 +1161,23 @@ public:
 				throw new Exception("Certificate did not match hostname");
 
 
+	}
+
+	private PathValidationRestrictions pathRestrictions() const
+	{
+		auto restrictions = PathValidationRestrictions(false, 80, m_ocsp_checking, m_max_cert_chain_length);
+		restrictions.maxCertChainLength = m_max_cert_chain_length;
+		restrictions.ocspAllIntermediates = m_ocsp_checking;
+		return restrictions;
+	}
+
+	private static UsageType usageTypeFor(in string type)
+	{
+		if (type == "tls-server")
+			return UsageType.TLS_SERVER_AUTH;
+		if (type == "tls-client")
+			return UsageType.TLS_CLIENT_AUTH;
+		return UsageType.UNSPECIFIED;
 	}
 
 	override PrivateKey privateKeyFor(in X509Certificate, in string, in string)
@@ -995,10 +1240,12 @@ public:
 	PrivateKey m_key;
     PrivateKey delegate(string) m_cpk_del;
 	Vector!CertificateStore m_stores;
+	bool m_ocsp_checking;
 
 private:
 	TLSPeerValidationMode m_validationMode = TLSPeerValidationMode.none;
 	int m_max_cert_chain_length = 9;
+	bool m_system_store_loaded;
 }
 
 CustomTLSCredentials createCreds()
@@ -1014,7 +1261,7 @@ CustomTLSCredentials createCreds()
 
 	Unique!AutoSeededRNG rng = new AutoSeededRNG;
 
-	auto ca_key = RSAPrivateKey(*rng, 1024);
+	auto ca_key = RSAPrivateKey(*rng, 2048);
 	scope(exit) ca_key.destroy();
 	X509CertOptions ca_opts;
 	ca_opts.common_name = "Test CA";
@@ -1023,7 +1270,7 @@ CustomTLSCredentials createCreds()
 
 	X509Certificate ca_cert = x509self.createSelfSignedCert(ca_opts, *ca_key, "SHA-256", *rng);
 
-	auto server_key = RSAPrivateKey(*rng, 1024);
+	auto server_key = RSAPrivateKey(*rng, 2048);
 
 	X509CertOptions server_opts;
 	server_opts.common_name = "localhost";
@@ -1107,6 +1354,43 @@ public:
 	}
 
 }
+
+unittest {
+	auto p12 = new CustomTLSPolicy();
+	p12.applyTlsVersion(TLSVersion.tls1_2);
+	assert(p12.minProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	assert(p12.offerProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	assert(p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V12)));
+	assert(p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V13)));
+	assert(!p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V10)));
+	assert(p12.minimumDhGroupSize() == 2048);
+	assert(!p12.allowServerInitiatedRenegotiation());
+
+	auto p13 = new CustomTLSPolicy();
+	p13.applyTlsVersion(TLSVersion.tls1_3);
+	assert(p13.minProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V13));
+	assert(p13.offerProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V13));
+	assert(p13.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V13)));
+	assert(!p13.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V12)));
+	assert(p13.latestSupportedVersion(false) == TLSProtocolVersion(TLSProtocolVersion.TLS_V13));
+
+	auto anyp = new CustomTLSPolicy();
+	anyp.applyTlsVersion(TLSVersion.any);
+	assert(anyp.offerProtocolVersion() == TLSProtocolVersion.latestTlsVersion());
+	assert(TLSProtocolVersion.latestTlsVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+
+	auto ctx12 = new BotanTLSContext(TLSContextKind.client, TLSVersion.tls1_2);
+	assert(ctx12.defaultProtocolOffer == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	assert(ctx12.peerValidationMode == TLSPeerValidationMode.trustedCert);
+	assert(!ctx12.ocspChecking);
+	ctx12.ocspChecking = true;
+	assert(ctx12.ocspChecking);
+
+	auto ctx13 = new BotanTLSContext(TLSContextKind.server, TLSVersion.tls1_3);
+	assert(ctx13.defaultProtocolOffer == TLSProtocolVersion(TLSProtocolVersion.TLS_V13));
+	assert(ctx13.peerValidationMode == TLSPeerValidationMode.none);
+}
+
 private:
 static ~this() {
 	if (Thread.getThis() == gs_ctor)

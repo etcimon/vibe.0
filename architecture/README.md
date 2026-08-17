@@ -5,8 +5,8 @@ Untracked-local notes for this clone. Not upstream documentation. Not official v
 ```
 clone:     vibe.0
 upstream:  https://github.com/etcimon/vibe.0.git
-pin:       master @ eb51b27 (tag v1.2.1)
-           eb51b2704674317ff8b10062d7907ba43fd973db
+pin:       feature/botan-delegate-sync @ 7b77638 (from master / tag v1.2.1+)
+           7b77638c (Require memutils >=1.0.12…)
 license:   MIT (plus Boost/BSD file exceptions; see LICENSE.txt)
 dub name:  vibe-0
 target:    library
@@ -40,6 +40,7 @@ Do not invent a path-rewrite “fix”. The keys are a **Windows packaging / int
 | [core-event.md](core-event.md) | Event loop, tasks/fibers, `EventDriver` / `DriverCore`, libasync, file I/O |
 | [http.md](http.md) | `vibe.http` server, client, HTTP/2 via libhttp2, router, websockets, proxy |
 | [tls-crypto.md](tls-crypto.md) | Botan vs OpenSSL factory, streams, password hash, CSPRNG |
+| [botan-delegates.md](botan-delegates.md) | Frozen botan delegate attach; V1 = Botan TLS 1.3 via same `BotanTLSStream` |
 | [data-db.md](data-db.md) | `vibe.data` (JSON, XML, DOM, serialization, brotli) and `vibe.db` (sqlite, redis, pgsql) |
 | [open-questions.md](open-questions.md) | Unread areas, packaging debt, RISC-V affinity, leftover vibe.d pieces |
 
