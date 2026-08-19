@@ -1807,7 +1807,10 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 
 	/// Loop for HTTP/1.1 or HTTP/1.0 only
 	mixin(Name!"HTTP Request");
-	do {
+	// for(;;) so leftover `continue` re-enters handleRequest even when
+	// TCP is empty (plaintext already in Botan/OpenSSL). A do/while
+	// `!tcp.empty` would drop that request after continue.
+	for (;;) {
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
 
@@ -1824,14 +1827,20 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 
 		mixin(Breadcrumb!("(tcp_conn !is null && tcp_conn.connected) ? tcp_conn.peerAddress() : `disconnecting`"));
 
-		//logTrace("Waiting for next request...");
-		// wait for another possible request on a keep-alive connection
+		// TLS leftover: Botan onRead can decrypt the next request
+		// into the plaintext ring while TCP is already empty (OpenSSL
+		// uses SSL_pending the same way). Check before and after the
+		// TCP wait so a timeout cannot drop a pipelined record.
+		if (tls_stream && tls_stream.dataAvailableForRead)
+			continue;
 		if (!tcp_conn || !tcp_conn.waitForData(context.settings.keepAliveTimeout)) {
+			if (tls_stream && tls_stream.dataAvailableForRead)
+				continue;
 			if (!tcp_conn || !tcp_conn.connected) logDebug("Client disconnected.");
 			else logDebug("Keep-alive connection timed out!");
 			break;
 		}
-	} while(tcp_conn !is null && !tcp_conn.empty);
+	}
 }
 
 // Lazily loads the body reader in a HTTPServerRequest. Used in `handleRequest`

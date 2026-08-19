@@ -16,9 +16,10 @@ void main()
 	auto any = createTLSContext(TLSContextKind.client, TLSVersion.any);
 	auto botanAny = cast(BotanTLSContext) any;
 	enforce(botanAny !is null, "factory any must be BotanTLSContext");
-	enforce(botanAny.defaultProtocolOffer == TLSProtocolVersion.latestTlsVersion(),
-		"any must offer latestTlsVersion (1.2)");
-	enforce(TLSProtocolVersion.latestTlsVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	enforce(TLSProtocolVersion.latestTlsVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12),
+		"botan latestTlsVersion stays 1.2");
+	enforce(botanAny.defaultProtocolOffer == TLSProtocolVersion(TLSProtocolVersion.TLS_V13),
+		"any/tls1_2 offer is ossl-style max 1.3");
 
 	auto offer13 = createTLSContext(TLSContextKind.client, TLSVersion.tls1_3);
 	auto botan13 = cast(BotanTLSContext) offer13;

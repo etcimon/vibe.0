@@ -1,6 +1,6 @@
 {
 	"name": "vibe-0",
-	"version": "1.3.0",
+	"version": "1.3.1",
 	"description": "Asynchronous I/O framework",
 	"license": "MIT",
 	"copyright": "Copyright © 2012-2014 Sönke Ludwig",
@@ -15,19 +15,13 @@
 
 	"dependencies": {
 		"libhttp2": { "version": "~>1.0.0" },
-		"botan": {
-			"version": ">=3.13.0",
-			"repository": "git+https://github.com/etcimon/botan.git"
-		},
-		"libasync": {"version": "~>0.9.0" },
+		"botan": { "version": "~>3.13.2" },
+		"libasync": { "version": "~>0.9.8" },
 		"openssl": {
 			"version": ">=3.3.4",
 			"repository": "git+https://github.com/etcimon/openssl.git"
 		},
-		"memutils": {
-			"version": ">=1.0.13",
-			"repository": "git+https://github.com/etcimon/memutils.git"
-		}
+		"memutils": { "version": "~>1.0.14" }
 	},
 	"targetType": "library",
 	"mainSourceFile": "source/vibe/appmain.d",

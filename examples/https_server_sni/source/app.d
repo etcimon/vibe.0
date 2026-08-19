@@ -1,19 +1,24 @@
-import vibe.appmain;
+/**
+	SNI HTTPS example: Botan TLS + TLSGC, two vhosts on one port.
+	Factory is Botan (createTLSContext). latestTlsVersion stays 1.2;
+	tls1_2 offer is min 1.2 / max 1.3.
+*/
+import vibe.core.core;
 import vibe.core.log;
 import vibe.http.server;
-import vibe.stream.ssl;
+import vibe.stream.tls;
+import std.stdio : stdout, writeln;
 
-
-shared static this()
+void main()
 {
 	{
 		auto settings = new HTTPServerSettings;
 		settings.port = 8080;
 		settings.hostName = "hosta";
 		settings.bindAddresses = ["::1", "127.0.0.1"];
-		settings.sslContext = createSSLContext(SSLContextKind.server);
-		settings.sslContext.useCertificateChainFile("hosta.crt");
-		settings.sslContext.usePrivateKeyFile("hosta.key");
+		settings.tlsContext = createTLSContext(TLSContextKind.server, TLSVersion.tls1_2);
+		settings.tlsContext.useCertificateChainFile("hosta.crt");
+		settings.tlsContext.usePrivateKeyFile("hosta.key");
 		listenHTTP(settings, &handleRequestA);
 	}
 
@@ -22,12 +27,14 @@ shared static this()
 		settings.port = 8080;
 		settings.hostName = "hostb";
 		settings.bindAddresses = ["::1", "127.0.0.1"];
-		settings.sslContext = createSSLContext(SSLContextKind.server);
-		settings.sslContext.useCertificateChainFile("hostb.crt");
-		settings.sslContext.usePrivateKeyFile("hostb.key");
+		settings.tlsContext = createTLSContext(TLSContextKind.server, TLSVersion.tls1_2);
+		settings.tlsContext.useCertificateChainFile("hostb.crt");
+		settings.tlsContext.usePrivateKeyFile("hostb.key");
 		listenHTTP(settings, &handleRequestB);
 	}
 
+	writeln("READY driver=vibe.0-botan-sni port=8080");
+	stdout.flush();
 	logInfo(
 `This example shows how to run multiple HTTPS virtual hosts on the same port.
 For this to work, you need to add the following two lines to your /etc/hosts
@@ -40,6 +47,7 @@ You can then navigate to either https://hosta:8080/ or https://hostb:8080/
 and should be presented with a different certificate each time, matching the
 host name entered.
 `);
+	runEventLoop();
 }
 
 void handleRequestA(scope HTTPServerRequest req, scope HTTPServerResponse res)

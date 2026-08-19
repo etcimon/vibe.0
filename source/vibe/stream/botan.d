@@ -11,6 +11,10 @@ import botan.cert.x509.x509path;
 import botan.cert.x509.key_constraint : UsageType;
 import botan.math.bigint.bigint: BigInt;
 import botan.tls.blocking;
+import memutils.unreadring;
+static assert(__traits(hasMember, TLSBlockingChannel, "unreadPut"));
+static assert(__traits(hasMember, TLSBlockingChannel, "unreadDrainRecv"));
+static assert(__traits(hasMember, TLSBlockingChannel, "unreadOnTCP"));
 import botan.tls.channel;
 import botan.tls.credentials_manager;
 import botan.tls.exceptn;
@@ -21,6 +25,23 @@ import botan.tls.ciphersuite;
 import botan.tls.policy;
 import botan.tls.version_;
 import botan.rng.auto_rng;
+import botan.rng.rng;
+import botan.algo_base.symkey : SymmetricKey;
+
+private RandomNumberGenerator makeTlsRng()
+{
+	static if (BOTAN_HAS_CHACHA_RNG)
+	{
+		import botan.rng.chacha_rng : ChaChaRNG;
+		auto seed = new AutoSeededRNG();
+		auto b = seed.randomVec(48);
+		auto cr = new ChaChaRNG(b.ptr, b.length);
+		cr.unlockForSingleThread();
+		return cr;
+	}
+	else
+		return new AutoSeededRNG();
+}
 import vibe.core.stream;
 import vibe.stream.tls;
 import vibe.core.net;
@@ -29,6 +50,14 @@ import std.exception;
 import std.format;
 import botan.libstate.init;
 
+// NetworkAddress.port asserts when family==0 (libasync inbound before
+// getpeername). Same guard as vibe-stream BotanTLSStream.
+private ushort tlsPeerPort(NetworkAddress addr, ushort fallback = 443)
+{
+	if (addr.family)
+		return addr.port;
+	return fallback;
+}
 
 static ~this() {
     import botan.libstate.global_state;
@@ -56,6 +85,7 @@ private:
 	Exception m_ex;
 
 	Vector!ubyte m_outBuf;
+	Vector!ubyte m_recBuf;
 public:
 	/// Returns the date/time the session was started
 	@property SysTime started() const { return m_session_age; }
@@ -94,7 +124,7 @@ public:
 
 		assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
 		// todo: add service name?
-		m_server_info = TLSServerInformation(peer_name, peer_address.port);
+		m_server_info = TLSServerInformation(peer_name, tlsPeerPort(peer_address));
 		m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.clone);
 		doHandshake();
 	}
@@ -112,18 +142,18 @@ public:
 			assert(m_ctx.m_kind != TLSContextKind.client, "Accepting through a client context is not supported");
 			string host = peer_name.length ? peer_name : "localhost";
 			try {
-				if (peer_address != NetworkAddress.init)
+				if (peer_address.family)
 					host = peer_address.toAddressString();
 			} catch (Exception) {}
-			m_server_info = TLSServerInformation(host, peer_address.port);
+			m_server_info = TLSServerInformation(host, tlsPeerPort(peer_address));
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite, &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, &m_ctx.nextProtocolHandler, &m_ctx.sniHandler, m_ctx.m_is_datagram);
 
 		}
 		else if (state == TLSStreamState.connecting) {
 			assert(m_ctx.m_kind == TLSContextKind.client, "Connecting through a server context is not supported");
-			assert(peer_address != NetworkAddress.init, "You must specify a peer address");
+			// family==0 is common on inbound libasync sockets before getpeername
 			// todo: add service name?
-			m_server_info = TLSServerInformation(peer_name, peer_address.port);
+			m_server_info = TLSServerInformation(peer_name, tlsPeerPort(peer_address));
 			m_tls_channel = TLSBlockingChannel(&onRead, &onWrite,  &onAlert, &onHandhsakeComplete, m_ctx.m_session_manager, m_ctx.m_credentials, m_ctx.m_policy, *m_ctx.m_rng, m_server_info, m_ctx.m_offer_version, m_ctx.m_clientOffers.clone);
 		}
 		else /*if (state == TLSStreamState.connected)*/ {
@@ -179,6 +209,7 @@ public:
 	void flush() {
 		doWrite(m_outBuf[]);
 		m_outBuf.length = 0;
+		flushRec();
 		m_tcp_conn.flush();
 	}
 
@@ -205,6 +236,7 @@ public:
 	bool waitForData(Duration timeout = 0.seconds)
 	{
 		mixin(STrace);
+		if (m_outBuf.length) flush();
 		if (m_tls_channel.pending() == 0) {
 			if (!m_tcp_conn.dataAvailableForRead()) {
 				if (!m_tcp_conn.waitForData(timeout))
@@ -231,6 +263,7 @@ public:
 		processException();
 		scope(success)
 			processException();
+		if (m_outBuf.length) flush();
 		m_tls_channel.read(dst);
 	}
 
@@ -239,16 +272,23 @@ public:
 		processException();
 		scope(success)
 			processException();
+		if (m_outBuf.length) flush();
 		return m_tls_channel.readBuf(buf);
 	}
 
 	void write(in ubyte[] src) {
-		if (m_outBuf.length >= 64*1024 || src.length >= 64*1024)
+		// TLS 1.2 plaintext ceiling is 16 KiB; flush there so one
+		// HTTP response is one record (matches vibe.d BotanTLSStream).
+		enum flushAt = 16 * 1024;
+		if (m_outBuf.length && m_outBuf.length + src.length > flushAt)
 			flush();
-		if (src.length >= 64*1024)
+		if (src.length >= flushAt)
 			doWrite(src);
-		else
+		else if (src.length) {
+			if (!m_outBuf.capacity)
+				m_outBuf.reserve(flushAt);
 			m_outBuf ~= cast() src;
+		}
 	}
 
 	private void doWrite(in ubyte[] src) {
@@ -256,7 +296,10 @@ public:
 		processException();
 		scope(success)
 			processException();
-		try m_tls_channel.write(src);
+		try {
+			m_tls_channel.write(src);
+			flushRec();
+		}
 		catch (TLSClosedException e) {
 			import vibe.core.log : logError;
 			logError("doWrite failed: %s", e.toString());
@@ -273,6 +316,7 @@ public:
 	@property ulong leastSize()
 	{
 		mixin(STrace);
+		if (m_outBuf.length) flush();
 		size_t ret = m_tls_channel.pending();
 		if (ret > 0) return ret;
 		waitForData();
@@ -355,14 +399,19 @@ private:
 		import vibe.core.log : logError;
 		import std.datetime : seconds;
 		mixin(STrace);
-		ubyte[] ret;
+		flushRec();
+		if (!buf.length) return null;
 		if (m_in_handshake && !m_tcp_conn.dataAvailableForRead)
 			enforce!TimeoutException(m_tcp_conn.waitForData(30.seconds), "Handshake could not be handled");
-		size_t len = std.algorithm.min(m_tcp_conn.leastSize(), buf.length);
+		// Prefer leftover already in the unread ring (peek) so keep-alive
+		// does not call leastSize() — that waits. Same as vibe.d BotanTLSStream.
+		size_t avail = m_tcp_conn.peek().length;
+		if (!avail)
+			avail = cast(size_t) m_tcp_conn.leastSize();
+		size_t len = std.algorithm.min(avail, buf.length);
 		if (len == 0) return null;
 		if (auto buffered = cast(Buffered)m_tcp_conn) {
-			ret = buffered.readBuf(buf);
-			return ret;
+			return buffered.readBuf(buf);
 		}
 		m_reader = Task.getThis();
 		scope(exit) m_reader = Task();
@@ -372,10 +421,28 @@ private:
 
 	void onWrite(in ubyte[] src) {
 		mixin(STrace);
+		if (!src.length) return;
+		enum cap = 16 * 1024;
+		if (m_recBuf.length && m_recBuf.length + src.length > cap)
+			flushRec();
+		if (src.length >= cap) {
+			flushRec();
+			m_writer = Task.getThis();
+			scope(exit) m_writer = Task();
+			m_tcp_conn.write(src);
+			return;
+		}
+		if (!m_recBuf.capacity)
+			m_recBuf.reserve(cap);
+		m_recBuf ~= cast(ubyte[]) src;
+	}
+
+	void flushRec() {
+		if (!m_recBuf.length) return;
 		m_writer = Task.getThis();
 		scope(exit) m_writer = Task();
-		//logDebug("Write: %s", src);
-		m_tcp_conn.write(src);
+		m_tcp_conn.write(m_recBuf[]);
+		m_recBuf.length = 0;
 	}
 
 	Task m_reader;
@@ -389,7 +456,7 @@ private:
 	TLSPolicy m_policy;
 	TLSCredentialsManager m_credentials;
 	TLSContextKind m_kind;
-	Unique!AutoSeededRNG m_rng;
+	Unique!RandomNumberGenerator m_rng;
 	TLSProtocolVersion m_offer_version;
 	TLSServerNameCallback m_sniCallback;
 	TLSALPNCallback m_serverCb;
@@ -429,7 +496,8 @@ public:
 
 	/// Same as the 5-argument constructor, but applies $(D ver) to a
 	/// $(D CustomTLSPolicy) (min/offer/max) and the client offer version.
-	/// $(D TLSVersion.any) still offers botan $(D latestTlsVersion()) (1.2).
+	/// $(D any) / $(D tls1_2) match OpenSSL: min 1.2, max 1.3 when
+	/// TLS 1.3 is compiled. botan $(D latestTlsVersion()) stays 1.2.
 	this(TLSContextKind kind, TLSVersion ver,
 		 TLSCredentialsManager credentials = null,
 		 TLSPolicy policy = null,
@@ -444,7 +512,7 @@ public:
 		m_credentials = credentials;
 		m_is_datagram = is_datagram || ver == TLSVersion.dtls1;
 
-		m_rng = new AutoSeededRNG;
+		m_rng = makeTlsRng();
 		if (!session_manager)
 			session_manager = new TLSSessionManagerInMemory(*m_rng);
 		m_session_manager = session_manager;
@@ -455,6 +523,7 @@ public:
 					import core.thread : Thread;
 					gs_ctor = Thread.getThis();
 					gs_default_policy = new CustomTLSPolicy();
+					gs_default_policy.applyTlsVersion(TLSVersion.any);
 				}
 				policy = cast(TLSPolicy)gs_default_policy;
 			} else {
@@ -499,6 +568,21 @@ public:
 	@property void defaultProtocolOffer(TLSProtocolVersion ver) { m_offer_version = ver; }
 	/// ditto
 	@property TLSProtocolVersion defaultProtocolOffer() { return m_offer_version; }
+
+	/// Cap the CustomTLSPolicy max (optional; ECDSA P-256 TLS 1.3
+	/// CertificateVerify is supported — the HS bench uses that path).
+	@property void maxProtocolVersion(TLSProtocolVersion ver)
+	{
+		if (auto p = cast(CustomTLSPolicy) m_policy)
+			p.maxProtocolVersion = ver;
+	}
+	/// ditto
+	@property TLSProtocolVersion maxProtocolVersion()
+	{
+		if (auto p = cast(CustomTLSPolicy) m_policy)
+			return p.maxProtocolVersion;
+		return TLSProtocolVersion.init;
+	}
 
 	void setUserData(void* udata) { m_userData = udata; }
 
@@ -807,28 +891,41 @@ public:
 	@property void offerProtocolVersion(TLSProtocolVersion ver) { m_offer_ver = ver; }
 	@property TLSProtocolVersion offerProtocolVersion() { return m_offer_ver; }
 
-	/// Map a vibe $(D TLSVersion) onto min / offer / max. Does not change
-	/// botan $(D latestTlsVersion()) (stays 1.2).
+	/// Same selectable range as vibe OpenSSL: min 1.2, max 1.3 when
+	/// TLS 1.3 is compiled. botan $(D latestTlsVersion()) stays 1.2.
+	static TLSProtocolVersion osslStyleLatest()
+	{
+		static if (BOTAN_HAS_TLS_13)
+			return TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
+		return TLSProtocolVersion.latestTlsVersion();
+	}
+
+	/// Map a vibe $(D TLSVersion) onto min / offer / max. $(D any) and
+	/// $(D tls1_2) match OpenSSL (min 1.2, max/offer 1.3 when compiled).
 	void applyTlsVersion(TLSVersion ver)
 	{
 		m_max_ver = TLSProtocolVersion.init;
 		final switch (ver) {
 			case TLSVersion.any:
 				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
-				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				m_offer_ver = osslStyleLatest();
+				m_max_ver = osslStyleLatest();
 				break;
 			case TLSVersion.ssl3:
 			case TLSVersion.tls1:
 				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V10);
-				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				m_offer_ver = osslStyleLatest();
+				m_max_ver = osslStyleLatest();
 				break;
 			case TLSVersion.tls1_1:
 				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V11);
-				m_offer_ver = TLSProtocolVersion.latestTlsVersion();
+				m_offer_ver = osslStyleLatest();
+				m_max_ver = osslStyleLatest();
 				break;
 			case TLSVersion.tls1_2:
 				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
-				m_offer_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V12);
+				m_offer_ver = osslStyleLatest();
+				m_max_ver = osslStyleLatest();
 				break;
 			case TLSVersion.tls1_3:
 				m_min_ver = TLSProtocolVersion(TLSProtocolVersion.TLS_V13);
@@ -964,15 +1061,18 @@ public:
 		return false;
 	}
 
+	/// TLS 1.3 CertificateVerify: ECDSA / Ed25519 before RSA-PSS.
+	/// Ephemeral ECDH group preference is `allowedEccCurves` (x25519 first).
 	override Vector!string allowedSignatureMethods() const {
 		Vector!string sigs = Vector!string([
 			"ECDSA",
 			"ECDHE_ECDSA",
+			"Ed25519",
 			"RSA",
 			"ECDHE_RSA",
 		]);
-		static if (is(typeof(BOTAN_HAS_ED25519)) && BOTAN_HAS_ED25519)
-			sigs.pushBack("Ed25519");
+		static if (is(typeof(BOTAN_HAS_ED448)) && BOTAN_HAS_ED448)
+			sigs.pushBack("Ed448");
 		return sigs.move;
 	}
 
@@ -991,11 +1091,12 @@ class CustomTLSCredentials : TLSCredentialsManager
 {
 
 public:
-	this() { }
+	this() { initSessionTicketKey(); }
 
 	/// Client constructor
 	this(TLSPeerValidationMode validation_mode = TLSPeerValidationMode.checkPeer) {
 		m_validationMode = validation_mode;
+		initSessionTicketKey();
 	}
 
 	/// Server constructor
@@ -1004,6 +1105,7 @@ public:
 		m_server_cert = server_cert;
 		m_ca_cert = ca_cert; // used for client certificate request
 		m_key = server_key;
+		initSessionTicketKey();
 
 		m_validationMode = TLSPeerValidationMode.none;
 
@@ -1217,7 +1319,7 @@ public:
 		bool generate_fake_on_unknown)
 	{ return super.srpVerifier(type, context, identifier, group_name, verifier, salt, generate_fake_on_unknown); }
 
-	override bool hasPsk() { return false; }
+	override bool hasPsk() { return true; }
 
 	override string pskIdentityHint(in string type, in string context)
 	{ return super.pskIdentityHint(type, context); }
@@ -1226,7 +1328,19 @@ public:
 	{ return super.pskIdentity(type, context, identity_hint); }
 
 	override SymmetricKey psk(in string type, in string context, in string identity)
-	{ return super.psk(type, context, identity); }
+	{
+		// Botan issues RFC 5077 tickets only with this PSK present —
+		// same resume path OpenSSL enables by default.
+		if (type == "tls-server" && context == "session-ticket")
+			return m_session_ticket_key;
+		return super.psk(type, context, identity);
+	}
+
+	private void initSessionTicketKey()
+	{
+		auto rng = new AutoSeededRNG;
+		m_session_ticket_key = SymmetricKey(rng, 32);
+	}
 
 	~this() {
 		if (m_key) m_key.destroy();
@@ -1246,6 +1360,7 @@ private:
 	TLSPeerValidationMode m_validationMode = TLSPeerValidationMode.none;
 	int m_max_cert_chain_length = 9;
 	bool m_system_store_loaded;
+	SymmetricKey m_session_ticket_key;
 }
 
 CustomTLSCredentials createCreds()
@@ -1255,13 +1370,15 @@ CustomTLSCredentials createCreds()
 	import botan.cert.x509.pkcs10;
 	import botan.cert.x509.x509self;
 	import botan.cert.x509.x509_ca;
-	import botan.pubkey.algo.rsa;
+	import botan.pubkey.algo.ecdsa;
+	import botan.pubkey.algo.ec_group;
 	import botan.codec.hex;
 	import botan.utils.types;
 
 	Unique!AutoSeededRNG rng = new AutoSeededRNG;
 
-	auto ca_key = RSAPrivateKey(*rng, 2048);
+	auto ca_dom = ECGroup("secp256r1");
+	auto ca_key = ECDSAPrivateKey(*rng, ca_dom);
 	scope(exit) ca_key.destroy();
 	X509CertOptions ca_opts;
 	ca_opts.common_name = "Test CA";
@@ -1270,7 +1387,8 @@ CustomTLSCredentials createCreds()
 
 	X509Certificate ca_cert = x509self.createSelfSignedCert(ca_opts, *ca_key, "SHA-256", *rng);
 
-	auto server_key = RSAPrivateKey(*rng, 2048);
+	auto server_dom = ECGroup("secp256r1");
+	auto server_key = ECDSAPrivateKey(*rng, server_dom);
 
 	X509CertOptions server_opts;
 	server_opts.common_name = "localhost";
@@ -1359,9 +1477,12 @@ unittest {
 	auto p12 = new CustomTLSPolicy();
 	p12.applyTlsVersion(TLSVersion.tls1_2);
 	assert(p12.minProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
-	assert(p12.offerProtocolVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	assert(p12.offerProtocolVersion() == CustomTLSPolicy.osslStyleLatest());
 	assert(p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V12)));
-	assert(p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V13)));
+	static if (BOTAN_HAS_TLS_13)
+		assert(p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V13)));
+	else
+		assert(!p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V13)));
 	assert(!p12.acceptableProtocolVersion(TLSProtocolVersion(TLSProtocolVersion.TLS_V10)));
 	assert(p12.minimumDhGroupSize() == 2048);
 	assert(!p12.allowServerInitiatedRenegotiation());
@@ -1376,11 +1497,11 @@ unittest {
 
 	auto anyp = new CustomTLSPolicy();
 	anyp.applyTlsVersion(TLSVersion.any);
-	assert(anyp.offerProtocolVersion() == TLSProtocolVersion.latestTlsVersion());
+	assert(anyp.offerProtocolVersion() == CustomTLSPolicy.osslStyleLatest());
 	assert(TLSProtocolVersion.latestTlsVersion() == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
 
 	auto ctx12 = new BotanTLSContext(TLSContextKind.client, TLSVersion.tls1_2);
-	assert(ctx12.defaultProtocolOffer == TLSProtocolVersion(TLSProtocolVersion.TLS_V12));
+	assert(ctx12.defaultProtocolOffer == CustomTLSPolicy.osslStyleLatest());
 	assert(ctx12.peerValidationMode == TLSPeerValidationMode.trustedCert);
 	assert(!ctx12.ocspChecking);
 	ctx12.ocspChecking = true;

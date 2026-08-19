@@ -108,15 +108,14 @@ final class OpenSSLStream : TLSStream, Buffered
 			// ensure that the SSL tunnel gets terminated when an error happens during verification
 			scope (failure) SSL_shutdown(m_tls);
 
-/*
 			if (auto peer = SSL_get_peer_certificate(m_tls)) {
 				scope(exit) X509_free(peer);
 
 				readPeerCertInfo(peer);
 				auto result = SSL_get_verify_result(m_tls);
 				if (result == X509_V_OK && (ctx.peerValidationMode & TLSPeerValidationMode.checkPeer)) {
-					if (!verifyCertName(peer, GENERAL_NAME.GEN_DNS, vdata.peerName)) {
-						version(Windows) import std.c.windows.winsock;
+					if (!verifyCertName(peer, GEN_DNS, vdata.peerName)) {
+						version(Windows) import core.sys.windows.winsock2;
 						else import core.sys.posix.netinet.in_;
 
 						logWarn("peer name '%s' couldn't be verified, trying IP address.", vdata.peerName);
@@ -134,7 +133,7 @@ final class OpenSSLStream : TLSStream, Buffered
 								break;
 						}
 
-						if (!verifyCertName(peer, GENERAL_NAME.GEN_IPADD, addr[0 .. addrlen])) {
+						if (!verifyCertName(peer, GEN_IPADD, addr[0 .. addrlen])) {
 							logWarn("Error validating peer address");
 							result = X509_V_ERR_APPLICATION_VERIFICATION;
 						}
@@ -142,8 +141,8 @@ final class OpenSSLStream : TLSStream, Buffered
 				}
 
 				enforce(result == X509_V_OK, "Peer failed the certificate validation: "~to!string(result));
-			} //else enforce(ctx.verifyMode < requireCert);
-*/		}
+			}
+		}
 
 		checkExceptions();
 	}
@@ -412,6 +411,7 @@ final class OpenSSLStream : TLSStream, Buffered
 final class OpenSSLContext : SSLContext {
 	private {
 		TLSContextKind m_kind;
+		TLSVersion m_version;
 		ssl_ctx_st* m_ctx;
 		TLSPeerValidationCallback m_peerValidationCallback;
 		TLSPeerValidationMode m_validationMode;
@@ -426,20 +426,28 @@ final class OpenSSLContext : SSLContext {
 		setupOpenSSL();
 
 		m_kind = kind;
-
-
+		m_version = ver;
 
 		const(SSL_METHOD)* method;
 		c_long options = SSL_OP_NO_SSLv2|SSL_OP_NO_COMPRESSION|SSL_OP_SINGLE_DH_USE|SSL_OP_SINGLE_ECDH_USE|SSL_OP_ALLOW_NO_DHE_KEX|SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION;
+		// vibe.d OpenSSL: min/max proto (1.1+) plus option flags.
+		enum SSL_CTRL_SET_MIN_PROTO_VERSION = 123;
+		enum SSL_CTRL_SET_MAX_PROTO_VERSION = 124;
+		static if (!is(typeof(TLS1_VERSION))) enum TLS1_VERSION = 0x0301;
+		static if (!is(typeof(TLS1_1_VERSION))) enum TLS1_1_VERSION = 0x0302;
+		static if (!is(typeof(TLS1_2_VERSION))) enum TLS1_2_VERSION = 0x0303;
+		static if (!is(typeof(TLS1_3_VERSION))) enum TLS1_3_VERSION = 0x0304;
+		int minver = TLS1_VERSION;
+		int maxver = TLS1_3_VERSION;
 		final switch (kind) {
 			case TLSContextKind.client:
 				final switch (ver) {
-					case TLSVersion.any: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3; break;
-					case TLSVersion.ssl3: method = TLS_client_method(); break;
-					case TLSVersion.tls1: method = TLSv1_client_method(); break;
-					case TLSVersion.tls1_1: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; break;
-					case TLSVersion.tls1_2: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1; break;
-					case TLSVersion.tls1_3: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1|SSL_OP_NO_TLSv1_2; break;
+					case TLSVersion.any: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; minver = TLS1_1_VERSION; break;
+					case TLSVersion.ssl3: throw new Exception("SSLv3 is not supported anymore");
+					case TLSVersion.tls1: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3; minver = TLS1_VERSION; break;
+					case TLSVersion.tls1_1: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; minver = TLS1_1_VERSION; break;
+					case TLSVersion.tls1_2: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1; minver = TLS1_2_VERSION; break;
+					case TLSVersion.tls1_3: method = TLS_client_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1|SSL_OP_NO_TLSv1_2; minver = TLS1_3_VERSION; break;
 					case TLSVersion.dtls1: method = DTLSv1_client_method(); break;
 				}
 /*
@@ -455,12 +463,12 @@ final class OpenSSLContext : SSLContext {
 			case TLSContextKind.server:
 			case TLSContextKind.serverSNI:
 				final switch (ver) {
-					case TLSVersion.any: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3; break;
-					case TLSVersion.ssl3: method = TLS_server_method(); break;
-					case TLSVersion.tls1: method = TLSv1_server_method(); break;
-					case TLSVersion.tls1_1: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; break;
-					case TLSVersion.tls1_2: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1; break;
-					case TLSVersion.tls1_3: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1|SSL_OP_NO_TLSv1_2; break;
+					case TLSVersion.any: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; minver = TLS1_1_VERSION; break;
+					case TLSVersion.ssl3: throw new Exception("SSLv3 is not supported anymore");
+					case TLSVersion.tls1: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3; minver = TLS1_VERSION; break;
+					case TLSVersion.tls1_1: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1; minver = TLS1_1_VERSION; break;
+					case TLSVersion.tls1_2: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1; minver = TLS1_2_VERSION; break;
+					case TLSVersion.tls1_3: method = TLS_server_method(); options |= SSL_OP_NO_SSLv3|SSL_OP_NO_TLSv1|SSL_OP_NO_TLSv1_1|SSL_OP_NO_TLSv1_2; minver = TLS1_3_VERSION; break;
 					case TLSVersion.dtls1: method = DTLSv1_server_method(); break;
 				}
 				options |= SSL_OP_CIPHER_SERVER_PREFERENCE;
@@ -468,10 +476,20 @@ final class OpenSSLContext : SSLContext {
         }
 		m_ctx = SSL_CTX_new(method);
         SSL_CTX_set_options(m_ctx, options);
+		if (ver != TLSVersion.dtls1) {
+			SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, minver, null);
+			SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_MAX_PROTO_VERSION, maxver, null);
+		}
 		if (kind == TLSContextKind.server) {
-			//setDHParams();
+			setDHParams();
 			setECDHCurve();
 			guessSessionIDContext();
+			enableSessionResume(true);
+		} else if (kind == TLSContextKind.serverSNI) {
+			guessSessionIDContext();
+			enableSessionResume(true);
+		} else {
+			enableSessionResume(false);
 		}
 
 		setCipherList();
@@ -654,11 +672,29 @@ final class OpenSSLContext : SSLContext {
 	*/
 	void setCipherList(string list = null)
 	{
-		if (list is null)
-			SSL_CTX_set_cipher_list(m_ctx,
-				"ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:RSA+3DES:!aNULL:!MD5:!DSS");
-		else
-			SSL_CTX_set_cipher_list(m_ctx, toStringz(list));
+		if (list is null) {
+			// Mozilla intermediate, same default as vibe.d OpenSSLContext.
+			if (m_kind == TLSContextKind.server && m_version.among(TLSVersion.tls1_2, TLSVersion.tls1_3)) {
+				list = "TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+					~ "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:"
+					~ "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:"
+					~ "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:"
+					~ "DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384";
+			} else {
+				list =
+					"TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:"
+					~ "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:"
+					~ "ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:"
+					~ "ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:"
+					~ "DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305:"
+					~ "ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA:"
+					~ "ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:"
+					~ "ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:"
+					~ "DHE-RSA-AES256-SHA256:AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA256:"
+					~ "AES256-SHA256:AES128-SHA:AES256-SHA:DES-CBC3-SHA";
+			}
+		}
+		SSL_CTX_set_cipher_list(m_ctx, toStringz(list));
 	}
 
 	void setCipherSuites(string list = null)
@@ -702,6 +738,20 @@ final class OpenSSLContext : SSLContext {
 		SSL_CTX_set_session_id_context(m_ctx, cast(ubyte*)contextID.toStringz(), cast(uint)contextID.length);
 	}
 
+	/// OpenSSL already enables server session cache + RFC 5077 tickets
+	/// unless SSL_OP_NO_TICKET is set (we never set it). Make the cache
+	/// explicit so abbreviated handshakes match Botan session tickets.
+	private void enableSessionResume(bool server)
+	{
+		enum SSL_CTRL_SET_SESS_CACHE_SIZE = 42;
+		enum SSL_CTRL_SET_SESS_CACHE_MODE = 44;
+		enum SSL_SESS_CACHE_CLIENT = 0x0001;
+		enum SSL_SESS_CACHE_SERVER = 0x0002;
+		auto mode = server ? SSL_SESS_CACHE_SERVER : SSL_SESS_CACHE_CLIENT;
+		SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_SESS_CACHE_MODE, mode, null);
+		SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_SESS_CACHE_SIZE, 1000, null);
+	}
+
 	/** Set params to use for DH cipher.
 	 *
 	 * By default the 2048-bit prime from RFC 3526 is used.
@@ -712,24 +762,13 @@ final class OpenSSLContext : SSLContext {
 	 */
 
 	void setDHParams(string pem_file=null)
-	{/*
-		DH* dh;
-		scope(exit) DH_free(dh);
-
-		if (pem_file is null) {
-			dh = enforce(DH_new(), "Unable to create DH structure.");
-			dh.p = BN_get_rfc3526_prime_2048(null);
-			ubyte dh_generator = 2;
-			dh.g = BN_bin2bn(&dh_generator, dh_generator.sizeof, null);
-		} else {
-			import core.stdc.stdio : fclose, fopen;
-
-			auto f = enforce(fopen(toStringz(pem_file), "r"), "Failed to load dhparams file "~pem_file);
-			scope(exit) fclose(f);
-			dh = enforce(PEM_read_DHparams(f, null, null, null), "Failed to read dhparams file "~pem_file);
-		}
-
-		SSL_CTX_set_tmp_dh(m_ctx, dh);*/
+	{
+		if (pem_file !is null)
+			throw new Exception("DH PEM files are not supported with the TLS-1.3-only OpenSSL blob");
+		// OpenSSL 1.1+/3: automatic FFDHE (RFC 7919), same role as
+		// vibe.d's RFC 3526 2048-bit default on 1.0.x.
+		enum SSL_CTRL_SET_DH_AUTO = 118;
+		SSL_CTX_ctrl(m_ctx, SSL_CTRL_SET_DH_AUTO, 1, null);
 	}
 
 	/** Set the elliptic curve to use for ECDH cipher.
@@ -846,13 +885,13 @@ final class OpenSSLContext : SSLContext {
 	private static extern(C) nothrow
 	int verify_callback(int valid, X509_STORE_CTX* ctx)
 	{
-        return true;/*
 		X509* err_cert = X509_STORE_CTX_get_current_cert(ctx);
 		int err = X509_STORE_CTX_get_error(ctx);
 		int depth = X509_STORE_CTX_get_error_depth(ctx);
 
 		SSL* ssl = cast(SSL*)X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
 		VerifyData* vdata = cast(VerifyData*)SSL_get_ex_data(ssl, gs_verifyDataIndex);
+		if (!vdata) return valid;
 
 		char[256] buf;
 		X509_NAME_oneline(X509_get_subject_name(err_cert), buf.ptr, 256);
@@ -862,19 +901,24 @@ final class OpenSSLContext : SSLContext {
 
 			if (depth > vdata.verifyDepth) {
 				logDiagnostic("SSL cert chain too long: %s vs. %s", depth, vdata.verifyDepth);
-			    valid = false;
-			    err = X509_V_ERR_CERT_CHAIN_TOO_LONG;
+				valid = false;
+				err = X509_V_ERR_CERT_CHAIN_TOO_LONG;
 			}
 
 			if (err != X509_V_OK)
 				logDebug("SSL cert error: %s", X509_verify_cert_error_string(err).to!string);
 
-			if (!valid && (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT)) {
-				X509_NAME_oneline(X509_get_issuer_name(ctx.current_cert), buf.ptr, 256);
-				logDebug("SSL unknown issuer cert: %s", buf.ptr.to!string);
-				if (!(vdata.validationMode & TLSPeerValidationMode.checkTrust)) {
-					valid = true;
-					err = X509_V_OK;
+			if (!valid) {
+				switch (err) {
+					default: break;
+					case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT:
+					case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY:
+					case X509_V_ERR_CERT_UNTRUSTED:
+						if (!(vdata.validationMode & TLSPeerValidationMode.checkTrust)) {
+							valid = true;
+							err = X509_V_OK;
+						}
+						break;
 				}
 			}
 
@@ -884,8 +928,7 @@ final class OpenSSLContext : SSLContext {
 			}
 
 			if (vdata.callback) {
-				SSLPeerValidationData pvdata;
-				// ...
+				TLSPeerValidationData pvdata;
 				if (!valid) {
 					if (vdata.callback(pvdata)) {
 						valid = true;
@@ -905,9 +948,8 @@ final class OpenSSLContext : SSLContext {
 		}
 
 		X509_STORE_CTX_set_error(ctx, err);
-
 		return valid;
-	*/}
+	}
 }
 
 alias SSLState = ssl_st*;
@@ -940,9 +982,8 @@ void setupOpenSSL()
     gs_verifyDataIndex = CRYPTO_get_ex_new_index(CRYPTO_EX_INDEX_SSL, 0, cast(void*)"VerifyData".ptr, null, null, null);
 }
 
-//TODO: FIXME
 private bool verifyCertName(X509* cert, int field, in char[] value, bool allow_wildcards = true)
-{/*
+{
 	bool delegate(in char[]) str_match;
 
 	bool check_value(ASN1_STRING* str, int type) {
@@ -964,12 +1005,12 @@ private bool verifyCertName(X509* cert, int field, in char[] value, bool allow_w
 	int cnid;
 	int alt_type;
 	final switch (field) {
-		case GENERAL_NAME.GEN_DNS:
+		case GEN_DNS:
 			cnid = NID_commonName;
 			alt_type = V_ASN1_IA5STRING;
 			str_match = allow_wildcards ? s => matchWildcard(value, s) : s => s.icmp(value) == 0;
 			break;
-		case GENERAL_NAME.GEN_IPADD:
+		case GEN_IPADD:
 			cnid = 0;
 			alt_type = V_ASN1_OCTET_STRING;
 			str_match = s => s == value;
@@ -977,12 +1018,12 @@ private bool verifyCertName(X509* cert, int field, in char[] value, bool allow_w
 	}
 
 	if (auto gens = cast(STACK_OF!GENERAL_NAME*)X509_get_ext_d2i(cert, NID_subject_alt_name, null, null)) {
-		scope(exit) GENERAL_NAMES_free(gens);
+		scope(exit) GENERAL_NAMES_free(cast(GENERAL_NAMES*)gens);
 
 		foreach (i; 0 .. sk_GENERAL_NAME_num(gens)) {
 			auto gen = sk_GENERAL_NAME_value(gens, i);
 			if (gen.type != field) continue;
-			ASN1_STRING *cstr = field == GENERAL_NAME.GEN_DNS ? gen.d.dNSName : gen.d.iPAddress;
+			ASN1_STRING *cstr = field == GEN_DNS ? gen.d.dNSName : gen.d.iPAddress;
 			if (check_value(cstr, alt_type)) return true;
 		}
 		if (!cnid) return false;
@@ -996,8 +1037,7 @@ private bool verifyCertName(X509* cert, int field, in char[] value, bool allow_w
 		if (check_value(str, -1)) return true;
 	}
 
-	return false;*/
-    return true;
+	return false;
 }
 
 private bool matchWildcard(const(char)[] str, const(char)[] pattern)

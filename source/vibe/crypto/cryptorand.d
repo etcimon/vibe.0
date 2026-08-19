@@ -592,21 +592,7 @@ class CryptoException : Exception
 version(Windows)
 {
 	import core.sys.windows.windows;
-
-	private extern(Windows) nothrow
-	{
-		alias HCRYPTPROV = size_t;
-
-		enum LPCTSTR NULL = cast(LPCTSTR)0;
-		enum DWORD PROV_RSA_FULL = 1;
-		enum DWORD CRYPT_VERIFYCONTEXT = 0xF0000000;
-
-		BOOL CryptAcquireContextA(HCRYPTPROV *phProv, LPCTSTR pszContainer, LPCTSTR pszProvider, DWORD dwProvType, DWORD dwFlags);
-		alias CryptAcquireContext = CryptAcquireContextA;
-
-		BOOL CryptReleaseContext(HCRYPTPROV hProv, DWORD dwFlags);
-
-		BOOL CryptGenRandom(HCRYPTPROV hProv, DWORD dwLen, BYTE *pbBuffer);
-	}
+	import core.sys.windows.wincrypt;
+	private enum LPCTSTR NULL = cast(LPCTSTR)0;
 }
 

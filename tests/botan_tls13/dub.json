@@ -8,5 +8,5 @@
 	"subConfigurations": {
 		"botan": "full"
 	},
-	"versions": ["VibeCustomMain", "Have_vibe_d"]
+	"versions": ["VibeCustomMain", "DisableDebugger", "VibeNoDebug", "TLSGC", "Have_vibe_d"]
 }

@@ -32,7 +32,7 @@ import core.thread;
 import core.sync.mutex;
 import memutils.utils;
 import memutils.vector;
-import memutils.circularbuffer;
+import memutils.unreadring;
 
 import vibe.core.drivers.timerqueue;
 import std.stdio : File;
@@ -348,6 +348,7 @@ final class LibasyncDriver : EventDriver {
 		enforce(!tcp_connection.m_error, tcp_connection.m_error);
 		enforce!ConnectionClosedException(tcp_connection.connected, "Could not connect");
 		tcp_connection.m_tcpImpl.localAddr = conn.local;
+		tcp_connection.tcpNoDelay = true;
 
 		if (Task.getThis() != Task())
 			tcp_connection.releaseWriter();
@@ -1172,8 +1173,7 @@ final class LibasyncTCPListener : TCPListener {
 			synchronized(ctxt) {
 				LibasyncTCPListener ctxt2 = cast(LibasyncTCPListener)ctxt;
 				AsyncTCPListener listener = new AsyncTCPListener(getEventLoop(), ctxt2.socket);
-				if ((cast(TCPListenOptions)_options) & TCPListenOptions.tcpNoDelay)
-					listener.noDelay = true;
+				listener.noDelay = true;
 				listener.local = ctxt2.m_local;
 
 				enforce(listener.run(&ctxt2.initConnection), format("Failed to start listening to local socket: %s", listener.error));
@@ -1214,9 +1214,10 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private {
 		Thread m_owner;
-		CircularBuffer!ubyte m_readBuffer;
+		mixin UnreadRingMixin!void;
 		ubyte[] m_buffer;
 		ubyte[] m_slice;
+		ubyte[] m_waitDst; // remaining dest while read() waits — recv here, not the ring
 		TCPConnectionImpl m_tcpImpl;
 		Settings m_settings;
 		string m_error;
@@ -1246,10 +1247,10 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			return ret;
 		}
 
-		if (m_readBuffer.length > 0)
+		if (unreadLength > 0)
 		{
-			size_t amt = min(buffer.length, m_readBuffer.length);
-			m_readBuffer.read(buffer[0 .. amt]);
+			size_t amt = min(buffer.length, unreadLength);
+			unreadRead(buffer[0 .. amt]);
 			//logTrace("readBuf returned with existing amount: %d", amt);
 			m_bytesRecv += amt;
 			return buffer[0 .. amt];
@@ -1257,7 +1258,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 		if (buffer) {
 			m_buffer = buffer;
-			destroy(m_readBuffer);
+			unreadDispose();
 		}
 
 		enforce!ConnectionClosedException(leastSize() > 0, "Leastsize returned 0");
@@ -1274,7 +1275,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		s_totalConnections++;
 		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
-		m_readBuffer.capacity = 32*1024;
+		unreadReserve(unreadRingInitCap);
 	}
 
 	~this() {
@@ -1330,21 +1331,32 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 	}
 
 	private @property bool readEmpty() {
-		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && m_readBuffer.empty);
+		return (m_buffer && (!m_slice || m_slice.length == 0)) || (!m_buffer && unreadEmpty);
 	}
 
     private string m_peer_addr;
 
 	@property string peerAddress() const {
-		enforce!ConnectionClosedException(m_tcpImpl.conn, "No Peer Address");
+		auto na = remoteAddress;
+		enforce!ConnectionClosedException(na.family, "No Peer Address");
 
         if (!m_peer_addr)
-            (cast()this).m_peer_addr = m_tcpImpl.conn.peer.toString();
+            (cast()this).m_peer_addr = na.toString();
         return m_peer_addr;
 	}
 
-	@property NetworkAddress localAddress() const { return m_tcpImpl.localAddr; }
-	@property NetworkAddress remoteAddress() const { return m_tcpImpl.conn.peer; }
+	@property NetworkAddress localAddress() const {
+		NetworkAddress na = m_tcpImpl.localAddr;
+		if (na.family == 0 && m_tcpImpl.conn && m_tcpImpl.conn.socket)
+			na = osSockName(m_tcpImpl.conn.socket, false);
+		return na;
+	}
+	@property NetworkAddress remoteAddress() const {
+		NetworkAddress na = m_tcpImpl.conn ? m_tcpImpl.conn.peer : NetworkAddress.init;
+		if (na.family == 0 && m_tcpImpl.conn && m_tcpImpl.conn.socket)
+			na = osSockName(m_tcpImpl.conn.socket, true);
+		return na;
+	}
 
 	@property bool empty() { return leastSize == 0; }
 
@@ -1374,7 +1386,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			}
 			getDriverCore().yieldForEvent();
 		}
-		return (m_slice.length > 0) ? m_slice.length : m_readBuffer.length;
+		return (m_slice.length > 0) ? m_slice.length : unreadLength;
 	}
 
 	void close()
@@ -1386,7 +1398,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 		// checkConnected();
 
-		destroy(m_readBuffer);
+		unreadDispose();
 		m_slice = null;
 		m_buffer = null;
 
@@ -1444,7 +1456,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		scope(exit) releaseReader();
 
 		if (!readEmpty)
-			return (m_slice.length > 0) ? cast(const(ubyte)[]) m_slice : m_readBuffer.peek();
+			return (m_slice.length > 0) ? cast(const(ubyte)[]) m_slice : unreadPeek();
 		else
 			return null;
 	}
@@ -1459,24 +1471,28 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		{
 			ubyte[] ret = readBuf(dst);
 			if (ret.length == dst.length) return;
-			else dst = dst[0 .. ret.length];
+			else dst = dst[ret.length .. $];
 		}
 		acquireReader();
-		scope(exit) releaseReader();
+		scope(exit) {
+			m_waitDst = null;
+			releaseReader();
+		}
 
-		while( dst.length > 0 ){
-			while( m_readBuffer.empty ){
-				checkConnected();
-				if (m_mustRecv)
-					onRead();
-				else {
-					getDriverCore().yieldForEvent(); //wait for data...
-				}
+		while (dst.length > 0) {
+			if (unreadLength) {
+				size_t amt = min(dst.length, unreadLength);
+				unreadRead(dst[0 .. amt]);
+				dst = dst[amt .. $];
+				continue;
 			}
-			size_t amt = min(dst.length, m_readBuffer.length);
-
-			m_readBuffer.read(dst[0 .. amt]);
-			dst = dst[amt .. $];
+			checkConnected();
+			m_waitDst = dst;
+			if (m_mustRecv)
+				onRead();
+			else
+				getDriverCore().yieldForEvent();
+			dst = m_waitDst;
 		}
 	}
 
@@ -1592,87 +1608,91 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			int retry_limit;
 			RETRY: ret = conn.recv(buf);
 			if (conn.status.code == Status.RETRY && ++retry_limit < 100) goto RETRY;
-			//logTrace("Received: %s", buf[0 .. ret]);
-			// check for overflow
-			if (ret == buf.length) {
-				//logTrace("Overflow detected, revert to ring buffer");
-				m_slice = null;
-				m_readBuffer.capacity = 64*1024;
-				m_readBuffer.put(buf);
-				m_buffer = null;
-				return false; // cancel slices and revert to the fixed ring buffer
-			}
-
-			if (m_slice.length > 0) {
-				//logDebug("post-assign m_slice ");
+			if (m_slice.length > 0)
 				m_slice = m_slice.ptr[0 .. m_slice.length + ret];
-			}
-			else {
-				//logDebug("using m_buffer");
+			else
 				m_slice = m_buffer[0 .. ret];
+			// User dest full: not waiting. Caller parks leftover in the ring.
+			if (ret == buf.length) {
+				m_buffer = null;
+				return false;
 			}
 			return true;
 		}
-		//logTrace("TryReadBuf exit with %d bytes in m_slice, %d bytes in m_readBuffer ", m_slice.length, m_readBuffer.length);
-
 		return false;
 	}
 
-	private void onRead() {
-		m_mustRecv = true; // assume we didn't receive everything
-
-		if (tryReadBuf()) {
-			m_mustRecv = false;
-			return;
-		}
-
-		assert(!m_slice);
-
-		//logTrace("OnRead with %s", m_readBuffer.freeSpace);
-
-
+	private void drainToRing()
+	{
+		if (!unreadCap)
+			unreadReserve(unreadRingInitCap);
 		int retry_limit;
-		while( m_readBuffer.freeSpace > 0 ) {
-			ubyte[] dst = m_readBuffer.peekDst();
-			assert(dst.length <= int.max);
-			//logTrace("Try to read up to bytes: %s", dst.length);
-			bool read_more;
-			do {
-				uint ret = conn.recv(dst);
-				if( ret > 0 ){
-					//logTrace("received bytes: %s", ret);
-					m_readBuffer.putN(ret);
-				}
-				read_more = ret == dst.length;
-				// ret == 0! let's look for some errors
-				if (read_more) {
-					if (m_readBuffer.freeSpace == 0) m_readBuffer.capacity = m_readBuffer.capacity*2;
-					dst = m_readBuffer.peekDst();
-				}
-			} while( read_more );
-			if (conn.status.code == Status.ASYNC) {
-				m_mustRecv = false; // we'll have to wait
-				break; // the kernel's buffer is empty
-			}
-			else if (conn.status.code == Status.RETRY && ++retry_limit < 100) {
+		while (unreadFreeSpace > 0) {
+			ubyte[] dst = unreadPeekDst();
+			if (!dst.length) break;
+			uint ret = conn.recv(dst);
+			if (ret > 0) {
+				unreadPutN(ret);
+				retry_limit = 0;
 				continue;
 			}
-			else if (conn.status.code == Status.ABORT) {
+			if (conn.status.code == Status.ASYNC) {
+				m_mustRecv = false;
+				break;
+			} else if (conn.status.code == Status.RETRY && ++retry_limit < 100) {
+				continue;
+			} else if (conn.status.code == Status.ABORT) {
 				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
-			}
-			else if (conn.status.code != Status.OK) {
-				// We have a read error and the socket may now even be closed...
-				auto err = conn.error;
-
-				//logTrace("receive error %s %s", err, conn.status.code);
+			} else if (conn.status.code != Status.OK) {
 				throw new Exception(format("Socket error: %d", conn.status.code));
-			}
-			else {
+			} else {
 				m_mustRecv = false;
 				break;
 			}
 		}
-		//logTrace("OnRead exit with free bytes: %s", m_readBuffer.freeSpace);
+	}
+
+	private void fillWaitDst()
+	{
+		int retry_limit;
+		while (m_waitDst.length) {
+			uint ret = conn.recv(m_waitDst);
+			if (ret > 0) {
+				m_waitDst = m_waitDst[ret .. $];
+				retry_limit = 0;
+				m_mustRecv = true;
+				continue;
+			}
+			if (conn.status.code == Status.ASYNC) {
+				m_mustRecv = false;
+				return;
+			} else if (conn.status.code == Status.RETRY && ++retry_limit < 100) {
+				continue;
+			} else if (conn.status.code == Status.ABORT) {
+				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
+			} else if (conn.status.code != Status.OK) {
+				throw new Exception(format("Socket error: %d", conn.status.code));
+			} else {
+				m_mustRecv = false;
+				return;
+			}
+		}
+	}
+
+	private void onRead() {
+		m_mustRecv = true;
+		if (tryReadBuf()) {
+			m_mustRecv = false;
+			return;
+		}
+		if (m_waitDst.length) {
+			fillWaitDst();
+			if (m_waitDst.length) return;
+			drainToRing();
+			return;
+		}
+		// No user dest (waitForData / peek / ET while writing): park leftover.
+		drainToRing();
 	}
 
 	/* The AsyncTCPConnection object will be automatically disposed when this returns.
@@ -1688,7 +1708,7 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 			m_closed = true;
 
 			if (m_tcpImpl.conn && m_tcpImpl.conn.isConnected) {
-				m_tcpImpl.conn.kill(Task.getThis() != Task.init); // close the connection
+				m_tcpImpl.conn.kill(true);
 				m_tcpImpl.conn = null;
 			}
 		}
@@ -1745,6 +1765,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		final switch (ev) {
 			case TCPEvent.CONNECT:
 				m_closed = false;
+				if (m_tcpImpl.conn)
+					tcpNoDelay = true;
 				// read & write are guaranteed to be successful on any platform at this point
 				assert(m_settings.onConnect !is null);
 				if (m_tcpImpl.conn.inbound)
@@ -1778,6 +1800,10 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 					m_settings.onConnect(this);
 				m_settings.onConnect = null;
 				break;
+			case TCPEvent.DESTROY:
+				unreadOnTCP(ev, (ubyte[]) { return 0; }, m_mustRecv);
+				m_tcpImpl.conn = null;
+				break;
 		}
 		return;
 	}
@@ -1805,7 +1831,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 version(linux) final class LibasyncUDSConnection : UDSConnection {
 
 	private {
-		CircularBuffer!ubyte m_readBuffer;
+		mixin UnreadRingMixin!void;
+		ubyte[] m_waitDst;
 		UDSConnectionImpl m_udsImpl;
 		Settings m_settings;
 		string m_error;
@@ -1820,7 +1847,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 	in { assert(conn !is null); }
 	do {
 		m_settings.onConnect = cb;
-		m_readBuffer.capacity = 32*1024;
+		unreadReserve(unreadRingInitCap);
 	}
 
 	~this() {
@@ -1848,7 +1875,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 	}
 
 	private @property bool readEmpty() {
-		return m_readBuffer.empty;
+		return unreadEmpty;
 	}
 
 	@property string path() const { enforce!ConnectionClosedException(m_udsImpl.conn, "No Peer Address"); return m_udsImpl.conn.peer.toString(); }
@@ -1869,7 +1896,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 			}
 			getDriverCore().yieldForEvent();
 		}
-		return m_readBuffer.length;
+		return unreadLength;
 	}
 
 	void close()
@@ -1879,7 +1906,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		acquireWriter();
 		scope(exit) releaseWriter();
 
-		destroy(m_readBuffer);
+		unreadDispose();
 		onClose(null, false);
 	}
 
@@ -1934,7 +1961,7 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		scope(exit) releaseReader();
 
 		if (!readEmpty)
-			return m_readBuffer.peek();
+			return unreadPeek();
 		else
 			return null;
 	}
@@ -1945,21 +1972,25 @@ version(linux) final class LibasyncUDSConnection : UDSConnection {
 		mixin(Trace);
 		//logTrace("Read UDS");
 		acquireReader();
-		scope(exit) releaseReader();
+		scope(exit) {
+			m_waitDst = null;
+			releaseReader();
+		}
 
-		while( dst.length > 0 ){
-			while( m_readBuffer.empty ){
-				checkConnected();
-				if (m_mustRecv)
-					onRead();
-				else {
-					getDriverCore().yieldForEvent(); //wait for data...
-				}
+		while (dst.length > 0) {
+			if (unreadLength) {
+				size_t amt = min(dst.length, unreadLength);
+				unreadRead(dst[0 .. amt]);
+				dst = dst[amt .. $];
+				continue;
 			}
-			size_t amt = min(dst.length, m_readBuffer.length);
-
-			m_readBuffer.read(dst[0 .. amt]);
-			dst = dst[amt .. $];
+			checkConnected();
+			m_waitDst = dst;
+			if (m_mustRecv)
+				onRead();
+			else
+				getDriverCore().yieldForEvent();
+			dst = m_waitDst;
 		}
 	}
 
@@ -2066,50 +2097,72 @@ private:
 		//logTrace("Check Connected");
 	}
 
-	void onRead() {
-		m_mustRecv = true; // assume we didn't receive everything
-
-		//logTrace("OnRead with %s", m_readBuffer.freeSpace);
+	private void drainToRing()
+	{
+		if (!unreadCap)
+			unreadReserve(unreadRingInitCap);
 		int retry_limit;
-		while( m_readBuffer.freeSpace > 0 ) {
-			ubyte[] dst = m_readBuffer.peekDst();
-			assert(dst.length <= int.max);
-			//logTrace("Try to read up to bytes: %s", dst.length);
-			bool read_more;
-			do {
-				uint ret = conn.recv(dst);
-				if( ret > 0 ){
-					//logTrace("received bytes: %s", ret);
-					m_readBuffer.putN(ret);
-				}
-				read_more = ret == dst.length;
-				// ret == 0! let's look for some errors
-				if (read_more) {
-					if (m_readBuffer.freeSpace == 0) m_readBuffer.capacity = m_readBuffer.capacity*2;
-					dst = m_readBuffer.peekDst();
-				}
-			} while( read_more );
+		while (unreadFreeSpace > 0) {
+			ubyte[] dst = unreadPeekDst();
+			if (!dst.length) break;
+			uint ret = conn.recv(dst);
+			if (ret > 0) {
+				unreadPutN(ret);
+				retry_limit = 0;
+				continue;
+			}
 			if (conn.status.code == Status.ASYNC) {
-				m_mustRecv = false; // we'll have to wait
-				break; // the kernel's buffer is empty
+				m_mustRecv = false;
+				break;
 			} else if (conn.status.code == Status.RETRY && ++retry_limit < 100)
 				continue;
 			else if (conn.status.code == Status.ABORT) {
 				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
-			}
-			else if (conn.status.code != Status.OK) {
-				// We have a read error and the socket may now even be closed...
-				auto err = conn.error;
-
-				//logTrace("receive error %s %s", err, conn.status.code);
+			} else if (conn.status.code != Status.OK) {
 				throw new Exception("Socket error: " ~ conn.status.code.to!string);
-			}
-			else {
+			} else {
 				m_mustRecv = false;
 				break;
 			}
 		}
-		//logTrace("OnRead exit with free bytes: %s", m_readBuffer.freeSpace);
+	}
+
+	private void fillWaitDst()
+	{
+		int retry_limit;
+		while (m_waitDst.length) {
+			uint ret = conn.recv(m_waitDst);
+			if (ret > 0) {
+				m_waitDst = m_waitDst[ret .. $];
+				retry_limit = 0;
+				m_mustRecv = true;
+				continue;
+			}
+			if (conn.status.code == Status.ASYNC) {
+				m_mustRecv = false;
+				return;
+			} else if (conn.status.code == Status.RETRY && ++retry_limit < 100)
+				continue;
+			else if (conn.status.code == Status.ABORT) {
+				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
+			} else if (conn.status.code != Status.OK) {
+				throw new Exception("Socket error: " ~ conn.status.code.to!string);
+			} else {
+				m_mustRecv = false;
+				return;
+			}
+		}
+	}
+
+	void onRead() {
+		m_mustRecv = true;
+		if (m_waitDst.length) {
+			fillWaitDst();
+			if (m_waitDst.length) return;
+			drainToRing();
+			return;
+		}
+		drainToRing();
 	}
 
 	/* The AsyncUDSConnection object will be automatically disposed when this returns.
@@ -2122,7 +2175,7 @@ private:
 			m_closed = true;
 
 			if (m_udsImpl.conn && m_udsImpl.conn.isConnected) {
-				m_udsImpl.conn.kill(Task.getThis() != Task.init); // close the connection
+				m_udsImpl.conn.kill(true);
 				m_udsImpl.conn = null;
 			}
 		}
@@ -2411,6 +2464,28 @@ final class LibasyncUDPConnection : UDPConnection {
 }
 
 
+
+// Same fallback as eventcore libasync: inbound sockets can have family==0
+// until getpeername/getsockname fills the address (Botan .port asserts).
+private NetworkAddress osSockName(size_t osfd, bool peer)
+{
+	import std.socket : sockaddr, sockaddr_storage, socklen_t;
+	version (Windows) {
+		import core.sys.windows.winsock2 : SOCKET, getpeername, getsockname;
+		alias sock_t = SOCKET;
+	} else {
+		import core.sys.posix.sys.socket : getpeername, getsockname;
+		alias sock_t = int;
+	}
+	if (!osfd) return NetworkAddress.init;
+	sockaddr_storage ss;
+	socklen_t len = ss.sizeof;
+	int err = peer
+		? getpeername(cast(sock_t) osfd, cast(sockaddr*)&ss, &len)
+		: getsockname(cast(sock_t) osfd, cast(sockaddr*)&ss, &len);
+	if (err != 0) return NetworkAddress.init;
+	return NetworkAddress(cast(sockaddr*)&ss, len);
+}
 
 /* The following is used for LibasyncManualEvent */
 package void destroyEventWaiters() {

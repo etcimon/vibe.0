@@ -757,6 +757,20 @@ void setTaskStackSize(size_t sz)
 	return st_threads.count!(c => c.isWorker);
 }
 
+/**
+	Start the worker thread pool.
+
+	Must be called before `runWorkerTask` / `HTTPServerOption.distribute`
+	if you need a count other than `threadsPerCPU`. Each worker is named
+	`V|…` and owns its own libasync driver. `TLSGC` then gives each worker
+	its own memutils freelist; without it they share the TAS spinlock.
+	No-ops after the first call.
+*/
+void setupWorkerThreads(size_t num = 0)
+{
+	setupWorkerThreadsImpl(num);
+}
+
 
 /**
 	Sets the effective user and group ID to the ones configured for privilege lowering.
@@ -1646,7 +1660,7 @@ private void setupDriver()
 	//logTrace("driver %s created", (cast(Object)getEventDriver()).classinfo.name);
 }
 
-private void setupWorkerThreads()
+private void setupWorkerThreadsImpl(size_t num = 0)
 {
 	import core.cpuid;
 
@@ -1654,11 +1668,16 @@ private void setupWorkerThreads()
 	if (s_workerThreadsStarted) return;
 	s_workerThreadsStarted = true;
 
+	if (num == 0) {
+		try num = threadsPerCPU;
+		catch (Exception) num = 4;
+	}
+
 	synchronized (st_threadsMutex) {
 		if (st_threads.any!(t => t.isWorker))
 			return;
 
-		foreach (i; 0 .. threadsPerCPU) {
+		foreach (i; 0 .. num) {
 			auto thr = new Thread(&workerThreadFunc);
 			thr.name = format("V|Vibe Task Worker #%s", i);
 			st_threads ~= ThreadContext(thr, true);
