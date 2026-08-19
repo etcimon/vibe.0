@@ -15,6 +15,9 @@ app  →  runEventLoop / runTask / listenTCP / openFile / setTimer
               │              EventDriver interface (documentary)
               ▼
      drivers/libasync.d      libasync EventLoop (one per V| thread)
+                             TCP leftover: recv into a waiting user dest
+                             (`m_waitDst` / `m_buffer`); unread-ring only
+                             when no slice is waiting (same as eventcore).
               │
               ▼
      OS: IOCP / epoll / kqueue   (inside libasync, not this repo)

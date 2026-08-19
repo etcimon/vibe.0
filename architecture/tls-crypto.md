@@ -11,8 +11,9 @@ factory ??= BotanTLSContext(kind, ver)   // honours TLSVersion every call
 gs_tlsContextFactory(kind, ver)
 ```
 
-`TLSVersion.any` still offers botan `latestTlsVersion()` (1.2). `tls1_3` sets
-`defaultProtocolOffer = TLS_V13` and a 1.3-only `CustomTLSPolicy`. The factory
+`TLSVersion.any` and `tls1_2` match OpenSSL: min 1.2, max/offer 1.3 when
+TLS 1.3 is compiled (`CustomTLSPolicy.osslStyleLatest`). botan
+`latestTlsVersion()` stays 1.2. `tls1_3` is 1.3-only. The factory
 is a process-global function pointer (`setTLSContextFactory` / `setSSLContextFactory`).
 The first `createTLSContext` call **wins** if the app has not set one. Apps that
 care (README sample) construct `BotanTLSContext` **directly** and assign
@@ -44,7 +45,7 @@ SNI: `listenHTTPPlain.addVHost` wraps overlapping TLS listeners in `createTLSCon
 
 ALPN: see [overview.md](overview.md). Client default offer is on `HTTPClientSettings.http2.alpn`.
 
-`vibe.stream.ssl` is a pure alias module (`SSLStream = TLSStream`, …) “scheduled for deprecation”. Examples (`https_server`) still use it.
+`vibe.stream.ssl` is a pure alias module (`SSLStream = TLSStream`, …) “scheduled for deprecation”. `examples/https_server` uses Botan `createTLSContext` (tls1_2 offer / max 1.3) with an ECDSA P-256 cert so the handshake hits botan `CurveGFpP256` Solinas redc. `examples/https_server_sni` is the same factory + SNI vhosts.
 
 ## Botan path (`vibe.stream.botan`)
 
@@ -53,6 +54,8 @@ ALPN: see [overview.md](overview.md). Client default offer is on `HTTPClientSett
 `BotanTLSStream`:
 
 - Wraps `TLSBlockingChannel` with `onRead`/`onWrite` bound to the underlying `TCPConnection`.
+- 16 KiB write coalesce + flush-before-read/`leastSize` (OpenSSL hid the missing flush).
+- `onRead` peeks the TCP unread ring first so keep-alive does not `leastSize()`-wait.
 - Handshake runs in the constructor (`doHandshake`).
 - Exposes Botan-native metadata: `TLSCiphersuite`, `TLSProtocolVersion`, `TLSServerInformation`, session id, session start, `X509Certificate`.
 - `alpn` from `underlyingChannel().applicationProtocol()`.
@@ -62,13 +65,14 @@ ALPN: see [overview.md](overview.md). Client default offer is on `HTTPClientSett
 
 - Takes optional `TLSCredentialsManager`, `TLSPolicy`, `TLSSessionManager`, datagram flag.
 - Defaults: `CustomTLSCredentials`, `CustomTLSPolicy`, `TLSSessionManagerInMemory` + `AutoSeededRNG`.
+- `CustomTLSCredentials` now supplies a 32-byte `tls-server`/`session-ticket` PSK so Botan issues RFC 5077 session tickets (same abbreviated-handshake path OpenSSL enables by default). `hasPsk()` is true only for that ticket encryptor; PSK ciphersuites stay off in the default policy. `createCreds()` mints an ECDSA P-256 CA+leaf (the TLS 1.3 loopback / Solinas path); RSA-2048 is no longer the test default.
 - README’s production comment mentions `TLSSessionManagerSQLite` — that type is **botan’s**, not defined in this repo.
 - `defaultProtocolOffer` selects the offered version (`TLSProtocolVersion.latestTlsVersion()` in the sample).
 - SNI and ALPN callbacks are wired into `TLSBlockingChannel` on the server constructor.
 
 This is the path the README treats as canonical for HTTPS + HTTP/2 (Botan does ALPN; HTTP/2 then runs on the `TLSStream`).
 
-**Unread:** `CustomTLSCredentials` / `CustomTLSPolicy` bodies, session resume, client-auth, datagram/DTLS (`m_is_datagram`), cipher-list helpers later in the file.
+**Unread:** `CustomTLSCredentials` / `CustomTLSPolicy` bodies, client-auth, datagram/DTLS (`m_is_datagram`), cipher-list helpers later in the file. Session tickets: see `CustomTLSCredentials.psk("tls-server","session-ticket")` and OpenSSL `enableSessionResume`.
 
 ## OpenSSL path (`vibe.stream.openssl`)
 
@@ -80,7 +84,7 @@ This is the path the README treats as canonical for HTTPS + HTTP/2 (Botan does A
 - Peer verify data hung off `SSL_get_ex_data` during handshake.
 - `peerCertificate` populated from `X509` (this is the interface-compatible implementation).
 
-`OpenSSLContext` (rest of the file, **sampled**): context setup, cipher list, cert files, ALPN set, verify callback. Imports `deimos.openssl.{bio,err,rand,ssl,x509v3}`.
+`OpenSSLContext` matches vibe.d: Mozilla intermediate cipher list (ECDHE-ECDSA-AES128-GCM first), min/max proto via `SSL_CTX_ctrl` (any/tls1_2 still allow 1.3), `SSL_CTX_set_dh_auto`, real `verify_callback` / `verifyCertName`, session cache + RFC 5077 tickets (`enableSessionResume`). Keep vibe.0 extras: `setCipherSuites`, `setGroupsList` (`X25519:P-256`), `setSigAlgoList`. SSLv3 throws. Imports `deimos.openssl.{bio,err,rand,ssl,x509v3}`.
 
 Needs:
 
