@@ -1602,24 +1602,43 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 
 	private bool tryReadBuf() {
 		//logTrace("TryReadBuf with m_buffer: %s", m_buffer.length);
-		if (m_buffer) {
+		if (!m_buffer) return false;
+		int retry_limit;
+		while (true) {
 			ubyte[] buf = m_buffer[m_slice.length .. $];
-			uint ret;
-			int retry_limit;
-			RETRY: ret = conn.recv(buf);
-			if (conn.status.code == Status.RETRY && ++retry_limit < 100) goto RETRY;
-			if (m_slice.length > 0)
-				m_slice = m_slice.ptr[0 .. m_slice.length + ret];
-			else
-				m_slice = m_buffer[0 .. ret];
-			// User dest full: not waiting. Caller parks leftover in the ring.
-			if (ret == buf.length) {
+			if (!buf.length) {
 				m_buffer = null;
 				return false;
 			}
-			return true;
+			uint ret = conn.recv(buf);
+			if (ret > 0) {
+				if (m_slice.length > 0)
+					m_slice = m_slice.ptr[0 .. m_slice.length + ret];
+				else
+					m_slice = m_buffer[0 .. ret];
+				retry_limit = 0;
+				// Virtio: a short copy is not an empty kernel. Keep
+				// filling the user dest until it is full or EAGAIN —
+				// same as eventcore fillFromSocket.
+				if (m_slice.length == m_buffer.length) {
+					m_buffer = null;
+					return false;
+				}
+				continue;
+			}
+			if (conn.status.code == Status.RETRY && ++retry_limit < 100)
+				continue;
+			if (conn.status.code == Status.ASYNC) {
+				m_mustRecv = false;
+				return m_slice.length > 0;
+			}
+			if (conn.status.code == Status.ABORT)
+				throw new ConnectionClosedException("The connection was closed abruptly while data was expected");
+			if (conn.status.code != Status.OK)
+				throw new Exception(format("Socket error: %d", conn.status.code));
+			m_mustRecv = false;
+			return m_slice.length > 0;
 		}
-		return false;
 	}
 
 	private void drainToRing()
@@ -1627,12 +1646,17 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		if (!unreadCap)
 			unreadReserve(unreadRingInitCap);
 		int retry_limit;
-		while (unreadFreeSpace > 0) {
+		size_t got;
+		enum size_t drainCap = unreadRingInitCap;
+		while (unreadFreeSpace > 0 && got < drainCap) {
 			ubyte[] dst = unreadPeekDst();
 			if (!dst.length) break;
+			if (dst.length > drainCap - got)
+				dst = dst[0 .. drainCap - got];
 			uint ret = conn.recv(dst);
 			if (ret > 0) {
 				unreadPutN(ret);
+				got += ret;
 				retry_limit = 0;
 				continue;
 			}
@@ -2102,12 +2126,17 @@ private:
 		if (!unreadCap)
 			unreadReserve(unreadRingInitCap);
 		int retry_limit;
-		while (unreadFreeSpace > 0) {
+		size_t got;
+		enum size_t drainCap = unreadRingInitCap;
+		while (unreadFreeSpace > 0 && got < drainCap) {
 			ubyte[] dst = unreadPeekDst();
 			if (!dst.length) break;
+			if (dst.length > drainCap - got)
+				dst = dst[0 .. drainCap - got];
 			uint ret = conn.recv(dst);
 			if (ret > 0) {
 				unreadPutN(ret);
+				got += ret;
 				retry_limit = 0;
 				continue;
 			}

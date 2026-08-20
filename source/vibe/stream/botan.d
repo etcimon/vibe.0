@@ -176,6 +176,7 @@ public:
 			logError("Error in handshake: %s", e.msg);
 			m_ex = e;
 		}
+		flushRec();
 	}
 
 	~this() {
@@ -209,6 +210,7 @@ public:
 	void flush() {
 		doWrite(m_outBuf[]);
 		m_outBuf.length = 0;
+		m_outBuf.assumeSafeAppend();
 		flushRec();
 		m_tcp_conn.flush();
 	}
@@ -310,7 +312,7 @@ public:
 	@property bool empty()
 	{
 		processException();
-		return leastSize() == 0 && m_tcp_conn.empty;
+		return leastSize() == 0;
 	}
 
 	@property ulong leastSize()
@@ -319,9 +321,10 @@ public:
 		if (m_outBuf.length) flush();
 		size_t ret = m_tls_channel.pending();
 		if (ret > 0) return ret;
-		waitForData();
+		if (m_tls_channel.isClosed() || m_ex !is null) return 0;
+		try m_tls_channel.readBuf(null);
+		catch (Exception) { return 0; }
 		ret = m_tls_channel.pending();
-		//logDebug("Least size returned: ", ret);
 		return ret > 0 ? ret : m_tcp_conn.empty ? 0 : 1;
 	}
 
@@ -429,7 +432,13 @@ private:
 			flushRec();
 			m_writer = Task.getThis();
 			scope(exit) m_writer = Task();
-			m_tcp_conn.write(src);
+			try m_tcp_conn.write(src);
+			catch (Exception e) {
+				import std.algorithm : canFind;
+				if (e.msg.canFind("Connection closed") || e.msg.canFind("end of stream"))
+					return;
+				if (m_ex is null) m_ex = e;
+			}
 			return;
 		}
 		if (!m_recBuf.capacity)
@@ -441,8 +450,18 @@ private:
 		if (!m_recBuf.length) return;
 		m_writer = Task.getThis();
 		scope(exit) m_writer = Task();
-		m_tcp_conn.write(m_recBuf[]);
+		try m_tcp_conn.write(m_recBuf[]);
+		catch (Exception e) {
+			import std.algorithm : canFind;
+			if (e.msg.canFind("Connection closed") || e.msg.canFind("end of stream"))
+			{
+				m_recBuf.length = 0;
+				return;
+			}
+			if (m_ex is null) m_ex = e;
+		}
 		m_recBuf.length = 0;
+		m_recBuf.assumeSafeAppend();
 	}
 
 	Task m_reader;
