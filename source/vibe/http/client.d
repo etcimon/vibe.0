@@ -1176,7 +1176,8 @@ final class HTTPClientRequest : HTTPRequest {
 		//logTrace("Finalize request");
 		// test if already finalized
 		if (m_headerWritten && !m_bodyWriter) {
-			//logTrace("Already finalized...");
+			// BotanTLSStream coalesces writes; a header-only GET never
+			// touches bodyWriter. OpenSSL SSL_write hid the missing flush.
 			topStream.flush();
 			return;
 		}

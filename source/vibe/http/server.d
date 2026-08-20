@@ -1810,7 +1810,20 @@ void handleHTTPConnection(TCPConnection tcp_conn, HTTPServerListener listen_info
 	// for(;;) so leftover `continue` re-enters handleRequest even when
 	// TCP is empty (plaintext already in Botan/OpenSSL). A do/while
 	// `!tcp.empty` would drop that request after continue.
+	// First pass skips connection.empty: after TLS 1.3 handshake the
+	// GET may already be in the Botan ring while TCP is empty
+	// (vibe-http handleHTTP1Connection).
+	bool first_http1 = true;
 	for (;;) {
+		if (!first_http1) {
+			if (tls_stream && tls_stream.dataAvailableForRead) {
+			} else if (!tcp_conn || tcp_conn.empty) {
+				break;
+			} else if (tls_stream && tls_stream.empty) {
+				break;
+			}
+		}
+		first_http1 = false;
 		bool keep_alive;
 		handleRequest(tcp_conn, tls_stream, null, listen_info, has_vhosts, context, http2_handler, keep_alive);
 

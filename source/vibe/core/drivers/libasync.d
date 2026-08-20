@@ -1275,6 +1275,8 @@ final class LibasyncTCPConnection : TCPConnection, Buffered, CountedStream {
 		s_totalConnections++;
 		m_owner = Thread.getThis();
 		m_settings.onConnect = cb;
+		// eventcore TCPConnection.readBuffer is 16 KiB (one TLS record).
+		// Leftover with no waiter parks in this ring (64 KiB).
 		unreadReserve(unreadRingInitCap);
 	}
 
